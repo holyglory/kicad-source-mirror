@@ -9,6 +9,21 @@ namespace KiCad.Automation.Tests;
 public sealed class UpdateCommandTests
 {
     [TestMethod]
+    public void KernelStartCounterHandlesParenthesizedNamesAndRejectsMalformedValues()
+    {
+        string[] fields = ["S", .. Enumerable.Repeat("0", 18), "123456", "0"];
+        Assert.AreEqual(123456UL, LinuxProcessIdentity.ParseStartTicks("17 (fixture (with) spaces) " + string.Join(' ', fields)));
+        foreach (string invalid in new[] { "missing", "17 () S 0", "17 (x) " + string.Join(' ', fields.Select((value, i) => i == 19 ? "-1" : value)) })
+            Assert.ThrowsExactly<InvalidDataException>(() => LinuxProcessIdentity.ParseStartTicks(invalid));
+        if (OperatingSystem.IsLinux())
+        {
+            var first = LinuxProcessIdentity.Read(Environment.ProcessId);
+            Assert.AreEqual(first, LinuxProcessIdentity.Read(Environment.ProcessId));
+            Assert.AreNotEqual(Guid.Empty, first.BootId);
+        }
+    }
+
+    [TestMethod]
     public async Task InvalidInvocationAndCancelledReadReturnExplicitNonReadyResults()
     {
         string root = Directory.CreateTempSubdirectory("kicad-update-command-").FullName;
@@ -42,6 +57,7 @@ public sealed class UpdateCommandTests
     [TestMethod]
     [DataRow("--prepare-update")]
     [DataRow("--install-package")]
+    [DataRow("--restart-update")]
     public async Task RealHelperProcessExitsInsteadOfStartingMcpForMalformedInvocation(string mode)
     {
         var start = StartInfo();
@@ -56,7 +72,8 @@ public sealed class UpdateCommandTests
             Assert.AreEqual(1, process.ExitCode, await stderr);
             using var result = JsonDocument.Parse(await stdout);
             Assert.AreEqual("failed", result.RootElement.GetProperty("status").GetString());
-            Assert.IsFalse(result.RootElement.GetProperty(mode == "--install-package" ? "automaticUpdatingQualified" : "installationReady").GetBoolean());
+            Assert.IsFalse(result.RootElement.GetProperty(mode switch
+            { "--install-package" => "automaticUpdatingQualified", "--restart-update" => "nativeEditorRestarted", _ => "installationReady" }).GetBoolean());
             Assert.IsFalse(result.RootElement.TryGetProperty("jsonrpc", out _));
         }
         finally

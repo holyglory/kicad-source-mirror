@@ -1136,6 +1136,47 @@ dirty-editor restart, production feed or native-Mac execution.
 devcoordinator2 test start /home/holyglory/kicad --test native-updater-journey --tier development --client codex
 ```
 
+### Native restart handoff (Linux, preliminary)
+
+The compiled service includes a finite handoff command for the future native
+Update action:
+
+```sh
+kicad-mcp --restart-update --configuration /absolute/restart-request.json
+```
+
+Its schema-1 request names the managed installation, expected selection,
+registered manifest digest, operation ID, exact old process identity, project,
+instance ID and a new short local socket. Old process identity uses PID, boot
+ID and the kernel start counter, not a wall-clock timestamp. Candidate bytes
+are checked before the command acknowledges that it is waiting for exit, and
+again at activation. It never signals or closes the old editor process.
+
+The acknowledgement identifies a durable handoff journal. Once acknowledged,
+the caller's response pipe may disappear; final status, process identity,
+endpoint, epoch and startup diagnostics are retained in that journal. After
+the old process exits, the command selects the verified candidate, launches it
+and checks the exact native instance/project handshake. A definite startup
+failure can restore and launch the receipt-bound verified predecessor. A
+still-live process with uncertain readiness is preserved for reconciliation,
+not duplicated or killed. Reusing an existing handoff operation requires
+inspection rather than silently spawning another editor.
+
+Governed run `t20260908T193826Z-c712ac` exercised changed-candidate rejection
+before acknowledgement, wrong kernel process identity, a real dirty schematic's
+close/cancel/save flow, the standalone command after its response pipe closed,
+native epoch change and reattachment, and verified rollback/relaunch after a
+real native startup rejection. Handoff journals and before/after screenshots
+are retained with the evidence. The failure injection is test-only and not a
+production launch override.
+
+This still uses signed metadata revisions of the same frozen application
+archive; it is not a different-build upgrade. The native Update button and its
+explicit cancel/retry wiring are not implemented. Full restart-state recovery,
+power-loss qualification, production signing, new matching packages and both
+native-Mac targets remain open. The public preview packages are unchanged and
+predate this command.
+
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).

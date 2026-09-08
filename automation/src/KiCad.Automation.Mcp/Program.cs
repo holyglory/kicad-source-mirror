@@ -4,16 +4,19 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-if (args.FirstOrDefault() is "--prepare-update" or "--check-update" or "--install-package")
+if (args.FirstOrDefault() is "--prepare-update" or "--check-update" or "--install-package" or "--restart-update")
 {
     using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(15));
     ConsoleCancelEventHandler cancel = (_, e) => { e.Cancel = true; cancellation.Cancel(); };
     Console.CancelKeyPress += cancel;
     try
     {
-        Environment.ExitCode = args[0] == "--install-package"
-            ? await LinuxInstallCommand.RunAsync(args, Console.Out, cancellation.Token)
-            : await UpdatePreparationCommand.RunAsync(args, Console.Out, cancellation.Token);
+        Environment.ExitCode = args[0] switch
+        {
+            "--install-package" => await LinuxInstallCommand.RunAsync(args, Console.Out, cancellation.Token),
+            "--restart-update" => await LinuxRestartCommand.RunAsync(args, Console.Out, cancellation.Token),
+            _ => await UpdatePreparationCommand.RunAsync(args, Console.Out, cancellation.Token)
+        };
     }
     finally { Console.CancelKeyPress -= cancel; }
     return;

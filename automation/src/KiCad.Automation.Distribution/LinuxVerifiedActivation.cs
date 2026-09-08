@@ -4,6 +4,26 @@ public sealed record VerifiedLinuxActivation(UpdateActivation Activation, Instal
 
 public static partial class LinuxVerifiedInstallation
 {
+    public static async Task<InstalledLinuxUpdate> InspectActivationAsync(string root, string expectedTarget,
+        string manifestSha256, CancellationToken token = default)
+    {
+        root = ActivationRoot(root, Guid.NewGuid());
+        if (!DigestName(manifestSha256)) throw new ArgumentException("Use an exact registered candidate identity.");
+        var policy = await ActivationPolicyAsync(root, token);
+        byte[] key = Convert.FromBase64String(policy.PublisherKeySpki);
+        using var ownership = new FileStream(Path.Combine(root, "registration.lock"), FileMode.OpenOrCreate,
+            FileAccess.ReadWrite, FileShare.None);
+        if (LinuxUpdateActivation.InspectTarget(Path.Combine(root, "manager")) != expectedTarget)
+            throw new InvalidDataException("The active selection changed before update preflight.");
+        var baseline = await ReadVersionAsync(CurrentVersion(root, expectedTarget), key, policy, token);
+        var candidate = await ReadVersionAsync(Path.Combine(root, "versions", manifestSha256), key, policy, token);
+        if (candidate.Release.Sequence < baseline.Release.Sequence
+            || candidate.Release.Sequence == baseline.Release.Sequence && candidate.PayloadSha256 != baseline.PayloadSha256)
+            throw new InvalidDataException("The candidate does not meet the installed update baseline.");
+        await RequireAcceptedSequenceAsync(root, key, policy.Channel, baseline, candidate, token);
+        return DescribeVersion(root, candidate);
+    }
+
     /// <summary>Activates only a registered, unchanged candidate. This is the
     /// selection commit, not editor shutdown or permission to restart them.</summary>
     public static async Task<VerifiedLinuxActivation> ActivateAsync(string root, string expectedTarget,

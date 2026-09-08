@@ -378,6 +378,12 @@ public sealed partial class NativeSessionTests
                 brokenCandidateRollback = true,
                 syntheticMetadataRevision = true, applicationVersionUpgradeVerified = false, nativeEditorRestarted = false
             }, Evidence.JsonOptions), deadline.Token);
+            await File.WriteAllBytesAsync(changedFile, correctReadme, deadline.Token);
+            await VerifyUpdateRestartHandoff(firstInstall, candidate.Version,
+                Directory.CreateDirectory(Path.Combine(evidence, "restart-failure-recovery")).FullName, deadline.Token,
+                rejectCandidateStartup: true);
+            await VerifyUpdateRestartHandoff(firstInstall, candidate.Version,
+                Directory.CreateDirectory(Path.Combine(evidence, "restart-handoff")).FullName, deadline.Token);
         }
         finally
         {

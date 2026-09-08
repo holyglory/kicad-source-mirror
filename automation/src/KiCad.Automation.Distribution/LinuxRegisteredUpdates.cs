@@ -12,6 +12,17 @@ public static partial class LinuxVerifiedInstallation
     private static readonly JsonSerializerOptions StrictJson = new(JsonSerializerDefaults.Web)
     { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, PropertyNameCaseInsensitive = false };
 
+    public static async Task<InstalledLinuxUpdate> InspectSelectedAsync(string root, string expectedTarget, CancellationToken token = default)
+    {
+        root = ActivationRoot(root, Guid.NewGuid());
+        var policy = await ActivationPolicyAsync(root, token);
+        if (LinuxUpdateActivation.InspectTarget(Path.Combine(root, "manager")) != expectedTarget)
+            throw new InvalidDataException("The active installation changed before inspection.");
+        var manifest = await ReadVersionAsync(CurrentVersion(root, expectedTarget),
+            Convert.FromBase64String(policy.PublisherKeySpki), policy, token);
+        return DescribeVersion(root, manifest);
+    }
+
     /// <summary>Registers authenticated candidate bytes without switching the
     /// active installation. Publisher identity comes only from the installed
     /// root policy, never from the candidate or the calling request.</summary>

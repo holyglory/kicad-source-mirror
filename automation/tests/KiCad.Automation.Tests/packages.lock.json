@@ -378,6 +378,7 @@
       "kicad-mcp": {
         "type": "Project",
         "dependencies": {
+          "KiCad.Automation.Distribution": "[1.0.0, )",
           "KiCad.Automation.Native": "[1.0.0, )",
           "Microsoft.Extensions.Hosting": "[10.0.11, )",
           "ModelContextProtocol": "[2.2.0, )"

@@ -984,6 +984,30 @@ rendered native/MCP create/render/reconnect/save. It passed in governed run
 This is not a public feed, installation activation, qualifying desktop delivery
 or native-Mac execution.
 
+The same `kicad-mcp` executable now has finite native-helper modes:
+
+```sh
+kicad-mcp --check-update --configuration /absolute/path/to/installed-updater.json
+kicad-mcp --prepare-update --configuration /absolute/path/to/installed-updater.json
+```
+
+The trusted installed configuration names the HTTPS publisher, pinned public
+key, installed signed receipt, exact channel/platform/package format, and
+existing dedicated state and staging directories. It is not read from an
+engineering repository. The helper emits JSON progress and a terminal result,
+has a 15-minute ceiling, and accepts cancellation; normal invocation remains
+the STDIO MCP server. Check-only mode fetches metadata but never the package.
+Linux tar candidates can reach `archive_staged`, never
+`installationReady: true`. Unsupported preparation targets are explicit.
+
+Governed run `t20260908T154945Z-79bd1a` exercised the actual helper subprocess:
+check without an artifact request, cancel during a real HTTPS transfer,
+verify no partial/verified payload remained,
+retry with the retained signed checkpoint, stage the frozen package, then
+complete the native rendered journey. The disposable child used an ephemeral
+test CA file without changing host trust or disabling production TLS checks.
+This mode is not yet wired to a native startup/hourly worker or Update button.
+
 ### Source PDF inspection (preliminary)
 
 The `kicad_source_pdf_page` tool reads a PDF declared under `documents` in the

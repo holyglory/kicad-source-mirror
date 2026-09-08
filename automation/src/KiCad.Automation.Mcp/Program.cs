@@ -4,6 +4,16 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+if (args.FirstOrDefault() is "--prepare-update" or "--check-update")
+{
+    using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+    ConsoleCancelEventHandler cancel = (_, e) => { e.Cancel = true; cancellation.Cancel(); };
+    Console.CancelKeyPress += cancel;
+    try { Environment.ExitCode = await UpdatePreparationCommand.RunAsync(args, Console.Out, cancellation.Token); }
+    finally { Console.CancelKeyPress -= cancel; }
+    return;
+}
+
 HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);

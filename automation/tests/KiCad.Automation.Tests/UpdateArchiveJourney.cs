@@ -1,9 +1,12 @@
 using System.Net;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using KiCad.Automation.Distribution;
 using KiCad.Automation.Downloads;
+using KiCad.Automation.Mcp;
 using KiCad.Automation.Validation;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -33,6 +36,7 @@ public sealed partial class NativeSessionTests
         var names = new SubjectAlternativeNameBuilder();
         names.AddIpAddress(IPAddress.Loopback);
         certificateRequest.CertificateExtensions.Add(names.Build());
+        certificateRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
         using var certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddHours(1));
         using var publisher = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var release = new UpdateRelease(1, "kicad-codex", "preview", 2, package.Version, package.Commit,
@@ -45,32 +49,136 @@ public sealed partial class NativeSessionTests
         builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(certificate)));
         await using var app = builder.Build();
         app.MapGet("/updates/preview.json", () => Results.Bytes(published, "application/json"));
-        app.MapGet("/artifacts/" + package.FileName, () => Results.File(catalogue.Files[package.FileName].Path, "application/octet-stream"));
+        int blockTransfer = 1;
+        int artifactRequests = 0;
+        app.MapGet("/artifacts/" + package.FileName, async (HttpContext context) =>
+        {
+            Interlocked.Increment(ref artifactRequests);
+            if (Volatile.Read(ref blockTransfer) == 0)
+            {
+                await Results.File(catalogue.Files[package.FileName].Path, "application/octet-stream").ExecuteAsync(context);
+                return;
+            }
+            context.Response.ContentLength = package.Bytes;
+            await using var firstChunk = File.OpenRead(catalogue.Files[package.FileName].Path);
+            byte[] buffer = new byte[4096];
+            await firstChunk.ReadExactlyAsync(buffer, context.RequestAborted);
+            await context.Response.Body.WriteAsync(buffer, context.RequestAborted);
+            await context.Response.Body.FlushAsync(context.RequestAborted);
+            try { await Task.Delay(Timeout.Infinite, context.RequestAborted); }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
+        });
         try
         {
             await app.StartAsync(deadline.Token);
             string address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
-            using var source = new UpdateDownloader(new Uri(address + "/"), new HttpClientHandler
-            {
-                AllowAutoRedirect = false,
-                ServerCertificateCustomValidationCallback = (_, peer, _, _) =>
-                    peer is not null && peer.RawData.AsSpan().SequenceEqual(certificate.RawData)
-            });
             string state = Directory.CreateDirectory(Path.Combine(temporary, "state")).FullName;
-            var check = await new UpdateChecker(source, state, publisher.ExportSubjectPublicKeyInfo(), installed,
-                "preview", "linux-x64", "tar.gz").CheckAsync(deadline.Token);
-            Assert.AreEqual(UpdateAvailability.Available, check.Availability);
-            var downloaded = await source.DownloadAsync(check.Manifest, "linux-x64", "tar.gz", temporary, cancellationToken: deadline.Token);
-            var staged = await LinuxUpdateStager.StageAsync(check.Manifest, downloaded, temporary, deadline.Token);
-            File.Copy(Path.Combine(Path.GetDirectoryName(staged.Directory)!, "staging.json"), Path.Combine(evidence, "update-staging.json"));
+            string installedReceipt = Path.Combine(temporary, "installed-envelope.json");
+            await File.WriteAllBytesAsync(installedReceipt, installed, deadline.Token);
+            string configuration = Path.Combine(temporary, "updater.json");
+            await File.WriteAllTextAsync(configuration, JsonSerializer.Serialize(new UpdatePreparationConfiguration(1,
+                address + "/", Convert.ToBase64String(publisher.ExportSubjectPublicKeyInfo()), installedReceipt,
+                state, temporary, "preview", "linux-x64", "tar.gz"), new JsonSerializerOptions(JsonSerializerDefaults.Web)), deadline.Token);
+            string trustedCertificate = Path.Combine(temporary, "fixture-ca.pem");
+            await File.WriteAllTextAsync(trustedCertificate, certificate.ExportCertificatePem(), deadline.Token);
+            var start = UpdateCommandTests.StartInfo();
+            start.ArgumentList.Add("--prepare-update");
+            start.ArgumentList.Add("--configuration");
+            start.ArgumentList.Add(configuration);
+            // Trust this ephemeral certificate only in this disposable child.
+            // Production HttpClient validation remains enabled; host trust is
+            // neither changed nor bypassed with an accept-any callback.
+            start.Environment["SSL_CERT_FILE"] = trustedCertificate;
+            start.Environment["SSL_CERT_DIR"] = Directory.CreateDirectory(Path.Combine(temporary, "empty-ca-directory")).FullName;
+            start.ArgumentList[1] = "--check-update";
+            using (var checkProcess = Process.Start(start)!)
+            {
+                Task<string> checkOutput = checkProcess.StandardOutput.ReadToEndAsync(deadline.Token);
+                Task<string> checkErrors = checkProcess.StandardError.ReadToEndAsync(deadline.Token);
+                try
+                {
+                    await checkProcess.WaitForExitAsync(deadline.Token);
+                    string lines = await checkOutput;
+                    await File.WriteAllTextAsync(Path.Combine(evidence, "update-check.stdout.jsonl"), lines, deadline.Token);
+                    Assert.AreEqual(0, checkProcess.ExitCode, await checkErrors);
+                    using var checkedRelease = JsonDocument.Parse(lines.Split('\n', StringSplitOptions.RemoveEmptyEntries).Last());
+                    Assert.AreEqual("available", checkedRelease.RootElement.GetProperty("status").GetString());
+                    Assert.AreEqual(package.Commit, checkedRelease.RootElement.GetProperty("commit").GetString());
+                    Assert.AreEqual(0, Volatile.Read(ref artifactRequests), "Check-only mode must never download the artifact.");
+                }
+                finally
+                {
+                    if (!checkProcess.HasExited) checkProcess.Kill(entireProcessTree: true);
+                    await checkProcess.WaitForExitAsync();
+                    await Task.WhenAll(checkOutput, checkErrors);
+                }
+            }
+            start.ArgumentList[1] = "--prepare-update";
+            string standardOutput = "";
+            foreach (bool cancelMidTransfer in new[] { true, false })
+            {
+                Volatile.Write(ref blockTransfer, cancelMidTransfer ? 1 : 0);
+                using var process = Process.Start(start)!;
+                bool interrupted = false;
+                Task<string> stdout = ReadOutput();
+                Task<string> stderr = process.StandardError.ReadToEndAsync(deadline.Token);
+                string prefix = cancelMidTransfer ? "update-helper-cancelled" : "update-helper";
+                try
+                {
+                    await process.WaitForExitAsync(deadline.Token);
+                    standardOutput = await stdout;
+                    await File.WriteAllTextAsync(Path.Combine(evidence, prefix + ".stdout.jsonl"), standardOutput, deadline.Token);
+                    await File.WriteAllTextAsync(Path.Combine(evidence, prefix + ".stderr.log"), await stderr, deadline.Token);
+                    Assert.AreEqual(cancelMidTransfer ? 2 : 0, process.ExitCode, "Inspect retained update-helper output.");
+                    if (cancelMidTransfer)
+                    {
+                        Assert.IsTrue(interrupted, "The helper must be cancelled after a real transfer starts.");
+                        using var cancelled = JsonDocument.Parse(standardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries).Last());
+                        Assert.AreEqual("cancelled", cancelled.RootElement.GetProperty("status").GetString());
+                        Assert.IsEmpty(Directory.GetFiles(temporary, "payload.partial", SearchOption.AllDirectories));
+                        Assert.IsEmpty(Directory.GetFiles(temporary, "package.tar.gz", SearchOption.AllDirectories));
+                        Assert.IsEmpty(Directory.GetDirectories(temporary, "stage-*"));
+                    }
+                }
+                finally
+                {
+                    if (!process.HasExited) process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                    await Task.WhenAll(stdout, stderr);
+                }
+
+                async Task<string> ReadOutput()
+                {
+                    var lines = new List<string>();
+                    while (await process.StandardOutput.ReadLineAsync(deadline.Token) is { } line)
+                    {
+                        lines.Add(line);
+                        using var message = JsonDocument.Parse(line);
+                        Assert.IsFalse(message.RootElement.GetProperty("installationReady").GetBoolean());
+                        if (cancelMidTransfer && !interrupted && message.RootElement.GetProperty("status").GetString() == "downloading")
+                        {
+                            interrupted = true;
+                            // Only the exact disposable child owned by this test.
+                            Assert.AreEqual(0, SignalUpdateFixture(process.Id, 2));
+                        }
+                    }
+                    return string.Join('\n', lines);
+                }
+            }
+            using var terminal = JsonDocument.Parse(standardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries).Last());
+            Assert.AreEqual("archive_staged", terminal.RootElement.GetProperty("status").GetString());
+            Assert.IsFalse(terminal.RootElement.GetProperty("installationReady").GetBoolean());
+            string staged = terminal.RootElement.GetProperty("directory").GetString()!;
+            string manifestDigest = terminal.RootElement.GetProperty("manifestSha256").GetString()!;
+            File.Copy(Path.Combine(Path.GetDirectoryName(staged)!, "staging.json"), Path.Combine(evidence, "update-staging.json"));
             await File.WriteAllTextAsync(Path.Combine(evidence, "update-journey.json"), JsonSerializer.Serialize(new
             {
                 schemaVersion = 1, package.Commit, package.Sha256, package.Bytes,
-                manifestSha256 = check.Manifest.PayloadSha256, syntheticPublisher = true,
+                manifestSha256 = manifestDigest, syntheticPublisher = true,
                 publicFeed = false, activatedInstallation = false, qualifyingDelivery = false
             }, Evidence.JsonOptions), deadline.Token);
-            await VerifyInstalledNative(Path.Combine(staged.Directory, "runtime"), evidence,
-                Path.Combine(staged.Directory, "kicad-codex"), Path.Combine(staged.Directory, "kicad-mcp"));
+            await VerifyInstalledNative(Path.Combine(staged, "runtime"), evidence,
+                Path.Combine(staged, "kicad-codex"), Path.Combine(staged, "kicad-mcp"));
         }
         finally
         {
@@ -78,4 +186,7 @@ public sealed partial class NativeSessionTests
             Directory.Delete(temporary, recursive: true);
         }
     }
+
+    [DllImport("libc", EntryPoint = "kill", SetLastError = true)]
+    private static extern int SignalUpdateFixture(int processId, int signal);
 }

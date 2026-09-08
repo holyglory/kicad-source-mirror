@@ -10,6 +10,9 @@ try
         Console.WriteLine("kicad-validate stage-linux --build NATIVE_BUILD --managed SELF_CONTAINED_PUBLISH --nng NNG_SHARED_LIBRARY --output EXISTING_STAGING_DIRECTORY");
         Console.WriteLine("kicad-validate package-linux --staging STAGING_RECEIPT --repository COMMITTED_SOURCE --commit FULL_SHA --version VERSION --output NEW_DIRECTORY");
         Console.WriteLine("kicad-validate package-debian --catalogue FROZEN_DOWNLOAD_CATALOGUE --output NEW_DIRECTORY");
+        Console.WriteLine("kicad-validate publisher-create --private NEW_PRIVATE_KEY --public NEW_PUBLIC_SPKI");
+        Console.WriteLine("kicad-validate publisher-export --private PRIVATE_KEY --public NEW_PUBLIC_SPKI");
+        Console.WriteLine("kicad-validate release-sign --release RELEASE_JSON --artifacts ARTIFACT_DIRECTORY --private PRIVATE_KEY --output NEW_ENVELOPE [--previous PREVIOUS_ENVELOPE]");
         return 0;
     }
     var options = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -26,11 +29,29 @@ try
         : args[0] == "stage-linux" ? ["build", "managed", "nng", "output"]
         : args[0] == "package-linux" ? ["staging", "repository", "commit", "version", "output"]
         : args[0] == "package-debian" ? ["catalogue", "output"]
+        : args[0] is "publisher-create" or "publisher-export" ? ["private", "public"]
+        : args[0] == "release-sign" ? ["release", "artifacts", "private", "output", "previous"]
         : ["result", "archive", "commit", "architecture"];
     foreach (string name in options.Keys)
         if (!allowed.Contains(name, StringComparer.Ordinal)) throw new ArgumentException($"Unknown option --{name}.");
     using var cancel = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
+    if (args[0] is "publisher-create" or "publisher-export")
+    {
+        var receipt = args[0] == "publisher-create"
+            ? await UpdatePublishing.CreatePublisherAsync(Required("private"), Required("public"), cancel.Token)
+            : await UpdatePublishing.ExportPublisherAsync(Required("private"), Required("public"), cancel.Token);
+        Console.WriteLine(JsonSerializer.Serialize(receipt, Evidence.JsonOptions));
+        return 0;
+    }
+    if (args[0] == "release-sign")
+    {
+        var release = await UpdatePublishing.ReadReleaseAsync(Required("release"), cancel.Token);
+        var receipt = await UpdatePublishing.SignAsync(release, Required("artifacts"), Required("private"),
+            Required("output"), options.GetValueOrDefault("previous"), cancel.Token);
+        Console.WriteLine(JsonSerializer.Serialize(receipt, Evidence.JsonOptions));
+        return 0;
+    }
     if (args[0] == "package-debian")
     {
         var result = await DebianPackage.CreateAsync(Required("catalogue"), Required("output"), cancel.Token);
@@ -67,7 +88,7 @@ try
         Console.WriteLine("Receipt/archive integrity verified for the requested commit. No Mac execution was performed by this command; this is not cross-platform readiness.");
         return 0;
     }
-    throw new ArgumentException("Choose mac, verify, stage-linux, package-linux or package-debian.");
+    throw new ArgumentException("Unknown command. Use --help for validation, packaging and publisher commands.");
 }
 catch (Exception error)
 {

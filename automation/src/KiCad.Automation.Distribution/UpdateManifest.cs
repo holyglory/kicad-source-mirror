@@ -38,6 +38,19 @@ public sealed class VerifiedUpdateManifest
 
 public static partial class UpdateManifestCodec
 {
+    public static string ValidatePublisherKey(ReadOnlySpan<byte> publicKey)
+    {
+        using var publisher = ECDsa.Create();
+        try
+        {
+            publisher.ImportSubjectPublicKeyInfo(publicKey, out int consumed);
+            if (consumed != publicKey.Length) throw new InvalidDataException("Publisher key has trailing data.");
+            RequireKey(publisher);
+            return Convert.ToHexStringLower(SHA256.HashData(publicKey));
+        }
+        catch (CryptographicException error) { throw new InvalidDataException("The publisher public key is invalid.", error); }
+    }
+
     public const int MaximumPayloadBytes = 256 * 1024;
     public const int MaximumEnvelopeBytes = 512 * 1024;
     public const long MaximumArtifactBytes = 16L * 1024 * 1024 * 1024;

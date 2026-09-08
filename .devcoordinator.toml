@@ -29,10 +29,50 @@ command = ["dotnet", "automation/artifacts/download-host/kicad-downloads.dll"]
 port = true
 route = true
 health = { path = "/healthz", timeout_seconds = 60 }
-env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/managed-8e6938a6006c" }
+env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000001", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
 
 [test]
 default = "automation"
+
+# Authorized by kicad-update-signing-standing-authority on 2026-09-08.
+# Already provisioned: re-running refuses to replace either existing key file.
+# Explicit one-time publisher provisioning, not verification/readiness proof.
+# Private key bytes never appear in command arguments or results.
+[test.publisher-provision]
+timeout_seconds = 120
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.publisher-provision.check]]
+name = "key"
+tier = "development"
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "publisher-create", "--private", "/mnt/build-storage/codex/kicad/signing/preview-publisher.pkcs8", "--public", "/home/holyglory/kicad/automation/distribution/preview-publisher.spki"]
+
+# Explicit release publication operation; output is immutable, never overwritten.
+[test.preview-sign]
+timeout_seconds = 120
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.preview-sign.check]]
+name = "sign"
+tier = "development"
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "release-sign", "--release", "/home/holyglory/kicad/automation/distribution/releases/preview-000001.json", "--artifacts", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000001", "--private", "/mnt/build-storage/codex/kicad/signing/preview-publisher.pkcs8", "--output", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000001/updates/preview.json"]
+
+[test.signed-update-site]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.signed-update-site.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.signed-update-site.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~SignedUpdateServerTests|FullyQualifiedName~UpdatePublishingTests|FullyQualifiedName~DownloadServerTests|FullyQualifiedName~UpdateManifestTests", "--logger", "trx", "--results-directory", "automation/artifacts/signed-site-tests"]
+retained_artifacts = [{ name = "signed-site-tests", path = "automation/artifacts/signed-site-tests", max_bytes = 16777216 }]
 
 [test.caption-update]
 timeout_seconds = 900
@@ -131,7 +171,7 @@ retained_artifacts = [{ name = "native-updater-tests", path = "automation/artifa
 
 [test.public-downloads]
 timeout_seconds = 600
-env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/managed-8e6938a6006c", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/home/holyglory/kicad/automation/artifacts/public-download-evidence" }
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000001", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/home/holyglory/kicad/automation/artifacts/public-download-evidence", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
 
 [[test.public-downloads.check]]
 name = "build"

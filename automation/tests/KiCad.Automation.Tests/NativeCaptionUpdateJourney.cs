@@ -19,22 +19,35 @@ namespace KiCad.Automation.Tests;
 
 public sealed partial class NativeSessionTests
 {
+    private static readonly Lazy<string> CaptionUpdateEvidence = new(() =>
+        NativeEvidenceDirectory.Begin(Path.Combine(FindRoot(), "automation/artifacts")));
+
     [TestMethod]
     [TestCategory("NativeCaptionUpdate")]
-    public async Task InstalledCaptionUpdateRejectsDriftCancelsAndRestartsAfterSave()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InstalledCaptionUpdateRejectsDriftCancelsAndRestartsAfterSave(bool automaticContext)
     {
         string cataloguePath = Environment.GetEnvironmentVariable("KICAD_CAPTION_PACKAGE_CATALOGUE")
             ?? throw new AssertFailedException("Select the frozen caption-enabled package catalogue.");
-        var catalogue = await DownloadCatalogue.LoadAsync(cataloguePath);
+        string candidatePath = Environment.GetEnvironmentVariable("KICAD_CAPTION_CANDIDATE_CATALOGUE")
+            ?? throw new AssertFailedException("Select the exact candidate package catalogue.");
+        var catalogue = await DownloadCatalogue.LoadAsync(automaticContext ? candidatePath : cataloguePath);
+        var candidateCatalogue = await DownloadCatalogue.LoadAsync(candidatePath);
         var artifact = catalogue.Manifest.Artifacts.Single(item => item.Platform == "linux-x64" && item.FileName.EndsWith(".tar.gz", StringComparison.Ordinal));
-        string evidence = NativeEvidenceDirectory.Begin(Path.Combine(FindRoot(), "automation/artifacts"));
+        var candidateArtifact = candidateCatalogue.Manifest.Artifacts.Single(item => item.Platform == "linux-x64" && item.FileName.EndsWith(".tar.gz", StringComparison.Ordinal));
+        if (!automaticContext) Assert.AreNotEqual(artifact.Commit, candidateArtifact.Commit, "This case must upgrade between different source builds.");
+        string evidence = Directory.CreateDirectory(Path.Combine(CaptionUpdateEvidence.Value,
+            automaticContext ? "automatic-context" : "different-build")).FullName;
         string temporary = Directory.CreateTempSubdirectory("kicad-caption-ui-").FullName;
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(5));
         using var publisher = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var release = new UpdateRelease(1, "kicad-codex", "preview", 1, artifact.Version, artifact.Commit,
             [new("linux-x64", "tar.gz", artifact.FileName, artifact.Bytes, artifact.Sha256)]);
         byte[] installedEnvelope = UpdateManifestCodec.Sign(release, publisher);
-        byte[] candidateEnvelope = UpdateManifestCodec.Sign(release with { Sequence = 2 }, publisher);
+        byte[] candidateEnvelope = UpdateManifestCodec.Sign(new(1, "kicad-codex", "preview", 2,
+            candidateArtifact.Version, candidateArtifact.Commit, [new("linux-x64", "tar.gz", candidateArtifact.FileName,
+                candidateArtifact.Bytes, candidateArtifact.Sha256)]), publisher);
         using var tls = RSA.Create(2048);
         var certificateRequest = new CertificateRequest("CN=localhost", tls, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         var names = new SubjectAlternativeNameBuilder();
@@ -46,7 +59,7 @@ public sealed partial class NativeSessionTests
         builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(certificate)));
         await using var app = builder.Build();
         app.MapGet("/updates/preview.json", () => Results.Bytes(candidateEnvelope, "application/json"));
-        app.MapGet("/artifacts/" + artifact.FileName, () => Results.File(catalogue.Files[artifact.FileName].Path, "application/octet-stream"));
+        app.MapGet("/artifacts/" + candidateArtifact.FileName, () => Results.File(candidateCatalogue.Files[candidateArtifact.FileName].Path, "application/octet-stream"));
         var processes = new List<Process>();
         var captures = new List<Task>();
         string? displayName = null;
@@ -59,7 +72,7 @@ public sealed partial class NativeSessionTests
                 installedEnvelope, publisher.ExportSubjectPublicKeyInfo(), new Uri(origin), "preview", deadline.Token);
             string initialTarget = LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory);
             var candidate = await LinuxVerifiedInstallation.RegisterAsync(installationRoot, initialTarget,
-                catalogue.Files[artifact.FileName].Path, candidateEnvelope, deadline.Token);
+                candidateCatalogue.Files[candidateArtifact.FileName].Path, candidateEnvelope, deadline.Token);
             string engineering = Directory.CreateDirectory(Path.Combine(temporary, "project")).FullName;
             string project = Path.Combine(engineering, "fixture.kicad_pro");
             string schematic = Path.Combine(engineering, "fixture.kicad_sch");
@@ -88,8 +101,13 @@ public sealed partial class NativeSessionTests
             start.Environment["KICAD_CACHE_HOME"] = Path.Combine(temporary, "cache");
             start.Environment["XDG_CONFIG_HOME"] = Path.Combine(temporary, "xdg-profile");
             start.Environment["XDG_CACHE_HOME"] = Path.Combine(temporary, "xdg-cache");
-            start.Environment["KICAD_AUTOMATION_UPDATE_HELPER"] = Path.Combine(prefix, "lib/kicad-automation/kicad-mcp");
-            start.Environment["KICAD_AUTOMATION_UPDATE_CONFIG"] = installed.ConfigurationPath;
+            start.Environment.Remove("KICAD_AUTOMATION_UPDATE_HELPER");
+            start.Environment.Remove("KICAD_AUTOMATION_UPDATE_CONFIG");
+            if (!automaticContext)
+            {
+                start.Environment["KICAD_AUTOMATION_UPDATE_HELPER"] = Path.Combine(prefix, "lib/kicad-automation/kicad-mcp");
+                start.Environment["KICAD_AUTOMATION_UPDATE_CONFIG"] = installed.ConfigurationPath;
+            }
             start.Environment["SSL_CERT_FILE"] = certificateFile;
             start.Environment["SSL_CERT_DIR"] = Directory.CreateDirectory(Path.Combine(temporary, "empty-certificates")).FullName;
             foreach (string arg in new[] { "--new", "--automation", instance, "--api-socket", socket, "--automation-log", nativeLog,
@@ -110,6 +128,52 @@ public sealed partial class NativeSessionTests
             }
             await client.CreateRootSchematicAsync(schematic, deadline.Token);
             await WaitLog("\"status\":\"candidate_available\"");
+            Process? secondNative = null;
+            NativeClient? secondClient = null;
+            string? secondSchematic = null;
+            string? secondEpoch = null;
+            string? secondInstance = null;
+            if (automaticContext)
+            {
+                string secondDirectory = Directory.CreateDirectory(Path.Combine(temporary, "second-project")).FullName;
+                string secondProject = Path.Combine(secondDirectory, "second.kicad_pro");
+                secondSchematic = Path.Combine(secondDirectory, "second.kicad_sch");
+                await File.WriteAllTextAsync(secondProject, JsonSerializer.Serialize(new
+                {
+                    meta = new { version = 3 }, schematic = new { top_level_sheets = new[]
+                    { new { uuid = Guid.NewGuid().ToString("D"), name = "second", filename = "second.kicad_sch" } } }
+                }), deadline.Token);
+                string secondSocket = Path.Combine(temporary, "second.sock");
+                string secondLog = Path.Combine(evidence, "second-native.log");
+                secondInstance = Guid.NewGuid().ToString("D");
+                var secondStart = new ProcessStartInfo(start.FileName)
+                { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = secondDirectory };
+                foreach (var (name, value) in start.Environment) secondStart.Environment[name] = value;
+                secondStart.Environment["KICAD_CONFIG_HOME"] = Path.Combine(temporary, "second-profile");
+                secondStart.Environment["KICAD_CACHE_HOME"] = Path.Combine(temporary, "second-cache");
+                foreach (string arg in new[] { "--new", "--automation", secondInstance, "--api-socket", secondSocket,
+                    "--automation-log", secondLog, "--software-rendering", secondProject }) secondStart.ArgumentList.Add(arg);
+                secondNative = Process.Start(secondStart)!;
+                processes.Add(secondNative);
+                captures.Add(Capture(secondNative.StandardOutput, Path.Combine(evidence, "second.stdout.log")));
+                captures.Add(Capture(secondNative.StandardError, Path.Combine(evidence, "second.stderr.log")));
+                secondClient = new NativeClient(new NngTransport(), "ipc://" + secondSocket);
+                while (true)
+                {
+                    deadline.Token.ThrowIfCancellationRequested();
+                    Assert.IsFalse(secondNative.HasExited);
+                    try { await secondClient.HandshakeAsync(deadline.Token); break; }
+                    catch (NngException) { }
+                    catch (NativeApiException error) when (error.Status is 4 or 7) { }
+                    await Task.Delay(100, deadline.Token);
+                }
+                secondEpoch = secondClient.Epoch;
+                await secondClient.CreateRootSchematicAsync(secondSchematic, deadline.Token);
+                while (!File.Exists(secondLog) || !(await File.ReadAllTextAsync(secondLog, deadline.Token)).Contains("\"status\":\"candidate_available\"", StringComparison.Ordinal))
+                    await Task.Delay(100, deadline.Token);
+            }
+            NativeKeyboard.SchematicShortcut(displayName, native.Id, "motion", "KiCad", false, true,
+                clickFromRight: 50, clickFromTop: 100);
             await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "update-available.png"), deadline.Token);
             string changedFile = Path.Combine(candidate.Version.VersionDirectory, "README.txt");
             byte[] original = await File.ReadAllBytesAsync(changedFile, deadline.Token);
@@ -154,6 +218,7 @@ public sealed partial class NativeSessionTests
             Process replacement = Process.GetProcessById(restarted.ProcessId!.Value);
             processes.Add(replacement);
             Assert.AreEqual(restarted.ProcessIdentity, LinuxProcessIdentity.Read(replacement.Id));
+            Assert.AreEqual(Path.Combine(candidate.Version.VersionDirectory, "runtime/bin/kicad"), replacement.MainModule!.FileName);
             var peer = new NativeClient(new NngTransport(), restarted.Endpoint!, restarted.NativeEpoch);
             var session = await peer.HandshakeAsync(deadline.Token);
             Assert.AreEqual(instance, session.InstanceId);
@@ -161,6 +226,44 @@ public sealed partial class NativeSessionTests
             await peer.OpenRootSchematicAsync(schematic, deadline.Token);
             CollectionAssert.AreEqual(saved, await File.ReadAllBytesAsync(schematic, deadline.Token));
             await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "after-caption-update.png"), deadline.Token);
+            if (secondNative is not null)
+            {
+                Assert.IsFalse(secondNative.HasExited, "Updating one project must not close the other editor.");
+                Assert.AreEqual(secondEpoch, (await secondClient!.HandshakeAsync(deadline.Token)).Epoch);
+                NativeKeyboard.SchematicShortcut(displayName, secondNative.Id, "s");
+                while (!File.Exists(secondSchematic)) await Task.Delay(100, deadline.Token);
+                byte[] secondSaved = await File.ReadAllBytesAsync(secondSchematic!, deadline.Token);
+                string[] existingHandovers = Directory.GetDirectories(handovers);
+                NativeKeyboard.SchematicShortcut(displayName, secondNative.Id, "click", "KiCad", false, true,
+                    clickFromRight: 170, clickFromTop: 25);
+                await secondNative.WaitForExitAsync(deadline.Token);
+                UpdateHandoffState? secondRestart = null;
+                while (secondRestart is null)
+                {
+                    deadline.Token.ThrowIfCancellationRequested();
+                    foreach (string directory in Directory.GetDirectories(handovers).Except(existingHandovers))
+                    {
+                        string path = Path.Combine(directory, "state.json");
+                        if (!File.Exists(path)) continue;
+                        var state = JsonSerializer.Deserialize<UpdateHandoffState>(await File.ReadAllBytesAsync(path, deadline.Token), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                        if (state.Status == "restarted") secondRestart = state;
+                        Assert.IsFalse(state.Status is "activation_failed" or "reconciliation_required" or "launch_failed", state.Error);
+                    }
+                    if (secondRestart is null) await Task.Delay(100, deadline.Token);
+                }
+                Process secondReplacement = Process.GetProcessById(secondRestart.ProcessId!.Value);
+                processes.Add(secondReplacement);
+                Assert.AreEqual(secondRestart.ProcessIdentity, LinuxProcessIdentity.Read(secondReplacement.Id));
+                var secondPeer = new NativeClient(new NngTransport(), secondRestart.Endpoint!, secondRestart.NativeEpoch);
+                Assert.AreEqual(secondInstance, (await secondPeer.HandshakeAsync(deadline.Token)).InstanceId);
+                Assert.AreNotEqual(secondEpoch, secondPeer.Epoch);
+                await secondPeer.OpenRootSchematicAsync(secondSchematic!, deadline.Token);
+                CollectionAssert.AreEqual(secondSaved, await File.ReadAllBytesAsync(secondSchematic!, deadline.Token));
+                await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "second-instance-updated.png"), deadline.Token);
+                Assert.IsFalse(replacement.HasExited);
+                NativeKeyboard.SchematicShortcut(displayName, secondReplacement.Id, "q", "KiCad", true, false);
+                await secondReplacement.WaitForExitAsync(deadline.Token);
+            }
             NativeKeyboard.SchematicShortcut(displayName, replacement.Id, "q", "KiCad", true, false);
             await replacement.WaitForExitAsync(deadline.Token);
             foreach (string directory in Directory.GetDirectories(handovers))
@@ -170,10 +273,13 @@ public sealed partial class NativeSessionTests
             }
             await File.WriteAllTextAsync(Path.Combine(evidence, "caption-update-result.json"), JsonSerializer.Serialize(new
             {
-                schemaVersion = 1, artifact.Commit, artifact.Sha256,
+                schemaVersion = 1, currentCommit = artifact.Commit, candidateCommit = candidateArtifact.Commit,
+                currentArchiveSha256 = artifact.Sha256, candidateArchiveSha256 = candidateArtifact.Sha256,
                 captionClickVerified = true, driftRejectedBeforeClose = true, dirtyCloseCancelled = true,
                 saveAndRestartVerified = true, nativeEpochChanged = true,
-                differentBuildUpgrade = false, productionSigning = false, nativeMacVerified = false
+                differentBuildUpgrade = artifact.Commit != candidateArtifact.Commit,
+                automaticManagedContext = automaticContext, secondLiveInstanceCaptionUpdate = secondNative is not null,
+                productionSigning = false, nativeMacVerified = false
             }), deadline.Token);
 
             void ClickUpdate() => NativeKeyboard.SchematicShortcut(displayName, native.Id, "click", "KiCad", false, true,

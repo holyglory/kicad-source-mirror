@@ -1231,9 +1231,25 @@ in the managed `versions/<digest>/payload` installation layout with its
 publisher/version/envelope/configuration markers. Explicit operator settings
 are not replaced, and the general MCP launcher does not inherit automatic
 native-update context. Layout, override and ordinary-folder guards passed in
-`t20260908T220009Z-cefdce`. These source changes still need a matching package
-and different-build caption qualification; they are not in the published
-38b65981e64b preview.
+`t20260908T220009Z-cefdce`. Matching source
+`8e6938a6006c7ce98776228845ea2570ad8eda38` was built and packaged in
+`t20260908T220532Z-57054c`.
+
+Installed caption qualification passed in `t20260908T221800Z-64a8d3`, with
+separately retained cases for the real 38b65981e64b → 8e6938a6006c upgrade and a
+new managed installation requiring no manually supplied updater variables. In
+the latter case, two projects remained live: the first updated, then the older
+second instance updated through its own caption while the first replacement
+remained open. Instance identities and saved schematic bytes were preserved;
+both replacements received new process epochs. Evidence tree:
+`77fb1dfeee2dd5da730b289d167938ae5b4b8603057f2e91fb54e8d126793db4`.
+
+This remains Linux qualification using an ephemeral test publisher. Production
+publisher/feed/bootstrap trust, no-project updates, full recovery/termination
+and power-loss coverage, native-Mac execution and the full engineering workflow
+remain open. The published 38b65981e64b preview does not contain these later
+repairs; older running instances of that preview may require manual restart
+after another instance changes the shared installation selection.
 
 ### Public preliminary downloads
 

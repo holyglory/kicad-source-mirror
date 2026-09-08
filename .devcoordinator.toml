@@ -36,7 +36,7 @@ default = "automation"
 
 [test.caption-update]
 timeout_seconds = 900
-env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_CAPTION_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260908T205230Z-38b65981e64b" }
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_CAPTION_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260908T205230Z-38b65981e64b", KICAD_CAPTION_CANDIDATE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260908T220652Z-8e6938a6006c" }
 
 [[test.caption-update.check]]
 name = "build"

@@ -1087,6 +1087,21 @@ metadata sequence for the same real frozen application bytes; it does not prove
 an application-version upgrade. Native close/restart, verified activation,
 power-loss recovery, production signing and both Mac targets remain required.
 
+Verified Linux activation now rechecks registered version bytes, configuration,
+publisher identity and accepted metadata before changing the current selection.
+Rollback is a separate operation bound to one update receipt and its exact
+retained predecessor. It re-verifies that predecessor, rejects superseded
+requests, and does not lower the accepted-update checkpoint. A damaged selected
+candidate does not prevent recovery when its predecessor remains verified.
+
+Governed run `t20260908T182001Z-81dcc7` covered rejected changed candidates,
+stale/arbitrary targets, cancellation, metadata replay, activation retry,
+receipt-bound rollback and retry, checkpoint preservation, and real native/MCP
+rendering after restoration. It still uses different signed metadata sequences
+for the same frozen application bytes. The selection APIs are not yet exposed
+as a native Update button or an editor-closing/restarting command; they must not
+be treated as a completed desktop update journey or power-loss qualification.
+
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).

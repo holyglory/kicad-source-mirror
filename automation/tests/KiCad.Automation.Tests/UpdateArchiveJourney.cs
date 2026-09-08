@@ -319,15 +319,63 @@ public sealed partial class NativeSessionTests
                 installedRoot, initialTarget, downloadedArchive, nextEnvelope, deadline.Token));
             await File.WriteAllBytesAsync(candidateConfig, correctConfig, deadline.Token);
             string changedFile = Path.Combine(candidate.Version.VersionDirectory, "README.txt");
+            byte[] correctReadme = await File.ReadAllBytesAsync(changedFile, deadline.Token);
             await File.AppendAllTextAsync(changedFile, "\nSynthetic candidate drift.\n", deadline.Token);
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxVerifiedInstallation.RegisterAsync(
                 installedRoot, initialTarget, downloadedArchive, nextEnvelope, deadline.Token));
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxVerifiedInstallation.ActivateAsync(
+                installedRoot, initialTarget, candidate.Version.ManifestSha256, Guid.NewGuid(), deadline.Token));
             Assert.AreEqual(initialTarget, LinuxUpdateActivation.InspectTarget(firstInstall.ManagerDirectory));
+            await File.WriteAllBytesAsync(changedFile, correctReadme, deadline.Token);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxVerifiedInstallation.ActivateAsync(
+                installedRoot, "stale", candidate.Version.ManifestSha256, Guid.NewGuid(), deadline.Token));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => LinuxVerifiedInstallation.ActivateAsync(
+                installedRoot, initialTarget, "../arbitrary-directory", Guid.NewGuid(), deadline.Token));
+            using (var cancelled = new CancellationTokenSource())
+            {
+                cancelled.Cancel();
+                await Assert.ThrowsAsync<OperationCanceledException>(() => LinuxVerifiedInstallation.ActivateAsync(
+                    installedRoot, initialTarget, candidate.Version.ManifestSha256, Guid.NewGuid(), cancelled.Token));
+            }
+            await File.WriteAllBytesAsync(acceptedPath, UpdateManifestCodec.Sign(release with { Sequence = 4 }, publisher), deadline.Token);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxVerifiedInstallation.ActivateAsync(
+                installedRoot, initialTarget, candidate.Version.ManifestSha256, Guid.NewGuid(), deadline.Token));
+            await File.WriteAllBytesAsync(acceptedPath, nextEnvelope, deadline.Token);
+            Guid activateOperation = Guid.NewGuid();
+            var activated = await LinuxVerifiedInstallation.ActivateAsync(installedRoot, initialTarget,
+                candidate.Version.ManifestSha256, activateOperation, deadline.Token);
+            Assert.AreEqual(activated.Activation.Target, LinuxUpdateActivation.InspectTarget(firstInstall.ManagerDirectory));
+            Assert.AreEqual(candidate.Version, activated.SelectedVersion);
+            Assert.AreEqual(activated, await LinuxVerifiedInstallation.ActivateAsync(installedRoot, initialTarget,
+                candidate.Version.ManifestSha256, activateOperation, deadline.Token));
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxVerifiedInstallation.RollbackAsync(
+                installedRoot, "wrong-target", activateOperation, Guid.NewGuid(), deadline.Token));
+            // A broken candidate must not prevent recovery of the verified prior
+            // version; the rollback does not execute or trust the broken bytes.
+            await File.AppendAllTextAsync(changedFile, "\nSynthetic post-activation failure.\n", deadline.Token);
+            byte[] checkpointBeforeRollback = await File.ReadAllBytesAsync(acceptedPath, deadline.Token);
+            Guid rollbackOperation = Guid.NewGuid();
+            var rolledBack = await LinuxVerifiedInstallation.RollbackAsync(installedRoot, activated.Activation.Target,
+                activateOperation, rollbackOperation, deadline.Token);
+            Assert.AreEqual(firstInstall, rolledBack.SelectedVersion);
+            Assert.AreNotEqual(initialTarget, rolledBack.Activation.Target);
+            Assert.AreEqual(rolledBack.Activation.Target, LinuxUpdateActivation.InspectTarget(firstInstall.ManagerDirectory));
+            Assert.AreEqual(rolledBack, await LinuxVerifiedInstallation.RollbackAsync(installedRoot, activated.Activation.Target,
+                activateOperation, rollbackOperation, deadline.Token));
+            CollectionAssert.AreEqual(checkpointBeforeRollback, await File.ReadAllBytesAsync(acceptedPath, deadline.Token));
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxVerifiedInstallation.ActivateAsync(
+                installedRoot, initialTarget, candidate.Version.ManifestSha256, activateOperation, deadline.Token));
+            string recoveryEvidence = Directory.CreateDirectory(Path.Combine(evidence, "verified-rollback")).FullName;
+            await VerifyInstalledNative(Path.Combine(firstInstall.VersionDirectory, "runtime"), recoveryEvidence,
+                Path.Combine(firstInstall.ManagerDirectory, "current", "kicad-codex"),
+                Path.Combine(firstInstall.ManagerDirectory, "current", "kicad-mcp"));
             await File.WriteAllTextAsync(Path.Combine(evidence, "candidate-registration.json"), JsonSerializer.Serialize(new
             {
                 schemaVersion = 1, candidate.Version.ManifestSha256, candidate.Version.Commit,
                 currentSelectionPreserved = true, unchangedCandidateReused = true, payloadDriftRejected = true,
                 configurationDriftRejected = true, acceptedMetadataReplayRejected = true,
+                verifiedSelectionSwitch = true, retainedPreviousVersionRestored = true, acceptedCheckpointPreserved = true,
+                brokenCandidateRollback = true,
                 syntheticMetadataRevision = true, applicationVersionUpgradeVerified = false, nativeEditorRestarted = false
             }, Evidence.JsonOptions), deadline.Token);
         }

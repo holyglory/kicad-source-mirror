@@ -35,7 +35,12 @@ public sealed partial class NativeSessionTests
     public Task PublicSignedCaptionUpdateDownloadsPreservesDirtyWorkAndRestartsTwoProjects()
         => RunCaptionUpdateJourney(automaticContext: true, publicChannel: true);
 
-    private async Task RunCaptionUpdateJourney(bool automaticContext, bool publicChannel)
+    [TestMethod]
+    [TestCategory("EmptyCaptionUpdate")]
+    public Task EmptyManagerCaptionUpdateRejectsDriftAndRestartsWithoutOpeningAProject()
+        => RunCaptionUpdateJourney(automaticContext: true, publicChannel: false, emptyManager: true);
+
+    private async Task RunCaptionUpdateJourney(bool automaticContext, bool publicChannel, bool emptyManager = false)
     {
         string cataloguePath = Environment.GetEnvironmentVariable("KICAD_CAPTION_PACKAGE_CATALOGUE")
             ?? throw new AssertFailedException("Select the frozen caption-enabled package catalogue.");
@@ -47,7 +52,7 @@ public sealed partial class NativeSessionTests
         var candidateArtifact = candidateCatalogue.Manifest.Artifacts.Single(item => item.Platform == "linux-x64" && item.FileName.EndsWith(".tar.gz", StringComparison.Ordinal));
         if (!automaticContext || publicChannel) Assert.AreNotEqual(artifact.Commit, candidateArtifact.Commit, "This case must upgrade between different source builds.");
         string evidence = Directory.CreateDirectory(Path.Combine(CaptionUpdateEvidence.Value,
-            publicChannel ? "public-signed" : automaticContext ? "automatic-context" : "different-build")).FullName;
+            emptyManager ? "empty-manager" : publicChannel ? "public-signed" : automaticContext ? "automatic-context" : "different-build")).FullName;
         string temporary = Directory.CreateTempSubdirectory("kicad-caption-ui-").FullName;
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(8));
         WebApplication? app = null;
@@ -118,6 +123,7 @@ public sealed partial class NativeSessionTests
                 meta = new { version = 3 }, schematic = new { top_level_sheets = new[]
                 { new { uuid = Guid.NewGuid().ToString("D"), name = "fixture", filename = "fixture.kicad_sch" } } }
             }), deadline.Token);
+            byte[] projectBefore = await File.ReadAllBytesAsync(project, deadline.Token);
             string certificateFile = Path.Combine(temporary, "test-ca.pem");
             if (certificate is not null)
                 await File.WriteAllTextAsync(certificateFile, certificate.ExportCertificatePem(), deadline.Token);
@@ -151,8 +157,9 @@ public sealed partial class NativeSessionTests
                 start.Environment["SSL_CERT_FILE"] = certificateFile;
                 start.Environment["SSL_CERT_DIR"] = Directory.CreateDirectory(Path.Combine(temporary, "empty-certificates")).FullName;
             }
-            foreach (string arg in new[] { "--new", "--automation", instance, "--api-socket", socket, "--automation-log", nativeLog,
-                "--software-rendering", project }) start.ArgumentList.Add(arg);
+            foreach (string arg in new[] { "--new", emptyManager ? "--update-manager" : "--automation", instance,
+                "--api-socket", socket, "--automation-log", nativeLog, "--software-rendering" }) start.ArgumentList.Add(arg);
+            if (!emptyManager) start.ArgumentList.Add(project);
             Process native = Process.Start(start)!;
             processes.Add(native);
             captures.Add(Capture(native.StandardOutput, Path.Combine(evidence, "caption.stdout.log")));
@@ -167,7 +174,8 @@ public sealed partial class NativeSessionTests
                 catch (NativeApiException error) when (error.Status is 4 or 7) { }
                 await Task.Delay(100, deadline.Token);
             }
-            await client.CreateRootSchematicAsync(schematic, deadline.Token);
+            if (!emptyManager) await client.CreateRootSchematicAsync(schematic, deadline.Token);
+            else Assert.AreEqual("", (await client.HandshakeAsync(deadline.Token)).ProjectPath);
             await WaitLog("\"status\":\"candidate_available\"");
             Assert.IsTrue(Directory.Exists(candidateDirectory));
             Process? secondNative = null;
@@ -175,7 +183,7 @@ public sealed partial class NativeSessionTests
             string? secondSchematic = null;
             string? secondEpoch = null;
             string? secondInstance = null;
-            if (automaticContext)
+            if (automaticContext && !emptyManager)
             {
                 string secondDirectory = Directory.CreateDirectory(Path.Combine(temporary, "second-project")).FullName;
                 string secondProject = Path.Combine(secondDirectory, "second.kicad_pro");
@@ -227,17 +235,21 @@ public sealed partial class NativeSessionTests
             Assert.AreEqual(initialTarget, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
             NativeKeyboard.SchematicShortcut(displayName, native.Id, "Return", "Error", false, false);
             await File.WriteAllBytesAsync(changedFile, original, deadline.Token);
-            ClickUpdate();
-            await WaitWindow("Save");
-            await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "update-save-prompt.png"), deadline.Token);
-            NativeKeyboard.SchematicShortcut(displayName, native.Id, "Escape", "Save", false, false);
-            await WaitLog("\"status\":\"cancelled\"");
-            Assert.IsFalse(native.HasExited);
-            Assert.AreEqual(initialTarget, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
-            Assert.IsFalse(File.Exists(schematic));
-            NativeKeyboard.SchematicShortcut(displayName, native.Id, "s");
-            while (!File.Exists(schematic)) await Task.Delay(100, deadline.Token);
-            byte[] saved = await File.ReadAllBytesAsync(schematic, deadline.Token);
+            byte[] saved = [];
+            if (!emptyManager)
+            {
+                ClickUpdate();
+                await WaitWindow("Save");
+                await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "update-save-prompt.png"), deadline.Token);
+                NativeKeyboard.SchematicShortcut(displayName, native.Id, "Escape", "Save", false, false);
+                await WaitLog("\"status\":\"cancelled\"");
+                Assert.IsFalse(native.HasExited);
+                Assert.AreEqual(initialTarget, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
+                Assert.IsFalse(File.Exists(schematic));
+                NativeKeyboard.SchematicShortcut(displayName, native.Id, "s");
+                while (!File.Exists(schematic)) await Task.Delay(100, deadline.Token);
+                saved = await File.ReadAllBytesAsync(schematic, deadline.Token);
+            }
             ClickUpdate();
             await native.WaitForExitAsync(deadline.Token);
             Assert.AreEqual(0, native.ExitCode);
@@ -265,8 +277,17 @@ public sealed partial class NativeSessionTests
             var session = await peer.HandshakeAsync(deadline.Token);
             Assert.AreEqual(instance, session.InstanceId);
             Assert.AreNotEqual(client.Epoch, session.Epoch);
-            await peer.OpenRootSchematicAsync(schematic, deadline.Token);
-            CollectionAssert.AreEqual(saved, await File.ReadAllBytesAsync(schematic, deadline.Token));
+            Assert.AreEqual(emptyManager ? "" : project, session.ProjectPath);
+            if (!emptyManager)
+            {
+                await peer.OpenRootSchematicAsync(schematic, deadline.Token);
+                CollectionAssert.AreEqual(saved, await File.ReadAllBytesAsync(schematic, deadline.Token));
+            }
+            else
+            {
+                Assert.IsFalse(File.Exists(schematic));
+                CollectionAssert.AreEqual(projectBefore, await File.ReadAllBytesAsync(project, deadline.Token));
+            }
             await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "after-caption-update.png"), deadline.Token);
             if (secondNative is not null)
             {
@@ -317,8 +338,9 @@ public sealed partial class NativeSessionTests
             {
                 schemaVersion = 1, currentCommit = artifact.Commit, candidateCommit = candidateArtifact.Commit,
                 currentArchiveSha256 = artifact.Sha256, candidateArchiveSha256 = candidateArtifact.Sha256,
-                captionClickVerified = true, driftRejectedBeforeClose = true, dirtyCloseCancelled = true,
-                saveAndRestartVerified = true, nativeEpochChanged = true,
+                captionClickVerified = true, driftRejectedBeforeClose = true, dirtyCloseCancelled = !emptyManager,
+                saveAndRestartVerified = !emptyManager, restartVerified = true, nativeEpochChanged = true,
+                emptyManagerPreserved = emptyManager,
                 differentBuildUpgrade = artifact.Commit != candidateArtifact.Commit,
                 automaticManagedContext = automaticContext, secondLiveInstanceCaptionUpdate = secondNative is not null,
                 productionSigning = publicChannel, publicDownloadAndRegistration = publicChannel,

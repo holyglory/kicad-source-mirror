@@ -120,7 +120,7 @@ public static class LinuxUpdateHandoff
             string socket = label == "candidate" ? request.SocketPath : request.SocketPath + ".r";
             var start = new ProcessStartInfo(Path.Combine(prefix, "bin/kicad"))
             {
-                WorkingDirectory = Path.GetDirectoryName(request.ProjectPath)!, UseShellExecute = false,
+                WorkingDirectory = request.ProjectPath.Length == 0 ? root : Path.GetDirectoryName(request.ProjectPath)!, UseShellExecute = false,
                 RedirectStandardOutput = true, RedirectStandardError = true
             };
             if (launchEnvironment is not null)
@@ -133,11 +133,11 @@ public static class LinuxUpdateHandoff
             // redirection closes inherited pipes before it becomes interactive.
             start.Environment["KICAD_AUTOMATION_UPDATE_HELPER"] = Path.Combine(prefix, "lib/kicad-automation/kicad-mcp");
             start.Environment["KICAD_AUTOMATION_UPDATE_CONFIG"] = version.ConfigurationPath;
-            foreach (string argument in new[] { "--new", "--automation", request.InstanceId.ToString("D"),
+            foreach (string argument in new[] { "--new", request.ProjectPath.Length == 0 ? "--update-manager" : "--automation", request.InstanceId.ToString("D"),
                 "--api-socket", socket, "--automation-log", Path.Combine(journal, label + "-native.log") })
                 start.ArgumentList.Add(argument);
             if (request.SoftwareRendering) start.ArgumentList.Add("--software-rendering");
-            start.ArgumentList.Add(request.ProjectPath);
+            if (request.ProjectPath.Length != 0) start.ArgumentList.Add(request.ProjectPath);
             beforeLaunch?.Invoke(label, start);
             Process process;
             try { process = Process.Start(start) ?? throw new IOException("Replacement did not start."); }
@@ -211,15 +211,16 @@ public static class LinuxUpdateHandoff
     private static void Validate(LinuxUpdateHandoffRequest request)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Native update handoff requires Linux.");
-        if (!Path.IsPathFullyQualified(request.InstallationRoot) || !Path.IsPathFullyQualified(request.ProjectPath)
-            || Path.GetExtension(request.ProjectPath) != ".kicad_pro" || !File.Exists(request.ProjectPath)
+        if (!Path.IsPathFullyQualified(request.InstallationRoot) || request.ProjectPath is null
+            || (request.ProjectPath.Length != 0 && (!Path.IsPathFullyQualified(request.ProjectPath)
+                || Path.GetExtension(request.ProjectPath) != ".kicad_pro" || !File.Exists(request.ProjectPath)))
             || !Path.IsPathFullyQualified(request.SocketPath) || request.SocketPath.Length > 80
             || request.OldProcess is null || request.OldProcess.ProcessId <= 0 || request.OldProcess.BootId == Guid.Empty
             || string.IsNullOrEmpty(request.ManifestSha256) || request.ManifestSha256.Length != 64
             || request.ManifestSha256.Any(value => value is not (>= 'a' and <= 'f') and not (>= '0' and <= '9'))
             || string.IsNullOrEmpty(request.ExpectedTarget) || !Directory.Exists(Path.GetDirectoryName(request.SocketPath))
             || request.InstanceId == Guid.Empty || request.OperationId == Guid.Empty)
-            throw new ArgumentException("Use an exact live process, project and new short local socket for the handoff.");
+            throw new ArgumentException("Use an exact live process, an existing project or explicit empty manager, and a new short local socket for the handoff.");
     }
 
     private static async Task SaveAsync<T>(string path, T value, CancellationToken token)

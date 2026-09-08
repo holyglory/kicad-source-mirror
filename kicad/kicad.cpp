@@ -121,6 +121,8 @@ bool PGM_KICAD::OnPgmInit()
           wxCMD_LINE_VAL_NONE, 0 },
         { wxCMD_LINE_OPTION, nullptr, "automation", "Automation instance UUID (requires an explicit project and API socket)",
           wxCMD_LINE_VAL_STRING, 0 },
+        { wxCMD_LINE_OPTION, nullptr, "update-manager", "Empty update manager UUID (requires --new and an explicit API socket)",
+          wxCMD_LINE_VAL_STRING, 0 },
         { wxCMD_LINE_OPTION, nullptr, "api-socket", "Explicit native automation IPC socket path",
           wxCMD_LINE_VAL_STRING, 0 },
         { wxCMD_LINE_OPTION, nullptr, "automation-log", "Native automation diagnostic log",
@@ -146,29 +148,51 @@ bool PGM_KICAD::OnPgmInit()
     wxString automationSocket;
     wxString automationLog;
     wxString automationProject;
-    const bool automationMode = parser.Found( "automation", &automationId );
+    const bool projectAutomation = parser.Found( "automation", &automationId );
+    wxString updateManagerId;
+    const bool updateManagerMode = parser.Found( "update-manager", &updateManagerId );
+    const bool automationMode = projectAutomation || updateManagerMode;
+
+    if( updateManagerMode )
+    {
+        if( projectAutomation || parser.FoundSwitch( "new" ) != wxCMD_SWITCH_ON )
+        {
+            wxFprintf( stderr, "--update-manager requires --new and cannot combine with --automation\n" );
+            return false;
+        }
+
+        automationId = updateManagerId;
+    }
 
     if( automationMode )
     {
         if( automationId.IsEmpty() || !parser.Found( "api-socket", &automationSocket )
-                || automationSocket.IsEmpty() || parser.GetParamCount() != 1
+                || automationSocket.IsEmpty() || parser.GetParamCount() != ( updateManagerMode ? 0U : 1U )
                 || parser.FoundSwitch( "mergetool" ) || parser.Found( "frame" ) )
         {
-            wxFprintf( stderr, "Automation requires an instance ID, API socket and one .kicad_pro project\n" );
+            wxFprintf( stderr, "Project automation requires one project; update-manager requires none. Both require an instance ID and API socket.\n" );
             return false;
         }
 
-        wxFileName project( parser.GetParam( 0 ) );
-        project.MakeAbsolute();
-
-        if( !project.FileExists() || project.GetExt() != FILEEXT::ProjectFileExtension
-                || !wxFileName( automationSocket ).IsAbsolute() )
+        if( !wxFileName( automationSocket ).IsAbsolute() )
         {
-            wxFprintf( stderr, "Automation requires an existing .kicad_pro and an absolute socket path\n" );
+            wxFprintf( stderr, "Automation requires an absolute socket path\n" );
             return false;
         }
 
-        automationProject = project.GetFullPath();
+        if( !updateManagerMode )
+        {
+            wxFileName project( parser.GetParam( 0 ) );
+            project.MakeAbsolute();
+
+            if( !project.FileExists() || project.GetExt() != FILEEXT::ProjectFileExtension )
+            {
+                wxFprintf( stderr, "Project automation requires an existing .kicad_pro\n" );
+                return false;
+            }
+
+            automationProject = project.GetFullPath();
+        }
 
         if( parser.Found( "automation-log", &automationLog ) )
         {
@@ -182,7 +206,7 @@ bool PGM_KICAD::OnPgmInit()
     }
     else if( parser.Found( "api-socket" ) || parser.Found( "automation-log" ) )
     {
-        wxFprintf( stderr, "--api-socket and --automation-log require --automation\n" );
+        wxFprintf( stderr, "--api-socket and --automation-log require --automation or --update-manager\n" );
         return false;
     }
 
@@ -463,7 +487,8 @@ bool PGM_KICAD::OnPgmInit()
         }
 
         // If no file was given as an argument, check that there was a file open.
-        if( projToLoad.IsEmpty() && settings->m_OpenProjects.size() && !parser.FoundSwitch( "new" ) )
+        if( !updateManagerMode && projToLoad.IsEmpty() && settings->m_OpenProjects.size()
+                && !parser.FoundSwitch( "new" ) )
         {
             wxString last_pro = settings->m_OpenProjects.front();
             settings->m_OpenProjects.erase( settings->m_OpenProjects.begin() );
@@ -506,7 +531,7 @@ bool PGM_KICAD::OnPgmInit()
             }
         }
 
-        if( !loaded && automationMode )
+        if( !loaded && automationMode && !updateManagerMode )
         {
             wxLogError( "Automation project could not be loaded: %s", automationProject );
             return false;
@@ -551,7 +576,7 @@ bool PGM_KICAD::OnPgmInit()
 
     if( m_api_server )
     {
-        if( automationMode && managerFrame )
+        if( automationMode && managerFrame && !updateManagerMode )
         {
             m_api_common_handler->SetOpenDocumentHandler(
                     [this, managerFrame]( const kiapi::common::commands::OpenDocument& request )

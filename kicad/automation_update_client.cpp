@@ -100,8 +100,9 @@ bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std:
         nlohmann::json configuration;
         file >> configuration;
         std::string root = configuration.at( "installationRoot" ).get<std::string>();
-        if( !wxFileName( wxString::FromUTF8( root ) ).IsAbsolute() || !wxFileName( aProjectPath ).IsAbsolute()
-                || !wxFileName::FileExists( aProjectPath ) )
+        if( !wxFileName( wxString::FromUTF8( root ) ).IsAbsolute()
+                || ( !aProjectPath.IsEmpty() && ( !wxFileName( aProjectPath ).IsAbsolute()
+                        || !wxFileName::FileExists( aProjectPath ) ) ) )
             throw std::runtime_error( "Invalid installation or project path." );
         const auto operation = boost::uuids::to_string( boost::uuids::random_generator()() );
         const auto instance = aInstanceId.empty() ? boost::uuids::to_string( boost::uuids::random_generator()() ) : aInstanceId;

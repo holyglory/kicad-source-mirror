@@ -159,6 +159,35 @@ tier = "development"
 requires = ["objects"]
 command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_automation_update_client$", "--output-on-failure", "--no-tests=error"]
 
+[test.empty-manager]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.empty-manager.check]]
+name = "managed"
+tier = "development"
+role = "preflight"
+invalidates = ["rendered"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.empty-manager.check]]
+name = "native"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "qa_automation_update_client"]
+
+[[test.empty-manager.check]]
+name = "helper"
+tier = "development"
+requires = ["native"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_automation_update_client$", "--output-on-failure", "--no-tests=error"]
+
+[[test.empty-manager.check]]
+name = "rendered"
+tier = "development"
+requires = ["native", "helper"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeEmptyManager", "--logger", "trx", "--results-directory", "automation/artifacts/empty-manager-tests"]
+retained_artifacts = [{ name = "empty-manager-tests", path = "automation/artifacts/empty-manager-tests", max_bytes = 16777216 }, { name = "empty-manager-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
+
 [test.native-updater-journey]
 timeout_seconds = 3600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

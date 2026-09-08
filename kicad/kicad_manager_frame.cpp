@@ -336,7 +336,7 @@ void KICAD_MANAGER_FRAME::beginAutomationUpdate()
     if( m_updateCaption ) m_updateCaption( true, false );
     const auto* api = Pgm().ApiServerOrNull();
     std::string instance = api && api->IsAutomation() ? api->AutomationInstanceId() : "";
-    if( !m_automationUpdateClient->Restart( Prj().GetProjectFullName(), instance,
+    if( !m_automationUpdateClient->Restart( m_active_project ? Prj().GetProjectFullName() : wxString(), instance,
             wxGetEnv( "KICAD_SOFTWARE_RENDERING", nullptr ) ) )
     {
         m_updateRequested = false;
@@ -362,7 +362,7 @@ void KICAD_MANAGER_FRAME::onAutomationUpdate( const nlohmann::json& message )
     }
     else if( status == "cancelled" ) m_updateRequested = false;
     if( m_updateCaption && m_automationUpdateClient )
-        m_updateCaption( m_active_project && m_automationUpdateClient->Candidate().is_object(),
+        m_updateCaption( m_automationUpdateClient->Candidate().is_object(),
                          !m_updateRequested && !m_automationUpdateClient->IsRunning() );
 }
 

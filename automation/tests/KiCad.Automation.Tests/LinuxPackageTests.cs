@@ -8,6 +8,70 @@ namespace KiCad.Automation.Tests;
 public sealed class LinuxPackageTests
 {
     [TestMethod]
+    public async Task ManagedLauncherDiscoversVersionContextWithoutOverridingExplicitSettings()
+    {
+        if (!OperatingSystem.IsLinux()) { Assert.Inconclusive("Linux launcher test."); return; }
+        string root = Directory.CreateTempSubdirectory("kicad-managed-launcher-Énergie space-").FullName;
+        try
+        {
+            string version = Directory.CreateDirectory(Path.Combine(root, "versions", new string('1', 64))).FullName;
+            string payload = Directory.CreateDirectory(Path.Combine(version, "payload")).FullName;
+            Directory.CreateDirectory(Path.Combine(payload, "runtime/bin"));
+            string probe = Path.Combine(payload, "runtime/bin/probe");
+            File.Copy("/usr/bin/printenv", probe);
+            File.SetUnixFileMode(probe, (UnixFileMode)0x1ED);
+            await LinuxPackage.WriteLauncherAsync(payload, "kicad-codex", "runtime/bin/probe", CancellationToken.None);
+            await LinuxPackage.WriteLauncherAsync(payload, "kicad-mcp", "runtime/bin/probe", CancellationToken.None);
+            Assert.AreEqual((1, ""), await Run("kicad-codex"));
+            // Synthetic layout markers test discovery only; the actual signed
+            // bootstrap and configuration are verified in the installed journey.
+            foreach (string marker in new[] { "version.json", "installed-envelope.json", "update-config.json" })
+                await File.WriteAllTextAsync(Path.Combine(version, marker), "{}");
+            Assert.AreEqual((1, ""), await Run("kicad-codex"));
+            await File.WriteAllTextAsync(Path.Combine(root, "publisher.json"), "{}");
+            string expected = Path.Combine(payload, "runtime/lib/kicad-automation/kicad-mcp") + "\n"
+                + Path.Combine(version, "update-config.json") + "\n";
+            Assert.AreEqual((0, expected), await Run("kicad-codex"));
+            Assert.AreEqual((1, ""), await Run("kicad-mcp"));
+            Assert.AreEqual((0, "/explicit/helper\n/explicit/configuration\n"),
+                await Run("kicad-codex", "/explicit/helper", "/explicit/configuration"));
+            Assert.AreEqual((1, "/explicit/helper\n"), await Run("kicad-codex", "/explicit/helper"));
+            Directory.Move(Path.Combine(root, "versions"), Path.Combine(root, "adjacent-documents"));
+            payload = Path.Combine(root, "adjacent-documents", new string('1', 64), "payload");
+            Assert.AreEqual((1, ""), await Run("kicad-codex"));
+
+            async Task<(int ExitCode, string Output)> Run(string name, string? helper = null, string? configuration = null)
+            {
+                var start = new ProcessStartInfo(Path.Combine(payload, name))
+                { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+                start.Environment.Remove("KICAD_AUTOMATION_UPDATE_HELPER");
+                start.Environment.Remove("KICAD_AUTOMATION_UPDATE_CONFIG");
+                if (helper is not null) start.Environment["KICAD_AUTOMATION_UPDATE_HELPER"] = helper;
+                if (configuration is not null) start.Environment["KICAD_AUTOMATION_UPDATE_CONFIG"] = configuration;
+                start.ArgumentList.Add("KICAD_AUTOMATION_UPDATE_HELPER");
+                start.ArgumentList.Add("KICAD_AUTOMATION_UPDATE_CONFIG");
+                using var process = Process.Start(start)!;
+                using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                Task<string> stdout = process.StandardOutput.ReadToEndAsync(deadline.Token);
+                Task<string> stderr = process.StandardError.ReadToEndAsync(deadline.Token);
+                try
+                {
+                    await process.WaitForExitAsync(deadline.Token);
+                    Assert.AreEqual("", await stderr);
+                    return (process.ExitCode, await stdout);
+                }
+                finally
+                {
+                    if (!process.HasExited) process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                    await Task.WhenAll(stdout, stderr);
+                }
+            }
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [TestMethod]
     public async Task LauncherUsesPhysicalVersionPathsWhenStartedThroughCurrentLink()
     {
         if (!OperatingSystem.IsLinux()) { Assert.Inconclusive("Linux launchers require Linux."); return; }

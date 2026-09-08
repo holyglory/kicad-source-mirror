@@ -43,12 +43,14 @@ public static class LinuxUpdateHandoff
         if (File.Exists(request.SocketPath) || Directory.Exists(request.SocketPath)
             || File.Exists(request.SocketPath + ".r") || Directory.Exists(request.SocketPath + ".r"))
             throw new ArgumentException("Replacement sockets must not already exist.");
-        var selected = await LinuxVerifiedInstallation.InspectSelectedAsync(root, request.ExpectedTarget, token);
         _ = await LinuxVerifiedInstallation.InspectActivationAsync(root, request.ExpectedTarget, request.ManifestSha256, token);
         using var old = Process.GetProcessById(request.OldProcess.ProcessId);
-        if (old.HasExited || LinuxProcessIdentity.Read(old.Id) != request.OldProcess
-            || old.MainModule?.FileName != Path.Combine(selected.VersionDirectory, "runtime/bin/kicad"))
-            throw new InvalidDataException("The old process does not match the selected native executable and start identity.");
+        if (old.HasExited || LinuxProcessIdentity.Read(old.Id) != request.OldProcess)
+            throw new InvalidDataException("The old process does not match its kernel start identity.");
+        string executable = old.MainModule?.FileName ?? throw new InvalidDataException("The old executable identity is unavailable.");
+        _ = await LinuxVerifiedInstallation.InspectExecutableVersionAsync(root, executable, token);
+        if (old.HasExited || LinuxProcessIdentity.Read(old.Id) != request.OldProcess || old.MainModule?.FileName != executable)
+            throw new InvalidDataException("The old process changed during version verification.");
 
         Directory.CreateDirectory(journal);
         using var ownership = new FileStream(Path.Combine(journal, "operation.lock"), FileMode.OpenOrCreate,

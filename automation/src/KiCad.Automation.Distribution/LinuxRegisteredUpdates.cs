@@ -23,6 +23,26 @@ public static partial class LinuxVerifiedInstallation
         return DescribeVersion(root, manifest);
     }
 
+    /// <summary>Verifies the exact retained version a live process runs. It
+    /// need not be the selection now used for future launches: another project
+    /// instance may already have updated the installation.</summary>
+    public static async Task<InstalledLinuxUpdate> InspectExecutableVersionAsync(string root, string executable,
+        CancellationToken token = default)
+    {
+        root = ActivationRoot(root, Guid.NewGuid());
+        if (!Path.IsPathFullyQualified(executable)) throw new ArgumentException("Use an absolute native executable path.");
+        string versions = Path.Combine(root, "versions");
+        string relative = Path.GetRelativePath(versions, Path.GetFullPath(executable));
+        string[] parts = relative.Split(Path.DirectorySeparatorChar);
+        if (parts.Length != 5 || !DigestName(parts[0]) || parts[1] != "payload" || parts[2] != "runtime"
+            || parts[3] != "bin" || parts[4] != "kicad")
+            throw new InvalidDataException("The process executable is outside this installation's registered version store.");
+        var policy = await ActivationPolicyAsync(root, token);
+        var manifest = await ReadVersionAsync(Path.Combine(versions, parts[0]),
+            Convert.FromBase64String(policy.PublisherKeySpki), policy, token);
+        return DescribeVersion(root, manifest);
+    }
+
     /// <summary>Registers authenticated candidate bytes without switching the
     /// active installation. Publisher identity comes only from the installed
     /// root policy, never from the candidate or the calling request.</summary>

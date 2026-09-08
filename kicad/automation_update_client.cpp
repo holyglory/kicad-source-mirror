@@ -11,6 +11,7 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <fstream>
 #include <sstream>
+#include <filesystem>
 #include <utility>
 
 namespace
@@ -104,6 +105,10 @@ bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std:
             throw std::runtime_error( "Invalid installation or project path." );
         const auto operation = boost::uuids::to_string( boost::uuids::random_generator()() );
         const auto instance = aInstanceId.empty() ? boost::uuids::to_string( boost::uuids::random_generator()() ) : aInstanceId;
+        // Another live project may have selected this same candidate already.
+        // Snapshot the current selection for this click, not for the earlier
+        // background download. The helper still rejects changes after this point.
+        const auto selection = std::filesystem::read_symlink( root + "/manager/current" ).generic_string();
         std::ifstream bootFile( "/proc/sys/kernel/random/boot_id" );
         std::string boot;
         bootFile >> boot;
@@ -122,7 +127,7 @@ bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std:
         m_restartConfiguration = wxString::FromUTF8( root ) + wxFILE_SEP_PATH + "state"
                                  + wxFILE_SEP_PATH + wxString::FromUTF8( "restart-" + operation + ".json" );
         nlohmann::json request = { { "schemaVersion", 1 }, { "request", {
-            { "installationRoot", root }, { "expectedTarget", m_candidate.at( "expectedTarget" ) },
+            { "installationRoot", root }, { "expectedTarget", selection },
             { "manifestSha256", m_candidate.at( "manifestSha256" ) }, { "operationId", operation },
             { "oldProcess", { { "processId", wxGetProcessId() }, { "bootId", boot }, { "startTicks", ticks } } },
             { "projectPath", aProjectPath.ToStdString() }, { "instanceId", instance },

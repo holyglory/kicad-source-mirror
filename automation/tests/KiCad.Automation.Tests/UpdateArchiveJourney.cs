@@ -382,8 +382,28 @@ public sealed partial class NativeSessionTests
             await VerifyUpdateRestartHandoff(firstInstall, candidate.Version,
                 Directory.CreateDirectory(Path.Combine(evidence, "restart-failure-recovery")).FullName, deadline.Token,
                 rejectCandidateStartup: true);
-            await VerifyUpdateRestartHandoff(firstInstall, candidate.Version,
-                Directory.CreateDirectory(Path.Combine(evidence, "restart-handoff")).FullName, deadline.Token);
+            var secondStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var firstFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task second = VerifyUpdateRestartHandoff(firstInstall, candidate.Version,
+                Directory.CreateDirectory(Path.Combine(evidence, "older-live-instance")).FullName, deadline.Token,
+                beforeHandoff: async () =>
+                {
+                    secondStarted.TrySetResult();
+                    await firstFinished.Task.WaitAsync(deadline.Token);
+                });
+            try
+            {
+                await secondStarted.Task.WaitAsync(deadline.Token);
+                await VerifyUpdateRestartHandoff(firstInstall, candidate.Version,
+                    Directory.CreateDirectory(Path.Combine(evidence, "restart-handoff")).FullName, deadline.Token);
+                firstFinished.TrySetResult();
+                await second;
+            }
+            finally
+            {
+                firstFinished.TrySetCanceled();
+                try { await second; } catch (Exception error) when (error is not OutOfMemoryException) { }
+            }
         }
         finally
         {

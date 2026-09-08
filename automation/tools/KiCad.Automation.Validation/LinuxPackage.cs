@@ -111,6 +111,16 @@ public static class LinuxPackage
     internal static async Task WriteLauncherAsync(string work, string name, string executable, CancellationToken token)
     {
         string path = Path.Combine(work, name);
+        string updateContext = name == "kicad-codex" ?
+            "kicad_version_dir=$(CDPATH= cd -- \"$kicad_bundle_dir/..\" && pwd -P)\n" +
+            "kicad_versions_dir=$(dirname -- \"$kicad_version_dir\")\n" +
+            "if [ -z \"${KICAD_AUTOMATION_UPDATE_HELPER:-}\" ] && [ -z \"${KICAD_AUTOMATION_UPDATE_CONFIG:-}\" ] && " +
+            "[ \"$(basename -- \"$kicad_versions_dir\")\" = versions ] && " +
+            "[ -f \"$kicad_versions_dir/../publisher.json\" ] && [ -f \"$kicad_version_dir/version.json\" ] && " +
+            "[ -f \"$kicad_version_dir/installed-envelope.json\" ] && [ -f \"$kicad_version_dir/update-config.json\" ]; then\n" +
+            "  export KICAD_AUTOMATION_UPDATE_HELPER=\"$kicad_bundle_dir/runtime/lib/kicad-automation/kicad-mcp\"\n" +
+            "  export KICAD_AUTOMATION_UPDATE_CONFIG=\"$kicad_version_dir/update-config.json\"\n" +
+            "fi\n" : "";
         await File.WriteAllTextAsync(path,
             "#!/bin/sh\nset -eu\n" +
             // Resolve the physical version, never retain a mutable current link
@@ -119,6 +129,10 @@ public static class LinuxPackage
             "unset APPDIR KICAD_RUN_FROM_BUILD_DIR\n" +
             "export LD_LIBRARY_PATH=\"$kicad_bundle_dir/runtime/lib\"\n" +
             "export KICAD_STOCK_DATA_HOME=\"$kicad_bundle_dir/runtime/share/kicad\"\n" +
+            // Only the verified bootstrap layout supplies automatic context.
+            // Explicit operator overrides and the general MCP launcher remain
+            // independent; never scan a project or download folder for config.
+            updateContext +
             "exec \"$kicad_bundle_dir/" + executable + "\" \"$@\"\n", token);
         if (!OperatingSystem.IsWindows())
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute

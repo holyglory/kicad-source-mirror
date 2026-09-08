@@ -8,6 +8,22 @@ namespace KiCad.Automation.Tests;
 public sealed class LinuxVerifiedInstallationTests
 {
     [TestMethod]
+    public async Task ExecutableInspectionRejectsOtherInstallationsAndArbitraryEntrypoints()
+    {
+        if (!OperatingSystem.IsLinux()) { Assert.Inconclusive("Linux version paths require Linux."); return; }
+        string root = Path.Combine(Path.GetTempPath(), "synthetic-installation");
+        foreach (string executable in new[]
+        {
+            "/usr/bin/kicad", Path.Combine(root, "kicad"),
+            Path.Combine(root, "versions", "not-a-digest", "payload/runtime/bin/kicad"),
+            Path.Combine(root, "versions", new string('1', 64), "payload/runtime/bin/other"),
+            Path.Combine(root, "versions", new string('1', 64), "payload/runtime/bin/nested/kicad")
+        })
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
+                LinuxVerifiedInstallation.InspectExecutableVersionAsync(root, executable));
+    }
+
+    [TestMethod]
     public async Task ExistingDestinationsAndCancelledOrInvalidInputsRemainUntouched()
     {
         if (!OperatingSystem.IsLinux()) { Assert.Inconclusive("Verified Linux installation requires Linux."); return; }

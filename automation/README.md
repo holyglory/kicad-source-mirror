@@ -1215,6 +1215,26 @@ No Mac caption implementation is qualified, and updating without an open
 project is not supported by this control. Different-build and concurrent-instance
 update journeys, production signing and remaining platform checks stay open.
 
+### Older instances and managed launchers (source increment)
+
+The current source additionally separates a live process's verified version
+from the installation selection used by future launches. Passing regression
+`t20260908T214657Z-63c393` kept two real editors alive: the first updated, and
+the older second instance retained its epoch and dirty state until its own
+subsequent restart. Changed retained-version files and unrelated executable
+paths remain rejected. A caption click now refreshes the selection token before
+building its request; native request/cancel/retry tests passed in
+`t20260908T215423Z-758559`.
+
+Launchers generated from this source discover the updater configuration only
+in the managed `versions/<digest>/payload` installation layout with its
+publisher/version/envelope/configuration markers. Explicit operator settings
+are not replaced, and the general MCP launcher does not inherit automatic
+native-update context. Layout, override and ordinary-folder guards passed in
+`t20260908T220009Z-cefdce`. These source changes still need a matching package
+and different-build caption qualification; they are not in the published
+38b65981e64b preview.
+
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).

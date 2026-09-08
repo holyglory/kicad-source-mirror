@@ -10,13 +10,13 @@ namespace KiCad.Automation.Tests;
 public sealed partial class NativeSessionTests
 {
     private static async Task VerifyUpdateRestartHandoff(InstalledLinuxUpdate installed, InstalledLinuxUpdate candidate,
-        string evidence, CancellationToken token, bool rejectCandidateStartup = false)
+        string evidence, CancellationToken token, bool rejectCandidateStartup = false, Func<Task>? beforeHandoff = null)
     {
         string temporary = Directory.CreateTempSubdirectory("kicad-restart-").FullName;
         var processes = new List<Process>();
         var captures = new List<Task>();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(90));
+        deadline.CancelAfter(TimeSpan.FromSeconds(beforeHandoff is null ? 90 : 180));
         using var handoffCancellation = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
         Task<UpdateHandoffState>? handoff = null;
         try
@@ -65,12 +65,32 @@ public sealed partial class NativeSessionTests
             }
             await client.CreateRootSchematicAsync(schematic, deadline.Token);
             string oldEpoch = client.Epoch;
+            if (beforeHandoff is not null)
+            {
+                await beforeHandoff().WaitAsync(deadline.Token);
+                Assert.IsFalse(old.HasExited, "Updating another instance must preserve this live editor.");
+                Assert.AreEqual(oldEpoch, (await client.HandshakeAsync(deadline.Token)).Epoch);
+            }
             string selectedTarget = LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory);
             string replacementSocket = Path.Combine(temporary, "new.sock");
             var request = new LinuxUpdateHandoffRequest(installed.Root, selectedTarget, candidate.ManifestSha256,
                 Guid.NewGuid(), LinuxProcessIdentity.Read(old.Id), project, Guid.Parse(instance), replacementSocket, true);
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxUpdateHandoff.ExecuteAsync(
                 request with { OldProcess = request.OldProcess with { StartTicks = request.OldProcess.StartTicks + 1 } }, _ => Task.CompletedTask, deadline.Token));
+            if (beforeHandoff is not null)
+            {
+                string oldReadme = Path.Combine(installed.VersionDirectory, "README.txt");
+                byte[] oldBytes = await File.ReadAllBytesAsync(oldReadme, deadline.Token);
+                try
+                {
+                    await File.AppendAllTextAsync(oldReadme, "Synthetic drift of retained old version.", deadline.Token);
+                    await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxUpdateHandoff.ExecuteAsync(
+                        request, _ => Task.CompletedTask, deadline.Token));
+                    Assert.IsFalse(old.HasExited);
+                    Assert.AreEqual(selectedTarget, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
+                }
+                finally { await File.WriteAllBytesAsync(oldReadme, oldBytes, deadline.Token); }
+            }
             string candidateReadme = Path.Combine(candidate.VersionDirectory, "README.txt");
             byte[] originalReadme = await File.ReadAllBytesAsync(candidateReadme, deadline.Token);
             await File.AppendAllTextAsync(candidateReadme, "Synthetic preflight drift.", deadline.Token);
@@ -99,6 +119,8 @@ public sealed partial class NativeSessionTests
                 if (rejectCandidateStartup && label == "candidate")
                     launch.ArgumentList[^1] = Path.Combine(temporary, "absent.kicad_pro");
             }, handoffCancellation.Token) : RunHandoffProcess();
+            await Task.WhenAny(waiting.Task, handoff).WaitAsync(deadline.Token);
+            if (handoff.IsCompleted) await handoff; // surface a rejected request immediately
             await waiting.Task.WaitAsync(deadline.Token);
             NativeKeyboard.SchematicShortcut(fixtureDisplay, old.Id, "q", "KiCad", true, false);
             while (!NativeKeyboard.HasWindow(fixtureDisplay, old.Id, "Save"))
@@ -188,7 +210,7 @@ public sealed partial class NativeSessionTests
                         catch (ArgumentException) { }
                     }
                 }
-                catch (Exception error) when (error is IOException or OperationCanceledException or InvalidDataException) { }
+                catch (Exception error) when (error is not OutOfMemoryException) { } // preserve the original assertion and still clean owned processes
             }
             foreach (Process process in processes.AsEnumerable().Reverse())
             {

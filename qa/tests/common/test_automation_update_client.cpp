@@ -185,6 +185,8 @@ BOOST_AUTO_TEST_CASE( RestartRequestCanCancelAndRetryWithoutLosingCandidate )
     wxString root = wxFileName::CreateTempFileName( "kicad-restart-request-" );
     wxRemoveFile( root );
     std::filesystem::create_directories( root.ToStdString() + "/state" );
+    std::filesystem::create_directories( root.ToStdString() + "/manager" );
+    std::filesystem::create_symlink( "selections/fixture", root.ToStdString() + "/manager/current" );
     struct Cleanup { std::string path; ~Cleanup() { std::filesystem::remove_all( path ); } } cleanup{ root.ToStdString() };
     std::string project = root.ToStdString() + "/fixture.kicad_pro";
     { std::ofstream output( project ); output << "{}"; }
@@ -207,10 +209,19 @@ BOOST_AUTO_TEST_CASE( RestartRequestCanCancelAndRetryWithoutLosingCandidate )
     awaitCondition( [&] { return !scenario.client->IsRunning(); } );
     BOOST_CHECK_EQUAL( scenario.Count( "cancelled" ), 1 );
     BOOST_CHECK( scenario.client->Candidate().is_object() );
+    std::filesystem::remove( root.ToStdString() + "/manager/current" );
+    std::filesystem::create_symlink( "selections/refreshed", root.ToStdString() + "/manager/current" );
     { std::ofstream mode( root.ToStdString() + "/restart-mode" ); mode << "reject"; }
     BOOST_REQUIRE( scenario.client->Restart( wxString::FromUTF8( project ), "c9adf9b5-3070-43e4-90c1-c701123c6804", true ) );
     awaitCondition( [&] { return scenario.Count( "failed" ) > 0 && !scenario.client->IsRunning(); } );
     BOOST_CHECK( scenario.client->Candidate().is_object() );
+    bool refreshed = false;
+    for( const auto& entry : std::filesystem::directory_iterator( root.ToStdString() + "/state" ) )
+    {
+        std::ifstream file( entry.path() );
+        if( nlohmann::json::parse( file ).at( "request" ).at( "expectedTarget" ) == "selections/refreshed" ) refreshed = true;
+    }
+    BOOST_CHECK( refreshed );
 }
 
 bool initTests() { return true; }

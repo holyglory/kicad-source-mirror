@@ -1062,6 +1062,31 @@ not native-Mac evidence, a production signing setup, power-loss qualification,
 or the complete automatic updater. The public a5666e707777 preview predates
 this bootstrap command; do not assume its embedded MCP executable provides it.
 
+### Installation-bound update candidates (preliminary)
+
+New bootstrap installations keep their original publisher policy at the root
+and record a fingerprint for each verified version. A provisioned update
+configuration includes `installationRoot`; `--prepare-update` then verifies and
+registers a candidate beneath that installation instead of returning loose
+staging. Its terminal status is `candidate_registered`, with the expected
+current-selection identity and `installationReady: false`.
+
+Registration inherits the original publisher/channel and rejects stale
+selections, wrong publishers, older accepted metadata, changed configuration
+and changed payload files. Repeating an unchanged candidate reuses it without
+rewriting its files or selecting it. Ordinary timestamp changes alone do not
+change the payload fingerprint. These receipts detect accidental/local drift;
+they are not attestations against an operator who can rewrite all local trust
+and receipt files. Roots predating the publisher policy/version-registration
+metadata are not silently adopted by this path.
+
+Governed run `t20260908T180714Z-ced0e8` exercised real bootstrap, helper-process
+registration and unchanged-candidate reuse alongside the rendered installed
+KiCad/MCP journey. The registration fixture deliberately uses a new signed
+metadata sequence for the same real frozen application bytes; it does not prove
+an application-version upgrade. Native close/restart, verified activation,
+power-loss recovery, production signing and both Mac targets remain required.
+
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).

@@ -47,6 +47,8 @@ public static class UpdatePreparationCommand
             using var source = new UpdateDownloader(new Uri(configuration.Origin, UriKind.Absolute));
             var checker = new UpdateChecker(source, configuration.StateDirectory, publisherKey, installed,
                 configuration.Channel, configuration.Platform, configuration.Format);
+            string? expectedTarget = configuration.InstallationRoot is { } installationRoot
+                ? LinuxUpdateActivation.InspectTarget(Path.Combine(installationRoot, "manager")) : null;
             await Emit(new { schemaVersion = 1, status = "checking", installationReady = false });
             var result = await checker.CheckAsync(token);
             if (args[0] == "--check-update" || result.Availability != UpdateAvailability.Available)
@@ -74,6 +76,20 @@ public static class UpdatePreparationCommand
             var progress = new TransferProgress(output);
             var download = await source.DownloadAsync(result.Manifest, runtime, configuration.Format,
                 configuration.StagingDirectory, progress, token);
+            if (configuration.InstallationRoot is { } managedRoot)
+            {
+                await Emit(new { schemaVersion = 1, status = "registering_candidate", installationReady = false });
+                var candidate = await LinuxVerifiedInstallation.RegisterAsync(managedRoot, expectedTarget!, download.Path,
+                    result.Manifest.CopyEnvelope(), token);
+                await Emit(new
+                {
+                    schemaVersion = 1, status = "candidate_registered", installationReady = false,
+                    directory = candidate.Version.VersionDirectory, manifestSha256 = candidate.Version.ManifestSha256,
+                    version = result.Manifest.Release.Version, commit = candidate.Version.Commit,
+                    expectedTarget = candidate.ExpectedTarget, reused = candidate.Reused
+                });
+                return 0;
+            }
             await Emit(new { schemaVersion = 1, status = "staging", installationReady = false });
             var staged = await LinuxUpdateStager.StageAsync(result.Manifest, download, configuration.StagingDirectory, token);
             await Emit(new { schemaVersion = 1, status = "checking_native_identity", installationReady = false });
@@ -128,6 +144,8 @@ public static class UpdatePreparationCommand
             || string.IsNullOrEmpty(value.StagingDirectory) || !Path.IsPathFullyQualified(value.StagingDirectory)
             || !Directory.Exists(value.StagingDirectory))
             throw new InvalidDataException("Updater configuration requires an installed identity and absolute private state/staging paths.");
+        if (value.InstallationRoot is { } root && (!Path.IsPathFullyQualified(root) || !Directory.Exists(root)))
+            throw new InvalidDataException("The managed installation root is missing or not absolute.");
         return value;
     }
 

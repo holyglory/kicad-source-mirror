@@ -13,15 +13,19 @@ internal sealed record SignedUpdateEnvelope(int SchemaVersion, string Payload, s
 
 public sealed class VerifiedUpdateManifest
 {
+    private readonly byte[] envelope;
     public UpdateRelease Release { get; }
     public string PayloadSha256 { get; }
     public string PublisherKeySha256 { get; }
-    internal VerifiedUpdateManifest(UpdateRelease release, string digest, string keyDigest)
+    internal VerifiedUpdateManifest(UpdateRelease release, string digest, string keyDigest, ReadOnlyMemory<byte> signedEnvelope = default)
     {
+        envelope = signedEnvelope.ToArray();
         Release = release with { Artifacts = Array.AsReadOnly(release.Artifacts.ToArray()) };
         PayloadSha256 = digest;
         PublisherKeySha256 = keyDigest;
     }
+
+    public byte[] CopyEnvelope() => (byte[])envelope.Clone();
 
     public UpdateArtifact? ForInstallation(string platform, string format)
     {
@@ -58,6 +62,7 @@ public static partial class UpdateManifestCodec
         RequireChannel(expectedChannel);
         if (envelopeBytes.Length == 0 || envelopeBytes.Length > MaximumEnvelopeBytes)
             throw new InvalidDataException("Update envelope size is invalid.");
+        envelopeBytes = envelopeBytes.ToArray();
         RejectDuplicateProperties(envelopeBytes);
         SignedUpdateEnvelope envelope;
         try
@@ -96,7 +101,7 @@ public static partial class UpdateManifestCodec
             if (release.Sequence == accepted.Sequence && digest != accepted.PayloadSha256)
                 throw new InvalidDataException("Different update content reused an accepted sequence.");
         }
-        return new(release, digest, Convert.ToHexStringLower(SHA256.HashData(trustedPublisherSpki)));
+        return new(release, digest, Convert.ToHexStringLower(SHA256.HashData(trustedPublisherSpki)), envelopeBytes);
     }
 
     private static UpdateRelease ReadRelease(ReadOnlyMemory<byte> payload)

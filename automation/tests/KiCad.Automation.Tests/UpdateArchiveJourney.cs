@@ -243,6 +243,7 @@ public sealed partial class NativeSessionTests
             Assert.IsTrue(File.Exists(provisioned.InstalledEnvelope));
             Assert.IsTrue(Directory.Exists(provisioned.StateDirectory));
             Assert.IsTrue(Directory.Exists(provisioned.StagingDirectory));
+            Assert.AreEqual(installedRoot, provisioned.InstallationRoot);
             Assert.AreEqual(manifestDigest, UpdateManifestCodec.Verify(await File.ReadAllBytesAsync(provisioned.InstalledEnvelope, deadline.Token),
                 publisher.ExportSubjectPublicKeyInfo(), "preview").PayloadSha256);
             Assert.IsTrue(File.Exists(Path.Combine(firstInstall.ManagerDirectory, "current", "kicad-codex")));
@@ -250,6 +251,85 @@ public sealed partial class NativeSessionTests
             await VerifyInstalledNative(Path.Combine(firstInstall.VersionDirectory, "runtime"), evidence,
                 Path.Combine(firstInstall.ManagerDirectory, "current", "kicad-codex"),
                 Path.Combine(firstInstall.ManagerDirectory, "current", "kicad-mcp"));
+            string initialTarget = LinuxUpdateActivation.InspectTarget(firstInstall.ManagerDirectory);
+            // A synthetic metadata revision of the same real archive proves
+            // registration/isolation, not an application-version upgrade.
+            byte[] nextEnvelope = UpdateManifestCodec.Sign(release with { Sequence = 3 }, publisher);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxVerifiedInstallation.RegisterAsync(
+                installedRoot, "stale", downloadedArchive, nextEnvelope, deadline.Token));
+            using (var wrongPublisher = ECDsa.Create(ECCurve.NamedCurves.nistP256))
+                await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxVerifiedInstallation.RegisterAsync(
+                    installedRoot, initialTarget, downloadedArchive, UpdateManifestCodec.Sign(release with { Sequence = 3 }, wrongPublisher), deadline.Token));
+            published = nextEnvelope;
+            var registrationStart = UpdateCommandTests.StartInfo();
+            foreach (string arg in new[] { "--prepare-update", "--configuration", firstInstall.ConfigurationPath })
+                registrationStart.ArgumentList.Add(arg);
+            registrationStart.Environment["SSL_CERT_FILE"] = trustedCertificate;
+            registrationStart.Environment["SSL_CERT_DIR"] = start.Environment["SSL_CERT_DIR"];
+            RegisteredLinuxUpdate candidate;
+            using (var registrationProcess = Process.Start(registrationStart)!)
+            {
+                Task<string> registrationOutput = registrationProcess.StandardOutput.ReadToEndAsync(deadline.Token);
+                Task<string> registrationError = registrationProcess.StandardError.ReadToEndAsync(deadline.Token);
+                try
+                {
+                    await registrationProcess.WaitForExitAsync(deadline.Token);
+                    string lines = await registrationOutput;
+                    await File.WriteAllTextAsync(Path.Combine(evidence, "registration.stdout.jsonl"), lines, deadline.Token);
+                    await File.WriteAllTextAsync(Path.Combine(evidence, "registration.stderr.log"), await registrationError, deadline.Token);
+                    Assert.AreEqual(0, registrationProcess.ExitCode, "Inspect retained registration output.");
+                    using var result = JsonDocument.Parse(lines.Split('\n', StringSplitOptions.RemoveEmptyEntries).Last());
+                    var value = result.RootElement;
+                    Assert.AreEqual("candidate_registered", value.GetProperty("status").GetString());
+                    Assert.IsFalse(value.GetProperty("installationReady").GetBoolean());
+                    Assert.IsFalse(value.GetProperty("reused").GetBoolean());
+                    string candidatePath = value.GetProperty("directory").GetString()!;
+                    candidate = new(new(installedRoot, candidatePath, firstInstall.ManagerDirectory,
+                        Path.Combine(Path.GetDirectoryName(candidatePath)!, "update-config.json"),
+                        value.GetProperty("manifestSha256").GetString()!, value.GetProperty("commit").GetString()!),
+                        value.GetProperty("expectedTarget").GetString()!, false);
+                }
+                finally
+                {
+                    if (!registrationProcess.HasExited) registrationProcess.Kill(entireProcessTree: true);
+                    await registrationProcess.WaitForExitAsync();
+                    await Task.WhenAll(registrationOutput, registrationError);
+                }
+            }
+            Assert.AreEqual(initialTarget, LinuxUpdateActivation.InspectTarget(firstInstall.ManagerDirectory));
+            Assert.AreNotEqual(firstInstall.VersionDirectory, candidate.Version.VersionDirectory);
+            DateTime modified = Directory.GetLastWriteTimeUtc(candidate.Version.VersionDirectory);
+            var repeated = await LinuxVerifiedInstallation.RegisterAsync(installedRoot, initialTarget, downloadedArchive, nextEnvelope, deadline.Token);
+            Assert.IsTrue(repeated.Reused);
+            Assert.AreEqual(candidate.Version, repeated.Version);
+            Assert.AreEqual(modified, Directory.GetLastWriteTimeUtc(candidate.Version.VersionDirectory));
+            Assert.HasCount(2, Directory.GetDirectories(Path.Combine(installedRoot, "versions")));
+            string acceptedPath = Path.Combine(installedRoot, "state", "accepted-envelope.json");
+            await File.WriteAllBytesAsync(acceptedPath, UpdateManifestCodec.Sign(release with { Sequence = 4 }, publisher), deadline.Token);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxVerifiedInstallation.RegisterAsync(
+                installedRoot, initialTarget, downloadedArchive, nextEnvelope, deadline.Token));
+            await File.WriteAllBytesAsync(acceptedPath, nextEnvelope, deadline.Token);
+            string candidateConfig = candidate.Version.ConfigurationPath;
+            byte[] correctConfig = await File.ReadAllBytesAsync(candidateConfig, deadline.Token);
+            var changedConfig = JsonSerializer.Deserialize<UpdatePreparationConfiguration>(correctConfig,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web))! with { Origin = "https://different.example.test/" };
+            await File.WriteAllTextAsync(candidateConfig, JsonSerializer.Serialize(changedConfig,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)), deadline.Token);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxVerifiedInstallation.RegisterAsync(
+                installedRoot, initialTarget, downloadedArchive, nextEnvelope, deadline.Token));
+            await File.WriteAllBytesAsync(candidateConfig, correctConfig, deadline.Token);
+            string changedFile = Path.Combine(candidate.Version.VersionDirectory, "README.txt");
+            await File.AppendAllTextAsync(changedFile, "\nSynthetic candidate drift.\n", deadline.Token);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxVerifiedInstallation.RegisterAsync(
+                installedRoot, initialTarget, downloadedArchive, nextEnvelope, deadline.Token));
+            Assert.AreEqual(initialTarget, LinuxUpdateActivation.InspectTarget(firstInstall.ManagerDirectory));
+            await File.WriteAllTextAsync(Path.Combine(evidence, "candidate-registration.json"), JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1, candidate.Version.ManifestSha256, candidate.Version.Commit,
+                currentSelectionPreserved = true, unchangedCandidateReused = true, payloadDriftRejected = true,
+                configurationDriftRejected = true, acceptedMetadataReplayRejected = true,
+                syntheticMetadataRevision = true, applicationVersionUpgradeVerified = false, nativeEditorRestarted = false
+            }, Evidence.JsonOptions), deadline.Token);
         }
         finally
         {

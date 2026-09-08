@@ -10,7 +10,7 @@ public sealed record InstalledLinuxUpdate(string Root, string VersionDirectory, 
 /// an existing root, restart editors, register desktop icons or modify system
 /// packages. The publisher key is supplied through the trusted bootstrap, not
 /// accepted from an online feed.</summary>
-public static class LinuxVerifiedInstallation
+public static partial class LinuxVerifiedInstallation
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public static Task<InstalledLinuxUpdate> InstallAsync(string installationRoot, string archivePath,
@@ -45,32 +45,14 @@ public static class LinuxVerifiedInstallation
         try
         {
             string versionRelative = Path.Combine("versions", manifest.PayloadSha256);
-            string version = Directory.CreateDirectory(Path.Combine(work, versionRelative)).FullName;
-            var downloaded = new DownloadedUpdate(archivePath, artifact, manifest.PayloadSha256);
-            var staged = await LinuxUpdateStager.StageAsync(manifest, downloaded, version, token);
-            _ = await LinuxUpdateRuntime.CheckAsync(manifest, staged, work, token);
-            string payload = Path.Combine(version, "payload");
-            Directory.Move(staged.Directory, payload);
-            // Keep the original staging receipt, including its explicit limits.
-            File.Move(Path.Combine(Path.GetDirectoryName(staged.Directory)!, "staging.json"), Path.Combine(version, "staging.json"));
-            Directory.Delete(Path.GetDirectoryName(staged.Directory)!); // now empty, created by this invocation
-
-            string receiptRelative = Path.Combine(versionRelative, "installed-envelope.json");
-            await WriteBytesAsync(Path.Combine(work, receiptRelative), signedEnvelope, token);
+            string version = Path.Combine(work, versionRelative);
+            var policy = new LinuxInstallationPolicy(1, origin.AbsoluteUri, Convert.ToBase64String(publisherKey), channel);
+            await WriteBytesAsync(Path.Combine(work, "publisher.json"), JsonSerializer.SerializeToUtf8Bytes(policy, Json), token);
+            var result = await PrepareVersionAsync(version, installationRoot, archivePath, signedEnvelope,
+                publisherKey, manifest, policy, token);
             Directory.CreateDirectory(Path.Combine(work, "state"));
             Directory.CreateDirectory(Path.Combine(work, "staging"));
-            await LinuxUpdateActivation.InitializeAsync(Path.Combine(work, "manager"), payload, token);
-
-            string finalVersion = Path.Combine(installationRoot, versionRelative);
-            string configurationRelative = Path.Combine(versionRelative, "update-config.json");
-            var configuration = new UpdatePreparationConfiguration(1, origin.AbsoluteUri,
-                Convert.ToBase64String(publisherKey), Path.Combine(installationRoot, receiptRelative),
-                Path.Combine(installationRoot, "state"), Path.Combine(installationRoot, "staging"),
-                channel, "linux-x64", "tar.gz");
-            await WriteBytesAsync(Path.Combine(work, configurationRelative), JsonSerializer.SerializeToUtf8Bytes(configuration, Json), token);
-            var result = new InstalledLinuxUpdate(installationRoot, Path.Combine(finalVersion, "payload"),
-                Path.Combine(installationRoot, "manager"), Path.Combine(installationRoot, configurationRelative),
-                manifest.PayloadSha256, manifest.Release.Commit);
+            await LinuxUpdateActivation.InitializeAsync(Path.Combine(work, "manager"), Path.Combine(version, "payload"), token);
             await WriteBytesAsync(Path.Combine(work, "installed.json"), JsonSerializer.SerializeToUtf8Bytes(new
             {
                 schemaVersion = 1, status = "installed", result,
@@ -90,6 +72,34 @@ public static class LinuxVerifiedInstallation
         {
             if (!published && Directory.Exists(work)) Directory.Delete(work, recursive: true);
         }
+    }
+
+    private static async Task<InstalledLinuxUpdate> PrepareVersionAsync(string version, string finalRoot,
+        string archivePath, byte[] envelope, byte[] publisherKey, VerifiedUpdateManifest manifest,
+        LinuxInstallationPolicy policy, CancellationToken token)
+    {
+        RequireAbsent(version);
+        Directory.CreateDirectory(version);
+        var artifact = manifest.ForInstallation("linux-x64", "tar.gz")
+            ?? throw new InvalidDataException("The signed release has no Linux x64 archive.");
+        var staged = await LinuxUpdateStager.StageAsync(manifest,
+            new DownloadedUpdate(archivePath, artifact, manifest.PayloadSha256), version, token);
+        _ = await LinuxUpdateRuntime.CheckAsync(manifest, staged, version, token);
+        string payload = Path.Combine(version, "payload");
+        Directory.Move(staged.Directory, payload);
+        File.Move(Path.Combine(Path.GetDirectoryName(staged.Directory)!, "staging.json"), Path.Combine(version, "staging.json"));
+        Directory.Delete(Path.GetDirectoryName(staged.Directory)!);
+        await WriteBytesAsync(Path.Combine(version, "installed-envelope.json"), envelope, token);
+        string finalVersion = Path.Combine(finalRoot, "versions", manifest.PayloadSha256);
+        var configuration = new UpdatePreparationConfiguration(1, policy.Origin, policy.PublisherKeySpki,
+            Path.Combine(finalVersion, "installed-envelope.json"), Path.Combine(finalRoot, "state"),
+            Path.Combine(finalRoot, "staging"), policy.Channel, "linux-x64", "tar.gz", finalRoot);
+        await WriteBytesAsync(Path.Combine(version, "update-config.json"), JsonSerializer.SerializeToUtf8Bytes(configuration, Json), token);
+        var registration = new LinuxVersionRegistration(1, manifest.PayloadSha256, manifest.PublisherKeySha256,
+            await LinuxPayloadFingerprint.ComputeAsync(payload, token));
+        await WriteBytesAsync(Path.Combine(version, "version.json"), JsonSerializer.SerializeToUtf8Bytes(registration, Json), token);
+        return new(finalRoot, Path.Combine(finalVersion, "payload"), Path.Combine(finalRoot, "manager"),
+            Path.Combine(finalVersion, "update-config.json"), manifest.PayloadSha256, manifest.Release.Commit);
     }
 
     private static void RequireAbsent(string path)

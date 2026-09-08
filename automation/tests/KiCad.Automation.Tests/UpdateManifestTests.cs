@@ -28,6 +28,12 @@ public sealed class UpdateManifestTests
             UpdateManifestCodec.Verify(envelope, key.ExportSubjectPublicKeyInfo(), "preview", checkpoint).PayloadSha256);
         Assert.ThrowsExactly<NotSupportedException>(() =>
             ((IList<UpdateArtifact>)verified.Release.Artifacts).Add(release.Artifacts[0]));
+        byte[] savedEnvelope = verified.CopyEnvelope();
+        envelope[0] ^= 1;
+        CollectionAssert.AreEqual(savedEnvelope, verified.CopyEnvelope());
+        byte[] separateCopy = verified.CopyEnvelope();
+        separateCopy[0] ^= 1;
+        CollectionAssert.AreEqual(savedEnvelope, verified.CopyEnvelope());
     }
 
     [TestMethod]

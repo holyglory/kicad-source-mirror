@@ -80,6 +80,7 @@
 #include <algorithm>
 #include <atomic>
 #include <update_manager.h>
+#include "automation_update_client.h"
 #include <jobs/jobset.h>
 #include <widgets/wx_aui_art_providers.h>
 
@@ -306,6 +307,21 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
     m_acceptedExts.emplace( FILEEXT::DrillFileExtension, &KICAD_MANAGER_ACTIONS::viewDroppedGerbers );
 
     DragAcceptFiles( true );
+
+    // Explicit installed-launcher context, independent of whether a project is
+    // already open. No engineering project can select a helper via its fields.
+    wxString updateHelper;
+    wxString updateConfiguration;
+    if( wxGetEnv( "KICAD_AUTOMATION_UPDATE_HELPER", &updateHelper )
+            && wxGetEnv( "KICAD_AUTOMATION_UPDATE_CONFIG", &updateConfiguration ) )
+    {
+        m_automationUpdateClient = std::make_unique<AUTOMATION_UPDATE_CLIENT>( updateHelper,
+                updateConfiguration, []( const nlohmann::json& message )
+                {
+                    wxLogTrace( "KICAD_AUTOMATION_UPDATES", "%s", wxString::FromUTF8( message.dump() ) );
+                } );
+        CallAfter( [this] { if( m_automationUpdateClient ) m_automationUpdateClient->Start(); } );
+    }
 }
 
 
@@ -332,6 +348,7 @@ KICAD_MANAGER_FRAME::~KICAD_MANAGER_FRAME()
     // task runs on the thread pool and may call CallAfter on this frame, so it
     // must complete before we uninitialize AUI or destroy child windows.
     m_updateManager.reset();
+    m_automationUpdateClient.reset();
 
     delete m_actions;
     delete m_toolManager;
@@ -1492,7 +1509,7 @@ void KICAD_MANAGER_FRAME::OnIdle( wxIdleEvent& aEvent )
     }
 
 #ifdef KICAD_UPDATE_CHECK
-    if( !m_updateManager && settings->m_KiCadUpdateCheck )
+    if( !m_automationUpdateClient && !m_updateManager && settings->m_KiCadUpdateCheck )
     {
         m_updateManager = std::make_unique<UPDATE_MANAGER>();
         m_updateManager->CheckForUpdate( this );

@@ -286,3 +286,16 @@ add_executable( qa_document_change_journal
     test_document_change_journal_main.cpp test_document_change_journal.cpp )
 target_link_libraries( qa_document_change_journal PRIVATE Boost::headers Boost::unit_test_framework )
 kicad_add_boost_test( qa_document_change_journal qa_document_change_journal )
+
+add_executable( qa_automation_update_client test_automation_update_client.cpp
+    ${CMAKE_SOURCE_DIR}/kicad/automation_update_client.cpp )
+target_link_libraries( qa_automation_update_client PRIVATE Boost::headers Boost::unit_test_framework
+    nlohmann_json ${wxWidgets_LIBRARIES} )
+if( UNIX AND NOT APPLE )
+    add_test( NAME qa_automation_update_client COMMAND xvfb-run -a
+        $<TARGET_FILE:qa_automation_update_client> --log_level=test_suite )
+    add_dependencies( qa_all_tests qa_automation_update_client )
+else()
+    kicad_add_boost_test( qa_automation_update_client qa_automation_update_client )
+endif()
+set_tests_properties( qa_automation_update_client PROPERTIES TIMEOUT 60 )

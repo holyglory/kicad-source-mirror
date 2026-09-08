@@ -33,6 +33,7 @@ class PROJECT_TREE;
 class PROJECT_TREE_PANE;
 class LOCAL_HISTORY_PANE;
 class UPDATE_MANAGER;
+class AUTOMATION_UPDATE_CLIENT;
 
 /**
  * The main KiCad project manager frame.  It is not a KIWAY_PLAYER.
@@ -272,6 +273,7 @@ private:
     BITMAP_BUTTON*                          m_pcmButton;
     int                                     m_pcmUpdateCount;
     std::unique_ptr<UPDATE_MANAGER>         m_updateManager;
+    std::unique_ptr<AUTOMATION_UPDATE_CLIENT> m_automationUpdateClient;
 };
 
 

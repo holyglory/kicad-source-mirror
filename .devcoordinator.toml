@@ -34,6 +34,62 @@ env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build
 [test]
 default = "automation"
 
+[test.native-updater-objects]
+timeout_seconds = 1200
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.native-updater-objects.check]]
+name = "configure"
+tier = "development"
+role = "preflight"
+invalidates = ["objects"]
+command = ["cmake", "-S", ".", "-B", "automation/artifacts/native", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug", "-DKICAD_USE_CMAKE_FINDPROTOBUF=ON", "-DKICAD_BUILD_QA_TESTS=ON"]
+
+[[test.native-updater-objects.check]]
+name = "objects"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad/CMakeFiles/kicad.dir/automation_update_client.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad_manager_frame.cpp.o", "qa_automation_update_client"]
+
+[[test.native-updater-objects.check]]
+name = "lifecycle"
+tier = "development"
+requires = ["objects"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_automation_update_client$", "--output-on-failure", "--no-tests=error"]
+
+[test.native-updater-journey]
+timeout_seconds = 3600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.native-updater-journey.check]]
+name = "managed-build"
+tier = "development"
+role = "preflight"
+invalidates = ["publish", "rendered"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.native-updater-journey.check]]
+name = "publish"
+tier = "development"
+command = ["dotnet", "publish", "automation/src/KiCad.Automation.Mcp/KiCad.Automation.Mcp.csproj", "--configuration", "Debug", "--runtime", "linux-x64", "--self-contained", "true", "-p:RestoreLockedMode=true", "--output", "automation/artifacts/updater-helper"]
+
+[[test.native-updater-journey.check]]
+name = "native-build"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "qa_automation_update_client"]
+
+[[test.native-updater-journey.check]]
+name = "lifecycle"
+tier = "development"
+requires = ["native-build"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_automation_update_client$", "--output-on-failure", "--no-tests=error"]
+
+[[test.native-updater-journey.check]]
+name = "rendered"
+tier = "development"
+requires = ["publish", "native-build", "lifecycle"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeUpdater", "--logger", "trx", "--results-directory", "automation/artifacts/native-updater-tests"]
+retained_artifacts = [{ name = "native-updater-tests", path = "automation/artifacts/native-updater-tests", max_bytes = 16777216 }, { name = "native-updater-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
+
 [test.public-downloads]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260908T162100Z-a5666e707777-debian", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/home/holyglory/kicad/automation/artifacts/public-download-evidence" }
@@ -421,5 +477,5 @@ command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex"
 name = "native-session"
 tier = "development"
 requires = ["native-build"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSession&TestCategory!=NativePackage&TestCategory!=NativePackageArchive&TestCategory!=NativeUpdateArchive", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSession&TestCategory!=NativePackage&TestCategory!=NativePackageArchive&TestCategory!=NativeUpdateArchive&TestCategory!=NativeUpdater", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
 retained_artifacts = [{ name = "native-session-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]

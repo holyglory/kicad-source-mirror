@@ -17,6 +17,7 @@ include_directories(
     )
 
 set( KICAD_SRCS
+    automation_update_client.cpp
     dialogs/dialog_destination.cpp
     dialogs/dialog_destination_base.cpp
     dialogs/dialog_archive_job_settings.cpp

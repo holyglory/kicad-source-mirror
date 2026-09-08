@@ -1102,6 +1102,40 @@ for the same frozen application bytes. The selection APIs are not yet exposed
 as a native Update button or an editor-closing/restarting command; they must not
 be treated as a completed desktop update journey or power-loss qualification.
 
+### Native updater lifecycle (preliminary)
+
+The native project manager can own the compiled helper when its installed
+launcher supplies absolute `KICAD_AUTOMATION_UPDATE_HELPER` and
+`KICAD_AUTOMATION_UPDATE_CONFIG` paths. This context is separate from engineering
+project fields. It checks on startup and schedules checks hourly, starts
+preparation for an available candidate, and keeps an unchanged registered
+candidate without preparing it again. Ordinary nonconfigured KiCad update
+behavior is preserved. Helper output is bounded, parsed and checked; a timeout,
+invalid response or exit failure never produces a ready-to-install state.
+
+The native client owns a separate helper process group, supports cancellation,
+and releases it on owner destruction. A still-running cancelled helper receives
+a bounded termination fallback while the native event loop remains available.
+There is no native Update button, visible readiness claim or editor restart yet.
+The published a5666e707777 packages do not include this integration or set these
+launcher variables. Automatic checking in a new packaged installation still
+requires that launcher wiring and qualification.
+
+Native Boost/CTest cases exercise the GUI event loop under a virtual display,
+accelerated scheduling, repeated checks, malformed/contradictory responses,
+failure recovery, cancellation and owner destruction, including a synthetic
+helper that ignores the first cancellation signal. The rendered journey uses
+the real manager and self-contained .NET helper against a test-only HTTPS
+publisher: an up-to-date release, invalid configuration, and normal rendered
+manager close during a pending check. It verifies HTTP cancellation and exit of
+the exact owned helper process. Governed run `t20260908T190558Z-766a64` passed
+these checks; this is Linux evidence, not a completed different-build update,
+dirty-editor restart, production feed or native-Mac execution.
+
+```sh
+devcoordinator2 test start /home/holyglory/kicad --test native-updater-journey --tier development --client codex
+```
+
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).

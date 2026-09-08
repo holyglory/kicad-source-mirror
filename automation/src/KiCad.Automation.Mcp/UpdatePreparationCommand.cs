@@ -16,7 +16,7 @@ public sealed record UpdatePreparationConfiguration(int SchemaVersion, string Or
 public static class UpdatePreparationCommand
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, MaxDepth = 8 };
+    { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, PropertyNameCaseInsensitive = false, MaxDepth = 8 };
 
     public static async Task<int> RunAsync(string[] args, TextWriter output, CancellationToken token)
     {

@@ -98,6 +98,8 @@ public sealed class UpdateManifestTests
         foreach (string json in new[]
         {
             validJson.Replace("\"sequence\":1", "\"sequence\":1,\"sequence\":2"),
+            validJson.Replace("\"sequence\":1", "\"sequence\":1,\"Sequence\":2"),
+            validJson.Replace("\"schemaVersion\":1", "\"SchemaVersion\":1"),
             validJson.Replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"unrecognized\":true")
         })
             Assert.ThrowsExactly<InvalidDataException>(() =>

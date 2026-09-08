@@ -1015,6 +1015,43 @@ cancellation cannot produce a native-identity success. This check does not
 replace rendering or full release qualification. Governed run
 `t20260908T160325Z-3d07a9` covered those failures and the real package journey.
 
+The low-level Linux activation module can switch a dedicated installation's
+current-version link and switch back without replacing version files. Each
+activation has a distinct pointer identity, including rollback, so stale
+retries cannot silently reapply an earlier update. Contract tests cover open
+file preservation, cancellation at the transition boundary, Unicode paths,
+competing operations and conflicting pointer contents. Launchers generated for
+future packages resolve physical version paths for libraries and resources.
+The already published a5666e707777 artifacts remain unchanged.
+
+This is an internal filesystem primitive, not an enabled installer: it does
+not authenticate arbitrary version directories, handle native editor shutdown,
+restart the application, qualify power-loss recovery, provision the first
+installed receipt or implement Mac activation. No native Update button uses it
+yet; the complete automatic-update workflow remains open.
+
+### Public preliminary downloads
+
+The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).
+It serves the frozen a5666e707777 Debian 13 x64 application archive, matching
+source, and the Debian installer. Public GET/hash, HEAD, range, private/control
+path rejection and upload rejection passed in `t20260908T162709Z-a0e4b9`.
+No engineering repository, native control, credentials or private evidence is
+served there. Native-Mac packages are not yet available.
+
+On Debian 13, after downloading the `.deb` to the current directory:
+
+```sh
+sudo apt install ./kicad-codex-preview-20260908T093000Z-a5666e707777-debian13-amd64.deb
+/opt/kicad-codex/preview-20260908T093000Z-a5666e707777/kicad-codex
+```
+
+The matching STDIO service is
+`/opt/kicad-codex/preview-20260908T093000Z-a5666e707777/kicad-mcp`.
+The package preserves other KiCad installations. These downloads are preliminary:
+automatic updating, both native-Mac targets and the full engineering workflow
+remain unfinished. Public availability is not a qualifying-delivery reset.
+
 ### Source PDF inspection (preliminary)
 
 The `kicad_source_pdf_page` tool reads a PDF declared under `documents` in the

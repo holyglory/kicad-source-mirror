@@ -82,8 +82,8 @@ public static class LinuxPackage
             "Automatic updating, native Mac builds and the complete engineering workflow are not qualified.\n" +
             "This archive does not establish a qualifying delivery or cross-platform readiness.\n" +
             "Corresponding source: " + sourceName + "\n", token);
-        await Launcher("kicad-codex", "runtime/bin/kicad");
-        await Launcher("kicad-mcp", "runtime/lib/kicad-automation/kicad-mcp");
+        await WriteLauncherAsync(work, "kicad-codex", "runtime/bin/kicad", token);
+        await WriteLauncherAsync(work, "kicad-mcp", "runtime/lib/kicad-automation/kicad-mcp", token);
         await RequireSourceAsync(request.Repository, request.Commit, token);
         string packageName = "kicad-codex-" + request.Version + "-debian13-x64.tar.gz";
         string package = Path.Combine(request.Output, packageName);
@@ -106,20 +106,23 @@ public static class LinuxPackage
         File.Move(pending, Path.Combine(request.Output, "downloads.json"));
         return manifest;
 
-        async Task Launcher(string name, string executable)
-        {
-            string path = Path.Combine(work, name);
-            await File.WriteAllTextAsync(path,
-                "#!/bin/sh\nset -eu\n" +
-                "kicad_bundle_dir=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n" +
-                "unset APPDIR KICAD_RUN_FROM_BUILD_DIR\n" +
-                "export LD_LIBRARY_PATH=\"$kicad_bundle_dir/runtime/lib\"\n" +
-                "export KICAD_STOCK_DATA_HOME=\"$kicad_bundle_dir/runtime/share/kicad\"\n" +
-                "exec \"$kicad_bundle_dir/" + executable + "\" \"$@\"\n", token);
-            if (!OperatingSystem.IsWindows())
-                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
-                    | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-        }
+    }
+
+    internal static async Task WriteLauncherAsync(string work, string name, string executable, CancellationToken token)
+    {
+        string path = Path.Combine(work, name);
+        await File.WriteAllTextAsync(path,
+            "#!/bin/sh\nset -eu\n" +
+            // Resolve the physical version, never retain a mutable current link
+            // in paths a live process can later use for resources or libraries.
+            "kicad_bundle_dir=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd -P)\n" +
+            "unset APPDIR KICAD_RUN_FROM_BUILD_DIR\n" +
+            "export LD_LIBRARY_PATH=\"$kicad_bundle_dir/runtime/lib\"\n" +
+            "export KICAD_STOCK_DATA_HOME=\"$kicad_bundle_dir/runtime/share/kicad\"\n" +
+            "exec \"$kicad_bundle_dir/" + executable + "\" \"$@\"\n", token);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
     }
 
     public static string ContainedPath(string root, string relative)

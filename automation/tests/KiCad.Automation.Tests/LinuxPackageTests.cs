@@ -8,6 +8,48 @@ namespace KiCad.Automation.Tests;
 public sealed class LinuxPackageTests
 {
     [TestMethod]
+    public async Task LauncherUsesPhysicalVersionPathsWhenStartedThroughCurrentLink()
+    {
+        if (!OperatingSystem.IsLinux()) { Assert.Inconclusive("Linux launchers require Linux."); return; }
+        string root = Directory.CreateTempSubdirectory("kicad-launcher-Énergie space-").FullName;
+        try
+        {
+            string version = Directory.CreateDirectory(Path.Combine(root, "version-one")).FullName;
+            Directory.CreateDirectory(Path.Combine(version, "runtime/bin"));
+            string probe = Path.Combine(version, "runtime/bin/probe");
+            // A compiled environment-printing test double, not a simulated
+            // native editor. Real editor launch remains a separate journey.
+            File.Copy("/usr/bin/printenv", probe);
+            File.SetUnixFileMode(probe, (UnixFileMode)0x1ED);
+            await LinuxPackage.WriteLauncherAsync(version, "kicad-codex", "runtime/bin/probe", CancellationToken.None);
+            string current = Path.Combine(root, "current");
+            Directory.CreateSymbolicLink(current, "version-one");
+            var start = new ProcessStartInfo(Path.Combine(current, "kicad-codex"))
+            { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+            start.ArgumentList.Add("LD_LIBRARY_PATH");
+            start.ArgumentList.Add("KICAD_STOCK_DATA_HOME");
+            using var process = Process.Start(start)!;
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            Task<string> stdout = process.StandardOutput.ReadToEndAsync(deadline.Token);
+            Task<string> stderr = process.StandardError.ReadToEndAsync(deadline.Token);
+            try
+            {
+                await process.WaitForExitAsync(deadline.Token);
+                Assert.AreEqual(0, process.ExitCode, await stderr);
+                CollectionAssert.AreEqual(new[] { Path.Combine(version, "runtime/lib"), Path.Combine(version, "runtime/share/kicad") },
+                    (await stdout).Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            }
+            finally
+            {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+                await Task.WhenAll(stdout, stderr);
+            }
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [TestMethod]
     public void RelativeInventoryPathsCannotEscapeTheirPackage()
     {
         string root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "synthetic-package-root"));

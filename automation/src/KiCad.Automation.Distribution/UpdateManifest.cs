@@ -39,7 +39,7 @@ public static partial class UpdateManifestCodec
     public const long MaximumArtifactBytes = 16L * 1024 * 1024 * 1024;
     private const string P256Oid = "1.2.840.10045.3.1.7";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, MaxDepth = 16 };
+    { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, PropertyNameCaseInsensitive = false, MaxDepth = 16 };
 
     public static byte[] Sign(UpdateRelease release, ECDsa publisher)
     {

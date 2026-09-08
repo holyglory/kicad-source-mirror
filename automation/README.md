@@ -1247,23 +1247,25 @@ both replacements received new process epochs. Evidence tree:
 This remains Linux qualification using an ephemeral test publisher. Production
 publisher/feed/bootstrap trust, no-project updates, full recovery/termination
 and power-loss coverage, native-Mac execution and the full engineering workflow
-remain open. The published 38b65981e64b preview does not contain these later
+remain open. The preserved 38b65981e64b preview does not contain these later
 repairs; older running instances of that preview may require manual restart
 after another instance changes the shared installation selection.
 
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).
-It now serves the frozen 38b65981e64b Debian 13 x64 application archive and
-matching source, alongside the preserved a5666e707777 archives and older Debian
-installer. Public GET/hash, HEAD, range, private/control path rejection and
-upload rejection for all five files passed in `t20260908T212657Z-88d65b`.
+It now serves the frozen 8e6938a6006c Debian 13 x64 application archive and
+matching source, alongside the preserved 38b65981e64b and a5666e707777 archives
+and older Debian installer. Public GET/hash, HEAD, range, private/control path
+rejection and upload rejection for all seven files passed in
+`t20260908T222815Z-7f1b8c`.
 No engineering repository, native control, credentials or private evidence is
 served there. Native-Mac packages are not yet available.
 
 Extract the newer Linux archive and run `./kicad-codex` for the native application
 or `./kicad-mcp` for STDIO tools. Its caption-update flow requires a verified
-managed installation with an explicitly trusted publisher; there is no enabled
+managed installation with an explicitly trusted publisher; that installation
+now discovers its update configuration automatically. There is no enabled
 production update feed yet. The Debian installer below is the older preview,
 not an installer for the new caption-enabled archive.
 

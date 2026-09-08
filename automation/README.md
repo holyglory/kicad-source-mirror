@@ -1244,21 +1244,21 @@ remained open. Instance identities and saved schematic bytes were preserved;
 both replacements received new process epochs. Evidence tree:
 `77fb1dfeee2dd5da730b289d167938ae5b4b8603057f2e91fb54e8d126793db4`.
 
-That run used an ephemeral test publisher. The real public-channel qualification
-below now covers the persistent publisher and rendered Linux upgrade. No-project
-updates, full recovery/termination and power-loss coverage, native-Mac execution
-and the full engineering workflow remain open. The preserved 38b65981e64b preview does not contain these later
+That run used an ephemeral test publisher. Current public-channel and
+empty-manager evidence appears below. Broader recovery/termination and power-loss
+coverage, native-Mac execution and the full engineering workflow remain open.
+The preserved 38b65981e64b preview does not contain these later
 repairs; older running instances of that preview may require manual restart
 after another instance changes the shared installation selection.
 
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).
-It serves the frozen 6a9de7fdd073 Debian 13 x64 application archive and matching
-source, alongside the preserved 8e6938a6006c, 38b65981e64b and a5666e707777
+It serves the frozen 6a93cb3fd254 Debian 13 x64 application archive and matching
+source, alongside the preserved 6a9de7fdd073, 8e6938a6006c, 38b65981e64b and a5666e707777
 archives and older Debian installer. Public GET/hash, HEAD, range, private/control
-path rejection and upload rejection for all nine files passed in
-`t20260908T231824Z-f479c8`.
+path rejection and upload rejection for all eleven files passed in
+`t20260908T234525Z-8622f6`.
 No engineering repository, native control, credentials or private evidence is
 served there. Native-Mac packages are not yet available.
 
@@ -1285,11 +1285,11 @@ remain unfinished. Public availability is not a qualifying-delivery reset.
 
 ### Persistent publisher and public-channel Linux update
 
-Preview `preview-20260908T231132Z-6a9de7fdd073` is available as an
-[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260908T231132Z-6a9de7fdd073-debian13-x64.tar.gz)
-and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260908T231132Z-6a9de7fdd073-source.tar.gz).
+Preview `preview-20260908T233613Z-6a93cb3fd254` is available as an
+[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260908T233613Z-6a93cb3fd254-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260908T233613Z-6a93cb3fd254-source.tar.gz).
 The application archive SHA-256 is
-`ecdf3e3522ee2c6b1f5d8949039c2d8503017750246d6a99c7ae68754fe50ff2`.
+`49313c77e196d83c531b198f14e86ee21d3121b73e08df6eee912964fc1a5795`.
 
 Obtain `automation/distribution/preview-publisher.spki` from the trusted fork
 checkout (present from commit `6a9de7fdd0731378712f9cdbfda3c322f93cd89a`).
@@ -1308,7 +1308,9 @@ fetch the matching pair again instead of substituting unsigned metadata.
 
 Launch `<installationRoot>/manager/current/kicad-codex`; the managed launcher
 selects the installed updater configuration. When a newer compatible update has
-downloaded and verified, an open project's caption offers **Update**. Choosing it
+downloaded and verified, the manager's caption offers **Update**, including when
+no project is open. Builds before 6a93cb3fd254 require an open project for this
+button to appear. Choosing it
 uses KiCad's normal save/cancel behavior before restart. Do not assume the unpacked
 archive or older Debian package has already been bootstrapped this way.
 
@@ -1321,9 +1323,20 @@ saved and restarted with preserved schematic bytes and a new process epoch.
 A second live project updated independently while the first replacement remained
 open. The same pass retained the isolated-publisher regression journeys.
 
-This proves that Linux journey, not all update recovery cases or either native-Mac
-target. No-project updating, broader restart/failure/power-loss recovery, Mac
-packaging and the complete engineering outcome remain unfinished.
+The subsequent `t20260908T234525Z-8622f6` pass, acceptance source
+`37951f5c84eff258d8b698b9cba7f068763e2780`, proved the public signed upgrade from
+6a9de7fdd073 to 6a93cb3fd254 with the same two-project save/cancel and isolation
+checks, plus all eleven public downloads and the installed updater helper.
+It also verified the new build's empty-manager caption: candidate drift is
+rejected before close, then a valid update restarts without opening a project.
+That empty-manager case uses the same frozen build with two fixture-signed
+metadata revisions; it is not a different-build public no-project upgrade.
+Separate startup checks reject invalid empty-manager arguments, preserve the
+explicit-project automation requirement and reject implicit schematic creation.
+
+These prove the stated Linux journeys, not all update recovery cases or either
+native-Mac target. Broader restart/failure/power-loss recovery, Mac packaging
+and the complete engineering outcome remain unfinished.
 
 ### Source PDF inspection (preliminary)
 

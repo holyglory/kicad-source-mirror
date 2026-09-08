@@ -913,6 +913,27 @@ public downloads, updating, Codex Desktop or either Mac architecture.
 Those delivery requirements remain open; staging reports
 `QualifyingDelivery: false`.
 
+### Debian package preparation (preliminary)
+
+The package-debian command builds a Debian 13 amd64 package from a hash-verified
+frozen application catalogue. It uses Debian's shared-library analysis and
+explicitly includes .NET dynamic runtime dependencies, Poppler utilities and
+KiCad's ngspice library. It does not globally ignore missing-library errors.
+Package names and installation prefixes are artifact-specific, preserving older
+installations used by live editors; no system-wide KiCad alias is replaced.
+
+The optional .NET LTTng 2.12 tracepoint provider is omitted only from the Debian
+copy because Debian 13 uses the incompatible newer LTTng ABI. The receipt records
+that exact omission. The original frozen tar archive remains unchanged.
+
+The Debian package was built in governed run t20260908T105916Z-53e9c8, but
+CleanHostVerified and QualifyingDelivery remain false. A compiled non-root
+MCP/native probe is prepared. Clean execution is currently blocked by the absence
+of a Coordinator-owned finite container path: all-finite Compose deployments
+are rejected, while NoNewPrivileges prevents the rootless bootstrap's UID
+mapping. Coordinator issue b82c1d32503d3 / task p7ae97e9e818056b3 owns this gap.
+Do not bypass it by removing runner restrictions or adding a dummy service.
+
 ### Source PDF inspection (preliminary)
 
 The `kicad_source_pdf_page` tool reads a PDF declared under `documents` in the

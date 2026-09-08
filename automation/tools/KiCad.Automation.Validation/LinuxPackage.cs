@@ -183,7 +183,7 @@ public static class LinuxPackage
         }
     }
 
-    private static async Task<string> RunAsync(string executable, string[] args, string directory,
+    internal static async Task<string> RunAsync(string executable, string[] args, string directory,
         CancellationToken token, IReadOnlyDictionary<string, string>? environment = null)
     {
         var start = new ProcessStartInfo(executable)

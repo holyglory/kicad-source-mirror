@@ -9,6 +9,7 @@ try
         Console.WriteLine("kicad-validate verify --result RESULT_JSON --archive EVIDENCE_TAR_GZ --commit FULL_SHA [--architecture arm64|x64]");
         Console.WriteLine("kicad-validate stage-linux --build NATIVE_BUILD --managed SELF_CONTAINED_PUBLISH --nng NNG_SHARED_LIBRARY --output EXISTING_STAGING_DIRECTORY");
         Console.WriteLine("kicad-validate package-linux --staging STAGING_RECEIPT --repository COMMITTED_SOURCE --commit FULL_SHA --version VERSION --output NEW_DIRECTORY");
+        Console.WriteLine("kicad-validate package-debian --catalogue FROZEN_DOWNLOAD_CATALOGUE --output NEW_DIRECTORY");
         return 0;
     }
     var options = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -24,11 +25,18 @@ try
         ? ["repository", "commit", "architecture", "builder", "toolchain", "output", "native-tests"]
         : args[0] == "stage-linux" ? ["build", "managed", "nng", "output"]
         : args[0] == "package-linux" ? ["staging", "repository", "commit", "version", "output"]
+        : args[0] == "package-debian" ? ["catalogue", "output"]
         : ["result", "archive", "commit", "architecture"];
     foreach (string name in options.Keys)
         if (!allowed.Contains(name, StringComparer.Ordinal)) throw new ArgumentException($"Unknown option --{name}.");
     using var cancel = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
+    if (args[0] == "package-debian")
+    {
+        var result = await DebianPackage.CreateAsync(Required("catalogue"), Required("output"), cancel.Token);
+        Console.WriteLine(JsonSerializer.Serialize(result, Evidence.JsonOptions));
+        return 0;
+    }
     if (args[0] == "package-linux")
     {
         var manifest = await LinuxPackage.CreateAsync(new(Required("staging"), Required("repository"),
@@ -59,7 +67,7 @@ try
         Console.WriteLine("Receipt/archive integrity verified for the requested commit. No Mac execution was performed by this command; this is not cross-platform readiness.");
         return 0;
     }
-    throw new ArgumentException("Choose mac, verify, stage-linux or package-linux.");
+    throw new ArgumentException("Choose mac, verify, stage-linux, package-linux or package-debian.");
 }
 catch (Exception error)
 {

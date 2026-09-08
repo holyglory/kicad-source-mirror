@@ -53,6 +53,7 @@ public sealed partial class NativeSessionTests
         });
         var processes = new List<Process>();
         var captures = new List<Task>();
+        string? activeDisplay = null;
         try
         {
             await app.StartAsync(deadline.Token);
@@ -74,6 +75,7 @@ public sealed partial class NativeSessionTests
             string displayNumber = (await display.StandardOutput.ReadLineAsync(deadline.Token))!;
             Assert.IsTrue(int.TryParse(displayNumber, out _));
             string fixtureDisplay = ":" + displayNumber;
+            activeDisplay = fixtureDisplay;
             foreach (string mode in new[] { "current", "invalid", "pending" })
             {
                 Volatile.Write(ref slow, mode == "pending" ? 1 : 0);
@@ -153,6 +155,11 @@ public sealed partial class NativeSessionTests
         }
         finally
         {
+            if (activeDisplay is not null && processes.Any(process => !process.HasExited))
+            {
+                try { await NativeKeyboard.CaptureAsync(activeDisplay, Path.Combine(evidence, "final-display.png"), CancellationToken.None); }
+                catch (Exception error) when (error is InvalidOperationException or OperationCanceledException or IOException) { }
+            }
             foreach (Process process in processes.AsEnumerable().Reverse())
             {
                 if (!process.HasExited) process.Kill(entireProcessTree: true);

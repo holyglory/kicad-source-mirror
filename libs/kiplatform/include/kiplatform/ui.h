@@ -22,6 +22,7 @@
 #define KIPLATFORM_UI_H_
 
 #include <wx/cursor.h>
+#include <functional>
 
 class wxChoice;
 class wxDataViewCtrl;
@@ -34,6 +35,13 @@ namespace KIPLATFORM
 {
     namespace UI
     {
+#if defined( __WXGTK__ ) && defined( __linux__ )
+        /** Add a toolkit-native caption action before showing the window.
+         * Returned visibility/enabled setter is valid only while the owner lives. */
+        std::function<void( bool, bool )> AddCaptionAction( wxTopLevelWindow* aWindow,
+                const wxString& aLabel, std::function<void()> aAction );
+#endif
+
         /**
          * Determine if the desktop interface is currently using a dark theme or a light theme.
          *

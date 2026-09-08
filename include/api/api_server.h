@@ -96,6 +96,7 @@ public:
     }
 
     bool IsAutomation() const { return !m_automationInstanceId.empty(); }
+    const std::string& AutomationInstanceId() const { return m_automationInstanceId; }
 
     // Editor-thread only, after the native journal has accepted the commit.
     void PublishSchematicCommit( const kiapi::automation::v1::SchematicCommitNotification& aCommit );

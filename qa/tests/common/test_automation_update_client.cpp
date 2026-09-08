@@ -14,6 +14,7 @@
 #include <csignal>
 #include <thread>
 #include <chrono>
+#include <filesystem>
 
 namespace
 {
@@ -26,6 +27,26 @@ int fixture( int argc, char** argv )
     std::ifstream input( argv[3] );
     std::string mode;
     input >> mode;
+    if( mode.starts_with( "{" ) )
+    {
+        input.clear(); input.seekg( 0 );
+        nlohmann::json configuration;
+        input >> configuration;
+        if( std::string( argv[1] ) == "--restart-update" )
+        {
+            const auto root = configuration.at( "request" ).at( "installationRoot" ).get<std::string>();
+            std::ifstream restartMode( root + "/restart-mode" );
+            restartMode >> mode;
+            if( mode == "reject" )
+            {
+                std::cout << R"({"schemaVersion":1,"status":"failed","error":{"message":"Synthetic restart rejection."}})" << std::endl;
+                return 1;
+            }
+            std::cout << R"({"schemaVersion":1,"state":{"status":"waiting_for_exit"}})" << std::endl;
+            for( ;; ) std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
+        }
+        mode = configuration.value( "fixtureMode", "success" );
+    }
     nlohmann::json message = { { "schemaVersion", 1 }, { "installationReady", false },
                               { "manifestSha256", std::string( 64, '1' ) } };
     if( mode == "hang" || mode == "ignore-interrupt" )
@@ -158,10 +179,45 @@ BOOST_AUTO_TEST_CASE( CancellationAndOwnerDestructionReapOnlyTheirChild )
     }
 }
 
+BOOST_AUTO_TEST_CASE( RestartRequestCanCancelAndRetryWithoutLosingCandidate )
+{
+    Scenario scenario( "success" );
+    wxString root = wxFileName::CreateTempFileName( "kicad-restart-request-" );
+    wxRemoveFile( root );
+    std::filesystem::create_directories( root.ToStdString() + "/state" );
+    struct Cleanup { std::string path; ~Cleanup() { std::filesystem::remove_all( path ); } } cleanup{ root.ToStdString() };
+    std::string project = root.ToStdString() + "/fixture.kicad_pro";
+    { std::ofstream output( project ); output << "{}"; }
+    { std::ofstream config( scenario.configuration.ToStdString() );
+      config << nlohmann::json( { { "installationRoot", root.ToStdString() }, { "fixtureMode", "success" } } ).dump(); }
+    scenario.client->Check();
+    awaitCondition( [&] { return scenario.client->Candidate().is_object() && !scenario.client->IsRunning(); } );
+    BOOST_REQUIRE( scenario.client->Restart( wxString::FromUTF8( project ), "c9adf9b5-3070-43e4-90c1-c701123c6804", true ) );
+    awaitCondition( [&] { return scenario.Count( "restart_waiting" ) == 1; } );
+    std::vector<std::filesystem::path> requests;
+    for( const auto& entry : std::filesystem::directory_iterator( root.ToStdString() + "/state" ) ) requests.push_back( entry.path() );
+    BOOST_REQUIRE_EQUAL( requests.size(), 1 );
+    std::ifstream requestFile( requests[0] );
+    auto request = nlohmann::json::parse( requestFile ).at( "request" );
+    BOOST_CHECK_EQUAL( request.at( "projectPath" ).get<std::string>(), project );
+    BOOST_CHECK_EQUAL( request.at( "oldProcess" ).at( "processId" ).get<long>(), wxGetProcessId() );
+    BOOST_CHECK( request.at( "oldProcess" ).at( "startTicks" ).get<uint64_t>() > 0 );
+    BOOST_CHECK_EQUAL( request.at( "instanceId" ).get<std::string>(), "c9adf9b5-3070-43e4-90c1-c701123c6804" );
+    scenario.client->Cancel();
+    awaitCondition( [&] { return !scenario.client->IsRunning(); } );
+    BOOST_CHECK_EQUAL( scenario.Count( "cancelled" ), 1 );
+    BOOST_CHECK( scenario.client->Candidate().is_object() );
+    { std::ofstream mode( root.ToStdString() + "/restart-mode" ); mode << "reject"; }
+    BOOST_REQUIRE( scenario.client->Restart( wxString::FromUTF8( project ), "c9adf9b5-3070-43e4-90c1-c701123c6804", true ) );
+    awaitCondition( [&] { return scenario.Count( "failed" ) > 0 && !scenario.client->IsRunning(); } );
+    BOOST_CHECK( scenario.client->Candidate().is_object() );
+}
+
 bool initTests() { return true; }
 int main( int argc, char** argv )
 {
-    if( argc > 1 && ( std::string( argv[1] ) == "--check-update" || std::string( argv[1] ) == "--prepare-update" ) )
+    if( argc > 1 && ( std::string( argv[1] ) == "--check-update" || std::string( argv[1] ) == "--prepare-update"
+                      || std::string( argv[1] ) == "--restart-update" ) )
         return fixture( argc, argv );
     executable = wxFileName( wxString::FromUTF8( argv[0] ) ).GetAbsolutePath().ToStdString();
     wxApp::SetInstance( new wxApp );

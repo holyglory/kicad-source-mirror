@@ -5,6 +5,12 @@
 #include <wx/filename.h>
 #include <wx/stream.h>
 #include <wx/utils.h>
+#include <wx/ffile.h>
+#include <wx/stdpaths.h>
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <fstream>
+#include <sstream>
 #include <utility>
 
 namespace
@@ -74,7 +80,79 @@ void AUTOMATION_UPDATE_CLIENT::Start( int aCheckIntervalMs )
 void AUTOMATION_UPDATE_CLIENT::Check()
 {
     if( !m_process )
+    {
+        m_restart = false;
         launch( false );
+    }
+}
+
+bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std::string& aInstanceId,
+                                       bool aSoftwareRendering )
+{
+#ifdef __linux__
+    if( m_process || !m_candidate.is_object() )
+        return false;
+    try
+    {
+        m_invalid = false;
+        std::ifstream file( m_configuration.ToStdString() );
+        nlohmann::json configuration;
+        file >> configuration;
+        std::string root = configuration.at( "installationRoot" ).get<std::string>();
+        if( !wxFileName( wxString::FromUTF8( root ) ).IsAbsolute() || !wxFileName( aProjectPath ).IsAbsolute()
+                || !wxFileName::FileExists( aProjectPath ) )
+            throw std::runtime_error( "Invalid installation or project path." );
+        const auto operation = boost::uuids::to_string( boost::uuids::random_generator()() );
+        const auto instance = aInstanceId.empty() ? boost::uuids::to_string( boost::uuids::random_generator()() ) : aInstanceId;
+        std::ifstream bootFile( "/proc/sys/kernel/random/boot_id" );
+        std::string boot;
+        bootFile >> boot;
+        std::ifstream statFile( "/proc/self/stat" );
+        std::string stat;
+        std::getline( statFile, stat );
+        const auto end = stat.rfind( ')' );
+        if( boot.empty() || end == std::string::npos ) throw std::runtime_error( "Process identity is unavailable." );
+        std::istringstream fields( stat.substr( end + 1 ) );
+        std::string field;
+        for( int index = 0; index < 19; ++index ) fields >> field;
+        uint64_t ticks = 0;
+        if( !( fields >> ticks ) ) throw std::runtime_error( "Process start counter is unavailable." );
+        wxString socket = wxStandardPaths::Get().GetTempDir() + wxFILE_SEP_PATH
+                          + wxString::FromUTF8( "kcu-" + operation.substr( 0, 12 ) + ".sock" );
+        m_restartConfiguration = wxString::FromUTF8( root ) + wxFILE_SEP_PATH + "state"
+                                 + wxFILE_SEP_PATH + wxString::FromUTF8( "restart-" + operation + ".json" );
+        nlohmann::json request = { { "schemaVersion", 1 }, { "request", {
+            { "installationRoot", root }, { "expectedTarget", m_candidate.at( "expectedTarget" ) },
+            { "manifestSha256", m_candidate.at( "manifestSha256" ) }, { "operationId", operation },
+            { "oldProcess", { { "processId", wxGetProcessId() }, { "bootId", boot }, { "startTicks", ticks } } },
+            { "projectPath", aProjectPath.ToStdString() }, { "instanceId", instance },
+            { "socketPath", socket.ToStdString() }, { "softwareRendering", aSoftwareRendering } } } };
+        wxFFile output( m_restartConfiguration, "wx" );
+        if( !output.IsOpened() || !output.Write( wxString::FromUTF8( request.dump() ) ) || !output.Flush() )
+            throw std::runtime_error( "Cannot write the update restart request." );
+        output.Close();
+        m_restart = true;
+        launch( false );
+        return m_process != nullptr;
+    }
+    catch( const std::exception& error )
+    {
+        fail( error.what() );
+        return false;
+    }
+#else
+    return false;
+#endif
+}
+
+void AUTOMATION_UPDATE_CLIENT::DetachForRestart()
+{
+    if( !m_restart || !m_process ) return;
+    m_ioTimer.Stop();
+    m_checkTimer.Stop();
+    m_process->Detach();
+    m_process.release();
+    m_pid = 0;
 }
 
 void AUTOMATION_UPDATE_CLIENT::scheduledCheck( wxTimerEvent& )
@@ -101,9 +179,10 @@ void AUTOMATION_UPDATE_CLIENT::launch( bool aPrepare )
     m_terminal = nullptr;
     m_process = std::make_unique<UPDATE_PROCESS>( this );
     m_process->Redirect();
-    wxString operation = aPrepare ? wxS( "--prepare-update" ) : wxS( "--check-update" );
+    wxString operation = m_restart ? wxS( "--restart-update" ) : aPrepare ? wxS( "--prepare-update" ) : wxS( "--check-update" );
+    wxString configuration = m_restart ? m_restartConfiguration : m_configuration;
     const wxChar* arguments[] = { m_helper.c_str(), operation.c_str(), wxS( "--configuration" ),
-                                  m_configuration.c_str(), nullptr };
+                                  configuration.c_str(), nullptr };
     m_pid = wxExecute( arguments, wxEXEC_ASYNC | wxEXEC_MAKE_GROUP_LEADER, m_process.get() );
     if( m_pid <= 0 )
     {
@@ -114,7 +193,7 @@ void AUTOMATION_UPDATE_CLIENT::launch( bool aPrepare )
     m_elapsed.Start();
     m_ioTimer.Start( 100 );
     notify( { { "schemaVersion", 1 }, { "status", "helper_started" },
-              { "operation", aPrepare ? "prepare" : "check" }, { "installationReady", false },
+              { "operation", m_restart ? "restart" : aPrepare ? "prepare" : "check" }, { "installationReady", false },
               { "helperPid", m_pid } } );
 }
 
@@ -178,6 +257,29 @@ void AUTOMATION_UPDATE_CLIENT::drain()
         try
         {
             auto message = nlohmann::json::parse( line );
+            if( m_restart )
+            {
+                if( !message.is_object() || message.value( "schemaVersion", 0 ) != 1 )
+                    throw std::runtime_error( "Unexpected restart response." );
+                if( message.contains( "state" ) && message.at( "state" ).value( "status", "" ) == "waiting_for_exit" )
+                {
+                    m_terminal = message.at( "state" );
+                    // The close prompt may run another event loop; invoke it
+                    // after draining, with normal native ownership still intact.
+                    CallAfter( [this]
+                    {
+                        if( m_process && m_restart && m_cancelAt < 0 )
+                            notify( { { "schemaVersion", 1 }, { "status", "restart_waiting" }, { "journal", m_terminal } } );
+                    } );
+                }
+                else if( message.value( "status", "" ) == "failed" )
+                {
+                    m_terminal = message;
+                    notify( message );
+                }
+                else throw std::runtime_error( "Restart did not acknowledge a waiting state." );
+                continue;
+            }
             if( !message.is_object() || message.value( "schemaVersion", 0 ) != 1
                     || !message.contains( "installationReady" )
                     || message.at( "installationReady" ).get<bool>()
@@ -222,7 +324,10 @@ void AUTOMATION_UPDATE_CLIENT::finished( wxProcessEvent& aEvent )
     m_process.reset();
     m_pid = 0;
     if( m_invalid )
+    {
+        notify( { { "schemaVersion", 1 }, { "status", "helper_finished" }, { "installationReady", false } } );
         return;
+    }
     if( m_cancelAt >= 0 || aEvent.GetExitCode() == 2 )
     {
         notify( { { "schemaVersion", 1 }, { "status", "cancelled" }, { "installationReady", false } } );
@@ -238,6 +343,8 @@ void AUTOMATION_UPDATE_CLIENT::finished( wxProcessEvent& aEvent )
     {
         if( status != "failed" )
             fail( "The updater helper exited unsuccessfully." );
+        else
+            notify( m_terminal ); // release the native action's busy state
         return;
     }
     if( status == "failed" || status == "cancelled" )
@@ -250,9 +357,19 @@ void AUTOMATION_UPDATE_CLIENT::finished( wxProcessEvent& aEvent )
         if( !m_candidate.is_object() || m_candidate.value( "manifestSha256", "" )
                                       != m_terminal.value( "manifestSha256", "" ) )
             CallAfter( [this] { launch( true ); } );
+        else
+            notify( { { "schemaVersion", 1 }, { "status", "candidate_available" } } );
     }
     else if( m_prepare && status == "candidate_registered" )
+    {
         m_candidate = m_terminal;
+        notify( { { "schemaVersion", 1 }, { "status", "candidate_available" } } );
+    }
+    else if( status == "up_to_date" )
+    {
+        m_candidate = nullptr;
+        notify( { { "schemaVersion", 1 }, { "status", "candidate_cleared" } } );
+    }
     else if( status != "up_to_date" && status != "target_unavailable" && status != "preparation_unavailable"
              && status != "archive_staged" )
         fail( "The updater helper returned an unexpected terminal state." );

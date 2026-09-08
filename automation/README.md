@@ -957,8 +957,9 @@ first-install receipt provisioning still need integration.
 The update feed (`updates/preview.json` or `updates/stable.json`) is separate
 from the unsigned read-only public download catalogue. Payloads are fetched
 only from its publisher's `artifacts/` path. There is no production signing key,
-enabled public update feed, native Update button, periodic background worker,
-archive installation, restart or rollback yet. A `download_verified` receipt
+enabled production update feed or qualified native Update journey yet. Later
+sections describe the implemented installation, restart and rollback increments.
+A `download_verified` receipt
 explicitly has `installationReady: false`; it does not prove native signing,
 Mac notarization or a working automatic updater.
 
@@ -1006,7 +1007,8 @@ verify no partial/verified payload remained,
 retry with the retained signed checkpoint, stage the frozen package, then
 complete the native rendered journey. The disposable child used an ephemeral
 test CA file without changing host trust or disabling production TLS checks.
-This mode is not yet wired to a native startup/hourly worker or Update button.
+Native startup/hourly wiring and the caption implementation are described below;
+they are not present in the frozen public preview package.
 
 Before returning a prepared Linux candidate, the helper also runs its native
 CLI with isolated configuration/cache paths and checks the compiled commit
@@ -1027,8 +1029,8 @@ The already published a5666e707777 artifacts remain unchanged.
 This is an internal filesystem primitive, not an enabled installer: it does
 not authenticate arbitrary version directories, handle native editor shutdown,
 restart the application, qualify power-loss recovery, provision the first
-installed receipt or implement Mac activation. No native Update button uses it
-yet; the complete automatic-update workflow remains open.
+installed receipt or implement Mac activation. The higher-level handoff and
+caption wiring below are separate; the complete automatic-update workflow remains open.
 
 ### Verified initial Linux installation (preliminary)
 
@@ -1099,8 +1101,8 @@ stale/arbitrary targets, cancellation, metadata replay, activation retry,
 receipt-bound rollback and retry, checkpoint preservation, and real native/MCP
 rendering after restoration. It still uses different signed metadata sequences
 for the same frozen application bytes. The selection APIs are not yet exposed
-as a native Update button or an editor-closing/restarting command; they must not
-be treated as a completed desktop update journey or power-loss qualification.
+as a qualified desktop update journey; the native handoff and caption increments
+below still require matching-build qualification and power-loss verification.
 
 ### Native updater lifecycle (preliminary)
 
@@ -1116,7 +1118,8 @@ invalid response or exit failure never produces a ready-to-install state.
 The native client owns a separate helper process group, supports cancellation,
 and releases it on owner destruction. A still-running cancelled helper receives
 a bounded termination fallback while the native event loop remains available.
-There is no native Update button, visible readiness claim or editor restart yet.
+The caption control described below is under qualification, not a release-ready
+desktop updater.
 The published a5666e707777 packages do not include this integration or set these
 launcher variables. Automatic checking in a new packaged installation still
 requires that launcher wiring and qualification.
@@ -1171,11 +1174,36 @@ are retained with the evidence. The failure injection is test-only and not a
 production launch override.
 
 This still uses signed metadata revisions of the same frozen application
-archive; it is not a different-build upgrade. The native Update button and its
-explicit cancel/retry wiring are not implemented. Full restart-state recovery,
+archive; it is not a different-build upgrade. Caption cancel/retry wiring is
+under qualification as described below. Full restart-state recovery,
 power-loss qualification, production signing, new matching packages and both
 native-Mac targets remain open. The public preview packages are unchanged and
 predate this command.
+
+### Native caption Update control (under qualification)
+
+For explicitly configured Linux/GTK installations, the manager can show a
+compact `Update` action in its toolkit-native caption when a candidate is
+registered and a project is open. Clicking it creates an exact process/selection
+handoff request; the manager closes only after the helper acknowledges its
+preflight. Vetoing the normal save/close prompt cancels the owned handoff. A
+failed request leaves the action retryable after the helper terminates. A
+successful close detaches the handoff so it can continue after the old window
+exits. Unconfigured installations retain their normal window/update behavior.
+
+The caption follows window-title changes through a coalesced GTK event-loop
+update. Direct property binding re-entered a GTK object lock; the isolated
+native regression catches that startup/title-change hang. The caption fixture
+also invokes real mouse input and checks enabled, disabled and hidden states.
+Native client cases cover the generated restart request, cancellation and retry.
+These cases passed in `t20260908T203257Z-cad8f4` and the manager/lifecycle
+regression passed in `t20260908T203731Z-70c35a`.
+
+This does not yet prove a complete update initiated through that button on a
+matching installed build. The frozen public packages are unchanged, no Mac
+caption implementation is qualified, and updating without an open project is
+not supported by this control. Matching-build button journeys, different-build
+upgrades, production signing and all remaining platform checks remain open.
 
 ### Public preliminary downloads
 

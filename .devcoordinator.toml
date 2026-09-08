@@ -34,6 +34,28 @@ env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build
 [test]
 default = "automation"
 
+[test.native-caption]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.native-caption.check]]
+name = "configure"
+tier = "development"
+role = "preflight"
+invalidates = ["build", "caption"]
+command = ["cmake", "-S", ".", "-B", "automation/artifacts/native", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug", "-DKICAD_USE_CMAKE_FINDPROTOBUF=ON", "-DKICAD_BUILD_QA_TESTS=ON"]
+
+[[test.native-caption.check]]
+name = "build"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "qa_automation_caption"]
+
+[[test.native-caption.check]]
+name = "caption"
+tier = "development"
+requires = ["build"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_automation_caption$", "--output-on-failure", "--no-tests=error"]
+
 [test.native-updater-objects]
 timeout_seconds = 1200
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

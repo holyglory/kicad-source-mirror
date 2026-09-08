@@ -22,6 +22,8 @@
 #define KICAD_H
 
 #include <kiway_player.h>
+#include <nlohmann/json_fwd.hpp>
+#include <functional>
 
 class ACTION_TOOLBAR;
 class BITMAP_BUTTON;
@@ -255,6 +257,8 @@ private:
     wxString help_name() override;
 
     void updatePcmButtonBadge();
+    void onAutomationUpdate( const nlohmann::json& aMessage );
+    void beginAutomationUpdate();
 
 private:
     bool                  m_openSavedWindows;
@@ -274,6 +278,8 @@ private:
     int                                     m_pcmUpdateCount;
     std::unique_ptr<UPDATE_MANAGER>         m_updateManager;
     std::unique_ptr<AUTOMATION_UPDATE_CLIENT> m_automationUpdateClient;
+    std::function<void( bool, bool )> m_updateCaption;
+    bool m_updateRequested = false;
 };
 
 

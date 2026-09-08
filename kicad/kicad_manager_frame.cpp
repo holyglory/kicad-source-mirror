@@ -316,12 +316,54 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
             && wxGetEnv( "KICAD_AUTOMATION_UPDATE_CONFIG", &updateConfiguration ) )
     {
         m_automationUpdateClient = std::make_unique<AUTOMATION_UPDATE_CLIENT>( updateHelper,
-                updateConfiguration, []( const nlohmann::json& message )
+                updateConfiguration, [this]( const nlohmann::json& message )
                 {
                     wxLogTrace( "KICAD_AUTOMATION_UPDATES", "%s", wxString::FromUTF8( message.dump() ) );
+                    onAutomationUpdate( message );
                 } );
+#if defined( __WXGTK__ ) && defined( __linux__ )
+        m_updateCaption = KIPLATFORM::UI::AddCaptionAction( this, _( "Update" ),
+                [this] { CallAfter( [this] { beginAutomationUpdate(); } ); } );
+#endif
         CallAfter( [this] { if( m_automationUpdateClient ) m_automationUpdateClient->Start(); } );
     }
+}
+
+void KICAD_MANAGER_FRAME::beginAutomationUpdate()
+{
+    if( !m_automationUpdateClient || m_automationUpdateClient->IsRunning() || m_updateRequested ) return;
+    m_updateRequested = true;
+    if( m_updateCaption ) m_updateCaption( true, false );
+    const auto* api = Pgm().ApiServerOrNull();
+    std::string instance = api && api->IsAutomation() ? api->AutomationInstanceId() : "";
+    if( !m_automationUpdateClient->Restart( Prj().GetProjectFullName(), instance,
+            wxGetEnv( "KICAD_SOFTWARE_RENDERING", nullptr ) ) )
+    {
+        m_updateRequested = false;
+        if( m_updateCaption ) m_updateCaption( true, true );
+    }
+}
+
+void KICAD_MANAGER_FRAME::onAutomationUpdate( const nlohmann::json& message )
+{
+    const std::string status = message.value( "status", "" );
+    if( status == "restart_waiting" && m_updateRequested )
+    {
+        if( Close( false ) ) m_automationUpdateClient->DetachForRestart();
+        else m_automationUpdateClient->Cancel();
+    }
+    else if( status == "failed" && m_updateRequested )
+    {
+        m_updateRequested = false;
+        wxString reason = _( "The update could not be started." );
+        if( message.contains( "error" ) && message.at( "error" ).contains( "message" ) )
+            reason += "\n" + wxString::FromUTF8( message.at( "error" ).at( "message" ).get<std::string>() );
+        DisplayError( this, reason );
+    }
+    else if( status == "cancelled" ) m_updateRequested = false;
+    if( m_updateCaption && m_automationUpdateClient )
+        m_updateCaption( m_active_project && m_automationUpdateClient->Candidate().is_object(),
+                         !m_updateRequested && !m_automationUpdateClient->IsRunning() );
 }
 
 

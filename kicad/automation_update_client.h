@@ -25,6 +25,9 @@ public:
     void Start( int aCheckIntervalMs = 3600000 );
     void Check();
     void Cancel();
+    bool Restart( const wxString& aProjectPath, const std::string& aInstanceId, bool aSoftwareRendering );
+    void DetachForRestart();
+    bool IsRestarting() const { return m_restart; }
     bool IsRunning() const { return m_process != nullptr; }
     const nlohmann::json& Candidate() const { return m_candidate; }
 
@@ -48,6 +51,8 @@ private:
     long                       m_pid = 0;
     long                       m_cancelAt = -1;
     bool                       m_prepare = false;
+    bool                       m_restart = false;
+    wxString                   m_restartConfiguration;
     bool                       m_invalid = false;
     std::string                m_stdout;
     std::string                m_stderr;

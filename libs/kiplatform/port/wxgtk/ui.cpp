@@ -47,6 +47,70 @@
 // Set WXTRACE=KICAD_WAYLAND to see logs
 const wxString traceWayland = wxS( "KICAD_WAYLAND" );
 
+#ifdef __linux__
+namespace
+{
+void queueCaptionTitle( GtkWidget* header )
+{
+    if( g_object_get_data( G_OBJECT( header ), "kicad-title-pending" ) ) return;
+    g_object_set_data( G_OBJECT( header ), "kicad-title-pending", GINT_TO_POINTER( 1 ) );
+    g_idle_add_full( G_PRIORITY_DEFAULT_IDLE, +[]( gpointer data ) -> gboolean
+    {
+        GtkWidget* bar = GTK_WIDGET( data );
+        g_object_set_data( G_OBJECT( bar ), "kicad-title-pending", nullptr );
+        GtkWidget* parent = gtk_widget_get_toplevel( bar );
+        if( GTK_IS_WINDOW( parent ) && !gtk_widget_in_destruction( parent ) )
+        {
+            const char* title = gtk_window_get_title( GTK_WINDOW( parent ) );
+            if( g_strcmp0( gtk_header_bar_get_title( GTK_HEADER_BAR( bar ) ), title ) != 0 )
+                gtk_header_bar_set_title( GTK_HEADER_BAR( bar ), title );
+        }
+        return G_SOURCE_REMOVE;
+    }, g_object_ref( header ), +[]( gpointer data ) { g_object_unref( data ); } );
+}
+}
+
+std::function<void( bool, bool )> KIPLATFORM::UI::AddCaptionAction( wxTopLevelWindow* aWindow,
+        const wxString& aLabel, std::function<void()> aAction )
+{
+    GtkWindow* window = GTK_WINDOW( aWindow->GetHandle() );
+    GtkWidget* widget = GTK_WIDGET( window );
+    if( gtk_widget_get_visible( widget ) )
+        throw std::logic_error( "Caption actions must be installed before the window is shown." );
+    GtkWidget* header = gtk_header_bar_new();
+    gtk_header_bar_set_show_close_button( GTK_HEADER_BAR( header ), true );
+    gtk_header_bar_set_title( GTK_HEADER_BAR( header ), gtk_window_get_title( window ) );
+    GtkWidget* button = gtk_button_new_with_label( aLabel.ToUTF8() );
+    gtk_widget_set_no_show_all( button, true );
+    gtk_header_bar_pack_end( GTK_HEADER_BAR( header ), button );
+    auto* callback = new std::function<void()>( std::move( aAction ) );
+    g_signal_connect_data( button, "clicked", G_CALLBACK( +[]( GtkButton*, gpointer data )
+        { ( *static_cast<std::function<void()>*>( data ) )(); } ), callback,
+        +[]( gpointer data, GClosure* ) { delete static_cast<std::function<void()>*>( data ); },
+        GConnectFlags( 0 ) );
+    gtk_widget_show( header );
+    // wxGTK realizes top-level windows before Show(). GTK cannot change their
+    // titlebar after realization. Rebuild the still-hidden native window while
+    // preserving the GtkWindow and its wx-owned child widget objects.
+    const bool realized = gtk_widget_get_realized( widget );
+    if( realized ) gtk_widget_unrealize( widget );
+    gtk_window_set_titlebar( window, header );
+    // GTK emits title notifications while holding an object lock also needed
+    // by GtkHeaderBar. Avoid synchronous property binding/re-entry. The queued
+    // update holds a reference and checks that the bar still belongs to a live
+    // window; multiple title notifications coalesce into one event-loop update.
+    g_signal_connect_object( window, "notify::title", G_CALLBACK( +[]( GObject*, GParamSpec*, gpointer data )
+        { queueCaptionTitle( GTK_WIDGET( data ) ); } ), header, GConnectFlags( 0 ) );
+    queueCaptionTitle( header );
+    if( realized ) gtk_widget_realize( widget );
+    return [button]( bool visible, bool enabled )
+    {
+        gtk_widget_set_sensitive( button, enabled );
+        gtk_widget_set_visible( button, visible );
+    };
+}
+#endif
+
 
 bool KIPLATFORM::UI::IsDarkTheme()
 {

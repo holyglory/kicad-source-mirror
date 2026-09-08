@@ -926,13 +926,19 @@ The optional .NET LTTng 2.12 tracepoint provider is omitted only from the Debian
 copy because Debian 13 uses the incompatible newer LTTng ABI. The receipt records
 that exact omission. The original frozen tar archive remains unchanged.
 
-The Debian package was built in governed run t20260908T105916Z-53e9c8, but
-CleanHostVerified and QualifyingDelivery remain false. A compiled non-root
-MCP/native probe is prepared. Clean execution is currently blocked by the absence
-of a Coordinator-owned finite container path: all-finite Compose deployments
-are rejected, while NoNewPrivileges prevents the rootless bootstrap's UID
-mapping. Coordinator issue b82c1d32503d3 / task p7ae97e9e818056b3 owns this gap.
-Do not bypass it by removing runner restrictions or adding a dummy service.
+The Debian package was built in governed run t20260908T105916Z-53e9c8. Its
+construction receipt predates qualification and is retained unchanged.
+Subsequent clean-Debian execution passed in deployment df9549b90e32b3da3 and
+evidence check t20260908T141913Z-7e0621: no SDK or development libraries, a non-root
+operator, and real packaged MCP create/render/reconnect, dirty-session survival
+and native save. The verified render/evidence tree is
+d2edcced4f3c692d03d8b4f92b6269c93219b079487d560f9b059e7a52dc1959.
+
+Coordinator's explicit finite-container lifecycle now owns this check without
+weakening NoNewPrivileges or adding a dummy service. The disposable qualification
+deployment was removed after evidence retention. This proves the stated Debian
+journey only: public HTTPS downloads, automatic updates, both native-Mac targets,
+simulation and the complete engineering workflow remain unqualified.
 
 ### Source PDF inspection (preliminary)
 

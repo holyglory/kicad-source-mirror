@@ -1,0 +1,8 @@
+services:
+  probe:
+    build:
+      context: ../artifacts/clean-debian-context
+    network_mode: none
+    volumes:
+      - ../artifacts/clean-debian-evidence:/evidence
+    restart: "no"

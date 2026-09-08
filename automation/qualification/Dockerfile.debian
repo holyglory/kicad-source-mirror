@@ -1,0 +1,16 @@
+FROM debian:13-slim@sha256:abc9cb88a5587630d7f915f47b23b0668fe250fbfc6457aa4d52b534c1bbf73f
+
+# Install the subject and its declared dependencies. The only separately added
+# packages support the isolated display and non-root acceptance account.
+# No SDK, compiler or development libraries are installed.
+COPY subject.deb subject.sha256 /tmp/
+RUN cd /tmp && sha256sum --check subject.sha256 && apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/subject.deb xvfb xauth passwd \
+    && apt-get clean \
+    && useradd --uid 1000 --create-home probe \
+    && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
+
+COPY --chown=1000:1000 probe/ /probe/
+USER 1000:1000
+ENTRYPOINT ["/probe/kicad-package-probe"]
+CMD ["/opt/kicad-codex/preview-20260908T093000Z-a5666e707777", "/evidence"]

@@ -1,5 +1,19 @@
 schema = 2
 
+[deployment.debian-qualification]
+source = ["worktree"]
+components = ["check"]
+public = false
+ttl_seconds = 86400
+
+[deployment.debian-qualification.component.check]
+type = "compose"
+files = ["automation/qualification/debian.compose.yaml"]
+services = ["probe"]
+finite_services = ["probe"]
+build = true
+timeout_seconds = 900
+
 # Proposed download-only route; activation waits for the hostname decision.
 # Immutable checkout generations keep development builds away from the server.
 [deployment.downloads]
@@ -34,20 +48,16 @@ command = ["dotnet", "publish", "automation/tools/KiCad.Automation.PackageProbe/
 [[test.clean-probe-build.check]]
 name = "stage-context"
 tier = "development"
-command = ["bash", "-lc", "cp automation/qualification/subject.sha256 automation/artifacts/clean-debian-context/subject.sha256 && cp /mnt/build-storage/codex/kicad/debian-candidates/20260908T105929Z/kicad-codex-a26b9b7035d4_0~preview-20260908T093000Z-a5666e707777_amd64.deb automation/artifacts/clean-debian-context/subject.deb"]
+command = ["bash", "-lc", "cp automation/qualification/Dockerfile.debian automation/artifacts/clean-debian-context/Dockerfile && cp automation/qualification/subject.sha256 automation/artifacts/clean-debian-context/subject.sha256 && cp /mnt/build-storage/codex/kicad/debian-candidates/20260908T105929Z/kicad-codex-a26b9b7035d4_0~preview-20260908T093000Z-a5666e707777_amd64.deb automation/artifacts/clean-debian-context/subject.deb && mkdir -p automation/artifacts/clean-debian-evidence"]
 
-[[test.clean-probe-build.check]]
-name = "bootstrap"
-tier = "development"
-requires = ["stage-context"]
-command = ["bash", "automation/qualification/rootless-debian.sh"]
-retained_artifacts = [{ name = "rootless-debian-evidence", path = "automation/artifacts/rootless-debian-evidence", max_bytes = 33554432 }]
+[test.clean-debian-result]
+timeout_seconds = 120
 
-[[test.clean-probe-build.check]]
+[[test.clean-debian-result.check]]
 name = "verify"
 tier = "development"
-requires = ["bootstrap"]
-command = ["automation/artifacts/clean-debian-context/probe/kicad-package-probe", "--verify", "/home/holyglory/kicad/automation/artifacts/rootless-debian-evidence/evidence"]
+command = ["automation/artifacts/clean-debian-context/probe/kicad-package-probe", "--verify", "/home/holyglory/kicad/automation/artifacts/clean-debian-evidence"]
+retained_artifacts = [{ name = "clean-debian-evidence", path = "automation/artifacts/clean-debian-evidence", max_bytes = 33554432 }]
 
 [test.debian-package]
 timeout_seconds = 1800

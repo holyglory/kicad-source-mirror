@@ -1,7 +1,59 @@
 schema = 2
 
+# Proposed download-only route; activation waits for the hostname decision.
+# Immutable checkout generations keep development builds away from the server.
+[deployment.downloads]
+source = ["checkout"]
+domain = "kicad-downloads"
+components = ["files"]
+public = true
+build = ["dotnet", "publish", "automation/tools/KiCad.Automation.Downloads/KiCad.Automation.Downloads.csproj", "--configuration", "Release", "-p:RestoreLockedMode=true", "--output", "automation/artifacts/download-host"]
+
+[deployment.downloads.component.files]
+type = "process"
+command = ["dotnet", "automation/artifacts/download-host/kicad-downloads.dll"]
+port = true
+route = true
+health = { path = "/healthz", timeout_seconds = 60 }
+env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/20260908T093000Z-a5666e707777" }
+
 [test]
 default = "automation"
+
+[test.mac-validation-contracts]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.mac-validation-contracts.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.mac-validation-contracts.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacArchitectureTests|FullyQualifiedName~ValidationEvidenceTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-validation-contracts"]
+retained_artifacts = [{ name = "mac-validation-contracts", path = "automation/artifacts/mac-validation-contracts", max_bytes = 16777216 }]
+
+# Independent verification of the already frozen archive, not a rebuild of it.
+[test.archive-delivery]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260908T093000Z-a5666e707777" }
+
+[[test.archive-delivery.check]]
+name = "build-harness"
+tier = "development"
+role = "preflight"
+invalidates = ["download-and-launch"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.archive-delivery.check]]
+name = "download-and-launch"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativePackageArchive", "--logger", "trx", "--results-directory", "automation/artifacts/archive-delivery-tests"]
+retained_artifacts = [{ name = "archive-delivery-tests", path = "automation/artifacts/archive-delivery-tests", max_bytes = 16777216 }, { name = "archive-delivery-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
 
 # Explicit dependency-lock maintenance, not verification/readiness evidence.
 [test.package-lock-refresh]
@@ -247,5 +299,5 @@ command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex"
 name = "native-session"
 tier = "development"
 requires = ["native-build"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSession&TestCategory!=NativePackage", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSession&TestCategory!=NativePackage&TestCategory!=NativePackageArchive", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
 retained_artifacts = [{ name = "native-session-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]

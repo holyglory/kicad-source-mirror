@@ -5,8 +5,8 @@ try
 {
     if (args.Length == 0 || args[0] is "--help" or "-h")
     {
-        Console.WriteLine("kicad-validate mac --repository LOCAL_CHECKOUT --commit FULL_SHA --builder MAC_BUILDER_CHECKOUT --toolchain EXISTING_CMAKE_TOOLCHAIN --output NEW_DIRECTORY [--native-tests CTEST_REGEX]");
-        Console.WriteLine("kicad-validate verify --result RESULT_JSON --archive EVIDENCE_TAR_GZ --commit FULL_SHA");
+        Console.WriteLine("kicad-validate mac --repository LOCAL_CHECKOUT --commit FULL_SHA --architecture arm64|x64 --builder MAC_BUILDER_CHECKOUT --toolchain EXISTING_CMAKE_TOOLCHAIN --output NEW_DIRECTORY [--native-tests CTEST_REGEX]");
+        Console.WriteLine("kicad-validate verify --result RESULT_JSON --archive EVIDENCE_TAR_GZ --commit FULL_SHA [--architecture arm64|x64]");
         Console.WriteLine("kicad-validate stage-linux --build NATIVE_BUILD --managed SELF_CONTAINED_PUBLISH --nng NNG_SHARED_LIBRARY --output EXISTING_STAGING_DIRECTORY");
         Console.WriteLine("kicad-validate package-linux --staging STAGING_RECEIPT --repository COMMITTED_SOURCE --commit FULL_SHA --version VERSION --output NEW_DIRECTORY");
         return 0;
@@ -21,10 +21,10 @@ try
     string Required(string name) => options.TryGetValue(name, out string? value) ? value
         : throw new ArgumentException($"Missing --{name}.");
     string[] allowed = args[0] == "mac"
-        ? ["repository", "commit", "builder", "toolchain", "output", "native-tests"]
+        ? ["repository", "commit", "architecture", "builder", "toolchain", "output", "native-tests"]
         : args[0] == "stage-linux" ? ["build", "managed", "nng", "output"]
         : args[0] == "package-linux" ? ["staging", "repository", "commit", "version", "output"]
-        : ["result", "archive", "commit"];
+        : ["result", "archive", "commit", "architecture"];
     foreach (string name in options.Keys)
         if (!allowed.Contains(name, StringComparer.Ordinal)) throw new ArgumentException($"Unknown option --{name}.");
     using var cancel = new CancellationTokenSource();
@@ -47,14 +47,15 @@ try
     if (args[0] == "mac")
     {
         var request = new MacRequest(Required("repository"), Required("commit"), Required("builder"),
-            Required("toolchain"), Required("output"), options.GetValueOrDefault("native-tests", "."));
+            Required("toolchain"), Required("output"), options.GetValueOrDefault("native-tests", "."), Required("architecture"));
         ValidationResult result = await MacValidation.RunAsync(request, cancel.Token);
         Console.WriteLine(JsonSerializer.Serialize(result, Evidence.JsonOptions));
         return result.Status == "checks_passed" ? 0 : 1;
     }
     if (args[0] == "verify")
     {
-        await Evidence.VerifyAsync(Required("result"), Required("archive"), Required("commit"), cancel.Token);
+        await Evidence.VerifyAsync(Required("result"), Required("archive"), Required("commit"), cancel.Token,
+            options.GetValueOrDefault("architecture"));
         Console.WriteLine("Receipt/archive integrity verified for the requested commit. No Mac execution was performed by this command; this is not cross-platform readiness.");
         return 0;
     }

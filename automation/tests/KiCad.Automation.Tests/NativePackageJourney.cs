@@ -31,6 +31,12 @@ public sealed partial class NativeSessionTests
         }
         string evidence = NativeEvidenceDirectory.Begin(Path.Combine(root, "automation/artifacts"));
         await File.WriteAllTextAsync(Path.Combine(evidence, "package-receipt.sha256"), Evidence.Hash(pointer));
+        await VerifyInstalledNative(prefix, evidence);
+    }
+
+    private static async Task VerifyInstalledNative(string prefix, string evidence,
+        string? nativeLauncher = null, string? mcpLauncher = null)
+    {
         string temporary = Directory.CreateTempSubdirectory("kicad-package-").FullName;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         var processes = new List<Process>();
@@ -57,7 +63,7 @@ public sealed partial class NativeSessionTests
                 { new { uuid = rootId, name = "fixture", filename = "fixture.kicad_sch" } } }
             }), deadline.Token);
             string socket = Path.Combine(temporary, "api.sock");
-            var start = new ProcessStartInfo(Path.Combine(prefix, "bin/kicad"))
+            var start = new ProcessStartInfo(nativeLauncher ?? Path.Combine(prefix, "bin/kicad"))
             {
                 WorkingDirectory = temporary, UseShellExecute = false,
                 RedirectStandardOutput = true, RedirectStandardError = true
@@ -90,7 +96,7 @@ public sealed partial class NativeSessionTests
             var client = new NativeClient(new NngTransport(), "ipc://" + socket);
             await VerifyEmptyRootCreation(client, schematic, Path.Combine(temporary, "wrong.kicad_sch"),
                 evidence, instanceId, rootId, deadline.Token,
-                Path.Combine(prefix, "lib/kicad-automation/kicad-mcp"));
+                mcpLauncher ?? Path.Combine(prefix, "lib/kicad-automation/kicad-mcp"));
             Assert.IsFalse(native.HasExited, "MCP exit must not close the installed editor.");
         }
         finally

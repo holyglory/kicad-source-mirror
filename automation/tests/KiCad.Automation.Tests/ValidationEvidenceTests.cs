@@ -23,7 +23,7 @@ public sealed class ValidationEvidenceTests
     {
         if (OperatingSystem.IsMacOS()) return;
         await Assert.ThrowsExactlyAsync<PlatformNotSupportedException>(() => MacValidation.RunAsync(
-            new("unused", FixtureCommit, "unused", "unused", "unused", "."), CancellationToken.None));
+            new("unused", FixtureCommit, "unused", "unused", "unused", ".", "arm64"), CancellationToken.None));
     }
 
     [TestMethod]
@@ -45,6 +45,8 @@ public sealed class ValidationEvidenceTests
             ValidationResult result = await Evidence.SealAsync(root, evidence, receipt);
             Assert.IsFalse(result.CrossPlatformReady);
             await Evidence.VerifyAsync(Path.Combine(root, "result.json"), result.Archive, FixtureCommit);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => Evidence.VerifyAsync(
+                Path.Combine(root, "result.json"), result.Archive, FixtureCommit, architecture: "arm64"));
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => Evidence.VerifyAsync(
                 Path.Combine(root, "result.json"), result.Archive, new string('2', 40)));
             await File.AppendAllTextAsync(result.Archive, "tamper");

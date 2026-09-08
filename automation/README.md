@@ -835,14 +835,29 @@ and a full commit SHA available from that checkout's `origin`:
 dotnet run --project automation/tools/KiCad.Automation.Validation -- mac \
   --repository /path/to/kicad \
   --commit FULL_40_CHARACTER_COMMIT_SHA \
+  --architecture arm64 \
   --builder /path/to/kicad-mac-builder \
   --toolchain /path/to/kicad-mac-builder/toolchain/kicad-mac-builder.cmake \
   --output /path/to/new-validation-directory \
   --native-tests 'YOUR_CTEST_SELECTION'
 ```
 
+Use `--architecture arm64` for Apple Silicon and `--architecture x64` for Intel
+target validation, with separate output directories and matching Mac/.NET
+execution architectures. The command rejects a process/target mismatch; merely
+cross-compiling does not establish execution of the other target. Existing
+builder dependencies must support the selected architecture.
+
+Choose a dedicated output path without spaces or CMake metacharacters. The
+pinned native installer embeds that path into generated CMake commands; the
+helper rejects unsupported destinations before creating the output or invoking
+installation. This restriction is on the Mac validation build destination,
+not on engineering-project paths or ordinary application use.
+
 The output directory must not already exist. The helper fetches the exact commit,
 creates a detached source worktree there, builds with the supplied toolchain,
+runs the pinned native bundle install rules into its own `install` directory,
+checks the installed manager/CLI Mach-O architecture slices and native commit,
 runs the selected CTest checks and non-Linux-only MSTest checks, and retains the
 source/build for inspection. It writes `result.json` and `evidence.tar.gz` on
 success or a handled failure. The archive includes a versioned receipt, actual
@@ -856,12 +871,17 @@ or Mac, the following verifies integrity and commit identity only:
 ```sh
 dotnet run --project automation/tools/KiCad.Automation.Validation -- verify \
   --result /path/to/result.json --archive /path/to/evidence.tar.gz \
-  --commit FULL_40_CHARACTER_COMMIT_SHA
+  --commit FULL_40_CHARACTER_COMMIT_SHA --architecture arm64
 ```
 
 Receipt validation is not a Mac execution or an attestation. Even a successful
 selected-check receipt has `CrossPlatformReady: false`; full rendered journeys,
 Codex Desktop integration and every remaining milestone still need evidence.
+Architecture-aware native receipts use schema 2 and identify the selected target
+and native executable hashes. Legacy schema-1 receipts remain readable for
+integrity checking but cannot satisfy an explicit `--architecture` request.
+Native configuration and cache paths are isolated beneath the new output
+directory. This does not configure signing, notarization or an unattended worker.
 Self-contained distribution packaging remains unfinished.
 
 ### Linux installation staging (preliminary)

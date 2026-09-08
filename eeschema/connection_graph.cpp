@@ -3889,6 +3889,57 @@ SCH_NETCHAIN* CONNECTION_GRAPH::FindPotentialNetChainBetweenPins( SCH_PIN* aPinA
     return nullptr;
 }
 
+std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION> CONNECTION_GRAPH::GetNetChainDefinitions() const
+{
+    std::map<wxString, NET_CHAIN_DEFINITION> definitions;
+    for( const auto& [name, terminals] : m_netChainTerminalRefOverrides )
+        definitions[name].terminals = terminals;
+    for( const auto& [name, netClass] : m_netChainNetClassOverrides )
+        definitions[name].netClass = netClass;
+    for( const auto& [name, color] : m_netChainColorOverrides )
+        definitions[name].color = color;
+    for( const auto& [name, nets] : m_netChainMemberNetOverrides )
+        definitions[name].memberNets = nets;
+
+    // Live color/class edits need not have been copied into the restore maps.
+    for( const auto& chain : m_committedNetChains )
+    {
+        if( !chain ) continue;
+        auto& definition = definitions[chain->GetName()];
+        definition.terminals = { { chain->GetTerminalRef( 0 ), chain->GetTerminalPinNum( 0 ) },
+                                 { chain->GetTerminalRef( 1 ), chain->GetTerminalPinNum( 1 ) } };
+        definition.netClass = chain->GetNetClass();
+        definition.color = chain->GetColor();
+        definition.memberNets = chain->GetNets();
+        definition.committed = true;
+    }
+    for( auto& [name, definition] : definitions )
+        std::erase_if( definition.memberNets, []( const wxString& net )
+        {
+            return net.IsEmpty() || net.StartsWith( SCH_NETCHAIN::SYNTHETIC_NET_PREFIX );
+        } );
+    return definitions;
+}
+
+void CONNECTION_GRAPH::SetNetChainDefinitions( const std::map<wxString, NET_CHAIN_DEFINITION>& aDefinitions )
+{
+    m_committedNetChains.clear();
+    m_netChainTerminalOverrides.clear();
+    m_netChainTerminalRefOverrides.clear();
+    m_netChainNetClassOverrides.clear();
+    m_netChainColorOverrides.clear();
+    m_netChainMemberNetOverrides.clear();
+    for( const auto& [name, definition] : aDefinitions )
+    {
+        m_netChainTerminalRefOverrides[name] = definition.terminals;
+        m_netChainNetClassOverrides[name] = definition.netClass;
+        m_netChainColorOverrides[name] = definition.color;
+        m_netChainMemberNetOverrides[name] = definition.memberNets;
+    }
+    RebuildNetChains();
+    ApplyNetChainNetclasses();
+}
+
 bool CONNECTION_GRAPH::DeleteCommittedNetChain( const wxString& aName )
 {
     if( aName.IsEmpty() )

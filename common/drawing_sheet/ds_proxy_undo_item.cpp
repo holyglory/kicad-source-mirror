@@ -22,6 +22,7 @@
 #include <drawing_sheet/ds_data_model.h>
 #include <view/view.h>
 #include <eda_draw_frame.h>
+#include <base_screen.h>
 #include <string_utils.h>
 
 using namespace KIGFX;
@@ -35,6 +36,7 @@ DS_PROXY_UNDO_ITEM::DS_PROXY_UNDO_ITEM( const EDA_DRAW_FRAME* aFrame ) :
     {
         m_pageInfo = aFrame->GetPageSettings();
         m_titleBlock = aFrame->GetTitleBlock();
+        m_drawingSheetFileName = BASE_SCREEN::m_DrawingSheetFileName;
     }
 
     DS_DATA_MODEL& model = DS_DATA_MODEL::GetTheInstance();
@@ -65,6 +67,7 @@ void DS_PROXY_UNDO_ITEM::Restore( EDA_DRAW_FRAME* aFrame, KIGFX::VIEW* aView )
     {
         aFrame->SetPageSettings( m_pageInfo );
         aFrame->SetTitleBlock( m_titleBlock );
+        BASE_SCREEN::m_DrawingSheetFileName = m_drawingSheetFileName;
     }
 
     DS_DATA_MODEL::GetTheInstance().SetPageLayout( TO_UTF8( m_layoutSerialization ) );
@@ -88,4 +91,3 @@ void DS_PROXY_UNDO_ITEM::Restore( EDA_DRAW_FRAME* aFrame, KIGFX::VIEW* aView )
         }
     }
 }
-

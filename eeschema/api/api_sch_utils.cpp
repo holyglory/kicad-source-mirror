@@ -139,6 +139,37 @@ PIN_MAP_INSTANCE_OVERRIDE UnpackPinMapOverride( const kiapi::schematic::types::P
 }
 
 
+static void packSymbolVariants( kiapi::schematic::types::SchematicSymbolVariants* aOutput,
+                                const SCH_SYMBOL_INSTANCE& aInstance, SCHEMATIC* aSchematic )
+{
+    for( const auto& [name, info] : aInstance.m_Variants )
+    {
+        auto* variant = aOutput->add_variants();
+        variant->set_name( name.ToUTF8() );
+
+        if( aSchematic )
+            variant->set_description( aSchematic->GetVariantDescription( name ).ToUTF8() );
+
+        auto* attributes = variant->mutable_attributes();
+        attributes->set_exclude_from_simulation( info.m_ExcludedFromSim );
+        attributes->set_exclude_from_bill_of_materials( info.m_ExcludedFromBOM );
+        attributes->set_exclude_from_board( info.m_ExcludedFromBoard );
+        attributes->set_exclude_from_position_files( info.m_ExcludedFromPosFiles );
+        attributes->set_do_not_populate( info.m_DNP );
+
+        for( const auto& [key, value] : info.m_Fields )
+            ( *variant->mutable_fields() )[std::string( key.ToUTF8() )] = value.ToUTF8();
+
+        auto* symbolOverride = variant->mutable_symbol_override();
+
+        if( info.m_SymbolOverride )
+            PackLibId( symbolOverride, *info.m_SymbolOverride );
+
+        PackPinMapOverride( variant->mutable_pin_map_override(), info.m_PinMapOverride );
+    }
+}
+
+
 bool PackSymbol( kiapi::schematic::types::SchematicSymbolInstance* aOutput, const SCH_SYMBOL* aInput,
                  const SCH_SHEET_PATH& aPath )
 {
@@ -163,8 +194,29 @@ bool PackSymbol( kiapi::schematic::types::SchematicSymbolInstance* aOutput, cons
     aOutput->mutable_unit()->set_unit( instance.m_Unit );
 
     kiapi::schematic::types::SchematicSymbol* def = aOutput->mutable_definition();
+    def->set_pins_use_local_coordinates( true );
+    aOutput->set_separate_pin_identities( true );
 
-    std::vector<const SCH_PIN*> pins = aInput->GetPins( &aPath );
+    // A placement selects a unit/body style, but its definition must retain all
+    // of them. Prefer the placed pin's identity/alternate where one exists and
+    // preserve the library pin for inactive body styles.
+    std::vector<const SCH_PIN*> pins;
+
+    for( const SCH_PIN* libraryPin : aInput->GetAllLibPins() )
+    {
+        const SCH_PIN* definitionPin = libraryPin;
+
+        for( const SCH_PIN* candidate : aInput->GetPinsByNumber( libraryPin->GetNumber() ) )
+        {
+            if( candidate->GetLibPin() == libraryPin )
+            {
+                definitionPin = candidate;
+                break;
+            }
+        }
+
+        pins.push_back( definitionPin );
+    }
 
     std::ranges::sort( pins,
                        []( const SCH_PIN* a, const SCH_PIN* b )
@@ -179,11 +231,20 @@ bool PackSymbol( kiapi::schematic::types::SchematicSymbolInstance* aOutput, cons
         item->mutable_body_style()->set_style( pin->GetBodyStyle() );
         item->set_is_private( pin->IsPrivate() );
         pin->Serialize( *item->mutable_item() );
+
+        // Definition children use symbol-local coordinates. SCH_PIN::Serialize
+        // reports sheet coordinates for placed pins; feeding those back into
+        // a library definition would apply the symbol transform a second time.
+        kiapi::schematic::types::SchematicPin definitionPin;
+        item->item().UnpackTo( &definitionPin );
+        PackVector2( *definitionPin.mutable_position(), pin->GetLocalPosition(), schIUScale );
+        item->mutable_item()->PackFrom( definitionPin );
     }
 
     if( const LIB_SYMBOL* lib = aInput->GetLibSymbolRef().get() )
     {
         kiapi::schematic::types::SymbolPinMaps* pinMaps = def->mutable_pin_maps();
+        pinMaps->Clear();
 
         for( const ASSOCIATED_FOOTPRINT& assoc : lib->GetEffectiveAssociatedFootprints() )
         {
@@ -206,7 +267,9 @@ bool PackSymbol( kiapi::schematic::types::SchematicSymbolInstance* aOutput, cons
         }
     }
 
-    PIN_MAP_INSTANCE_OVERRIDE override = aInput->GetPinMapOverride( &aPath );
+    // Match native saving: preserve delegation rather than baking in the
+    // current unit-1 mapping. Resolved mappings belong in computed queries.
+    PIN_MAP_INSTANCE_OVERRIDE override = aInput->GetPinMapOverride();
 
     if( !override.IsDefault() )
         PackPinMapOverride( aOutput->mutable_pin_map_override(), override );
@@ -219,29 +282,26 @@ bool PackSymbol( kiapi::schematic::types::SchematicSymbolInstance* aOutput, cons
     attributes->set_exclude_from_position_files( aInput->GetExcludedFromPosFiles() );
     attributes->set_do_not_populate( aInput->GetDNP() );
 
-    // Descriptions belong to the schematic's variant registry rather than to each record.
-    SCHEMATIC* schematic = aInput->Schematic();
+    packSymbolVariants( aOutput->mutable_variants(), instance, aInput->Schematic() );
 
-    // Always set, so that sending the response back describes the placement's variants in full.
-    kiapi::schematic::types::SchematicSymbolVariants* variants = aOutput->mutable_variants();
+    // Stable ordering makes unchanged XML snapshots byte-stable without
+    // changing the native object's instance order.
+    auto placements = aInput->GetInstances();
+    std::sort( placements.begin(), placements.end(),
+               []( const auto& a, const auto& b ) { return a.m_Path < b.m_Path; } );
+    auto* records = aOutput->mutable_instance_records();
 
-    for( const auto& [name, variantInfo] : instance.m_Variants )
+    for( const SCH_SYMBOL_INSTANCE& placement : placements )
     {
-        kiapi::schematic::types::SchematicSymbolVariant* variant = variants->add_variants();
-        variant->set_name( name.ToUTF8() );
+        auto* record = records->add_records();
 
-        if( schematic )
-            variant->set_description( schematic->GetVariantDescription( name ).ToUTF8() );
+        for( const KIID& id : placement.m_Path )
+            record->add_path()->set_value( id.AsStdString() );
 
-        attributes = variant->mutable_attributes();
-        attributes->set_exclude_from_simulation( variantInfo.m_ExcludedFromSim );
-        attributes->set_exclude_from_bill_of_materials( variantInfo.m_ExcludedFromBOM );
-        attributes->set_exclude_from_board( variantInfo.m_ExcludedFromBoard );
-        attributes->set_exclude_from_position_files( variantInfo.m_ExcludedFromPosFiles );
-        attributes->set_do_not_populate( variantInfo.m_DNP );
-
-        for( const auto& [key, value] : variantInfo.m_Fields )
-            ( *variant->mutable_fields() )[std::string( key.ToUTF8() )] = value.ToUTF8();
+        record->set_project_name( placement.m_ProjectName.ToUTF8() );
+        record->set_reference( placement.m_Reference.ToUTF8() );
+        record->set_unit( placement.m_Unit );
+        packSymbolVariants( record->mutable_variants(), placement, nullptr );
     }
 
     return true;
@@ -273,6 +333,69 @@ bool UnpackSymbol( SCH_SYMBOL* aOutput, const kiapi::schematic::types::Schematic
     if( aInput.has_pin_map_override() )
         aOutput->SetPinMapOverride( UnpackPinMapOverride( aInput.pin_map_override() ) );
 
+    // Decode on the detached item before the editor mutates anything. A full
+    // record set is not a patch: missing or duplicate identities are invalid.
+    std::set<KIID_PATH> paths;
+
+    for( const SymbolSheetRecord& record : aInput.instance_records().records() )
+    {
+        if( record.path().empty() || record.unit() < 1 || record.unit() > aOutput->GetUnitCount() )
+            return false;
+
+        SCH_SYMBOL_INSTANCE placement;
+
+        for( const auto& id : record.path() )
+        {
+            if( !::KIID::SniffTest( wxString::FromUTF8( id.value() ) ) )
+                return false;
+
+            ::KIID nativeId( id.value() );
+
+            if( nativeId.AsStdString() != id.value() )
+                return false;
+
+            placement.m_Path.push_back( nativeId );
+        }
+
+        if( !paths.insert( placement.m_Path ).second )
+            return false;
+
+        placement.m_ProjectName = wxString::FromUTF8( record.project_name() );
+        placement.m_Reference = wxString::FromUTF8( record.reference() );
+        placement.m_Unit = record.unit();
+
+        for( const auto& proto : record.variants().variants() )
+        {
+            wxString name = wxString::FromUTF8( proto.name() );
+
+            if( name.empty() || placement.m_Variants.contains( name ) || !proto.has_attributes()
+                || proto.has_description() )
+                return false;
+
+            SCH_SYMBOL_VARIANT variant( name );
+            const auto& attrs = proto.attributes();
+            variant.m_ExcludedFromSim = attrs.exclude_from_simulation();
+            variant.m_ExcludedFromBOM = attrs.exclude_from_bill_of_materials();
+            variant.m_ExcludedFromBoard = attrs.exclude_from_board();
+            variant.m_ExcludedFromPosFiles = attrs.exclude_from_position_files();
+            variant.m_DNP = attrs.do_not_populate();
+
+            for( const auto& [key, value] : proto.fields() )
+                variant.m_Fields[wxString::FromUTF8( key )] = wxString::FromUTF8( value );
+
+            if( !proto.symbol_override().entry_name().empty()
+                || !proto.symbol_override().library_nickname().empty() )
+                variant.m_SymbolOverride = UnpackLibId( proto.symbol_override() );
+
+            if( proto.has_pin_map_override() )
+                variant.m_PinMapOverride = UnpackPinMapOverride( proto.pin_map_override() );
+
+            placement.m_Variants.emplace( name, std::move( variant ) );
+        }
+
+        aOutput->AddHierarchicalReference( placement );
+    }
+
     return true;
 }
 
@@ -285,18 +408,18 @@ static void registerVariant( SCHEMATIC* aSchematic, const wxString& aName,
     if( !aSchematic )
         return;
 
-    aSchematic->AddVariant( aName );
+    aSchematic->RegisterInferredVariant( aName );
 
     // An empty description clears the one the variant has, so honour presence rather than text.
-    if( aInput.has_description() )
+    if( aInput.has_description()
+            && aSchematic->GetVariantDescription( aName ) != wxString::FromUTF8( aInput.description() ) )
         aSchematic->SetVariantDescription( aName, wxString::FromUTF8( aInput.description() ) );
 }
 
 
 /// Make the set of variant records on one placement of a symbol match @a aInput, by name.
 ///
-/// Each surviving record keeps what the message does not carry: the attributes it leaves unset,
-/// and the alternate symbol and pin-map overrides the message has no field for.
+/// Each surviving record keeps attributes and overrides the request leaves unset.
 static void applySymbolVariants( SCH_SYMBOL* aSymbol,
                                  const kiapi::schematic::types::SchematicSymbolVariants& aInput,
                                  const SCH_SHEET_PATH& aPath, SCHEMATIC* aSchematic )
@@ -346,6 +469,22 @@ static void applySymbolVariants( SCH_SYMBOL* aSymbol,
         {
             aSymbol->SetFieldText( wxString::FromUTF8( key ), wxString::FromUTF8( value ), &aPath,
                                    name );
+        }
+
+        if( variantProto.has_symbol_override() )
+        {
+            const auto& override = variantProto.symbol_override();
+
+            if( override.library_nickname().empty() && override.entry_name().empty() )
+                aSymbol->ClearVariantSymbolOverride( aPath, name );
+            else
+                aSymbol->SetVariantSymbolOverride( aPath, name, UnpackLibId( override ) );
+        }
+
+        if( variantProto.has_pin_map_override() )
+        {
+            aSymbol->SetPinMapOverride( UnpackPinMapOverride( variantProto.pin_map_override() ),
+                                        &aPath, name );
         }
     }
 
@@ -398,6 +537,27 @@ void ApplySymbolInstance( SCH_SYMBOL* aSymbol,
 }
 
 
+static void packSheetVariants( kiapi::schematic::types::SheetVariants* aOutput,
+                               const SCH_SHEET_INSTANCE& aInstance, SCHEMATIC* aSchematic )
+{
+    for( const auto& [name, info] : aInstance.m_Variants )
+    {
+        auto* variant = aOutput->add_variants();
+        variant->set_name( name.ToUTF8() );
+
+        if( aSchematic )
+            variant->set_description( aSchematic->GetVariantDescription( name ).ToUTF8() );
+
+        variant->set_exclude_from_sim( info.m_ExcludedFromSim );
+        variant->set_exclude_from_bom( info.m_ExcludedFromBOM );
+        variant->set_dnp( info.m_DNP );
+
+        for( const auto& [key, value] : info.m_Fields )
+            ( *variant->mutable_fields() )[std::string( key.ToUTF8() )] = value.ToUTF8();
+    }
+}
+
+
 bool PackSheet( kiapi::schematic::types::SheetSymbol* aOutput, const SCH_SHEET* aInput,
                 const SCH_SHEET_PATH& aPath )
 {
@@ -408,8 +568,8 @@ bool PackSheet( kiapi::schematic::types::SheetSymbol* aOutput, const SCH_SHEET* 
         return false;
 
     PackSheetPath( *aOutput->mutable_path(), aPath.Path() );
-
-    SCHEMATIC* schematic = aInput->Schematic();
+    if( aInput->GetScreen() )
+        aOutput->mutable_child_screen_id()->set_value( aInput->GetScreen()->GetUuid().AsStdString() );
 
     kiapi::schematic::types::SheetVariants* variants = aOutput->mutable_variants();
 
@@ -417,21 +577,24 @@ bool PackSheet( kiapi::schematic::types::SheetSymbol* aOutput, const SCH_SHEET* 
     {
         aOutput->set_page_number( instance->m_PageNumber.ToUTF8() );
 
-        for( const auto& [name, variantInfo] : instance->m_Variants )
-        {
-            kiapi::schematic::types::SheetVariant* variant = variants->add_variants();
-            variant->set_name( name.ToUTF8() );
+        packSheetVariants( variants, *instance, aInput->Schematic() );
+    }
 
-            if( schematic )
-                variant->set_description( schematic->GetVariantDescription( name ).ToUTF8() );
+    auto placements = aInput->GetInstances();
+    std::sort( placements.begin(), placements.end(),
+               []( const auto& a, const auto& b ) { return a.m_Path < b.m_Path; } );
+    auto* records = aOutput->mutable_instance_records();
 
-            variant->set_exclude_from_sim( variantInfo.m_ExcludedFromSim );
-            variant->set_exclude_from_bom( variantInfo.m_ExcludedFromBOM );
-            variant->set_dnp( variantInfo.m_DNP );
+    for( const SCH_SHEET_INSTANCE& placement : placements )
+    {
+        auto* record = records->add_records();
 
-            for( const auto& [key, value] : variantInfo.m_Fields )
-                ( *variant->mutable_fields() )[std::string( key.ToUTF8() )] = value.ToUTF8();
-        }
+        for( const KIID& id : placement.m_Path )
+            record->add_path()->set_value( id.AsStdString() );
+
+        record->set_project_name( placement.m_ProjectName.ToUTF8() );
+        record->set_page_number( placement.m_PageNumber.ToUTF8() );
+        packSheetVariants( record->mutable_variants(), placement, nullptr );
     }
 
     return true;
@@ -539,6 +702,63 @@ tl::expected<bool, ApiResponseStatus> UnpackSheet( SCH_SHEET* aOutput, const kia
         e.set_status( ApiStatusCode::AS_BAD_REQUEST );
         e.set_error_message( "could not unpack SCH_SHEET from SheetSymbol in request" );
         return tl::unexpected( e );
+    }
+
+    std::set<KIID_PATH> paths;
+
+    for( const auto& record : aInput.instance_records().records() )
+    {
+        // An empty native parent path is the file's own root-page record.
+        // It persists only a page number, not project/variant placement data.
+        if( record.path().empty()
+                && ( record.page_number().empty()
+                     || record.page_number().find_first_of( " \t\r\n" ) != std::string::npos
+                     || record.page_number().find( '\0' ) != std::string::npos
+                     || !record.project_name().empty() || !record.variants().variants().empty() ) )
+            return false;
+
+        SCH_SHEET_INSTANCE placement;
+
+        for( const auto& id : record.path() )
+        {
+            if( !KIID::SniffTest( wxString::FromUTF8( id.value() ) ) )
+                return false;
+
+            KIID nativeId( id.value() );
+
+            if( nativeId.AsStdString() != id.value() )
+                return false;
+
+            placement.m_Path.push_back( nativeId );
+        }
+
+        if( !paths.insert( placement.m_Path ).second )
+            return false;
+
+        placement.m_ProjectName = wxString::FromUTF8( record.project_name() );
+        placement.m_PageNumber = wxString::FromUTF8( record.page_number() );
+
+        for( const auto& proto : record.variants().variants() )
+        {
+            wxString name = wxString::FromUTF8( proto.name() );
+
+            if( name.empty() || placement.m_Variants.contains( name ) || proto.has_description()
+                || !proto.has_exclude_from_sim() || !proto.has_exclude_from_bom() || !proto.has_dnp() )
+                return false;
+
+            SCH_SHEET_VARIANT variant( name );
+            variant.InitializeAttributes( *aOutput );
+            variant.m_ExcludedFromSim = proto.exclude_from_sim();
+            variant.m_ExcludedFromBOM = proto.exclude_from_bom();
+            variant.m_DNP = proto.dnp();
+
+            for( const auto& [key, value] : proto.fields() )
+                variant.m_Fields[wxString::FromUTF8( key )] = wxString::FromUTF8( value );
+
+            placement.m_Variants.emplace( name, std::move( variant ) );
+        }
+
+        aOutput->AddInstance( placement );
     }
 
     return true;

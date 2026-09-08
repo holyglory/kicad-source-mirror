@@ -64,7 +64,8 @@
 //#define SEXPR_SYMBOL_LIB_FILE_VERSION 20260629 // Pin-to-pad maps (issue #2282)
 //#define SEXPR_SYMBOL_LIB_FILE_VERSION 20260710 // Line ending shapes
 //#define SEXPR_SYMBOL_LIB_FILE_VERSION 20260826 // Bold is a stroke-width multiplier; thickness stores the base width
-#define SEXPR_SYMBOL_LIB_FILE_VERSION 20260830 // Custom user properties
+//#define SEXPR_SYMBOL_LIB_FILE_VERSION 20260830 // Custom user properties
+#define SEXPR_SYMBOL_LIB_FILE_VERSION 20260907 // Fork: persistent symbol graphic and library-pin identities
 
 /**
  * Schematic file version.
@@ -152,4 +153,5 @@
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20260803  // Schematic polygons with normalized closing edge
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20260818  // Line ending shapes
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20260826 // Bold is a stroke-width multiplier; thickness stores the base width
-#define SEXPR_SCHEMATIC_FILE_VERSION 20260830 // Custom user properties
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20260830 // Custom user properties
+#define SEXPR_SCHEMATIC_FILE_VERSION 20260907 // Fork: persistent embedded symbol graphic and library-pin identities

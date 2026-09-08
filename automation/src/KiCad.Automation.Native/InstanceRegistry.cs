@@ -1,0 +1,213 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Text.Json;
+using KiCad.Automation.Model;
+using KiCad.Automation.Protocol;
+
+namespace KiCad.Automation.Native;
+
+public sealed record InstanceRecord(string InstanceId, string ProjectPath, string Endpoint,
+                                    string Epoch, int? ProcessId, DateTimeOffset VerifiedAt);
+
+/// <summary>The registry is connection metadata, not a second source of design truth.</summary>
+public sealed partial class InstanceRegistry(INativeTransport transport, string stateDirectory,
+    Action<ProcessStartInfo>? configureProcess = null)
+{
+    private readonly ConcurrentDictionary<string, InstanceRecord> records = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, NativeClient> clients = new(StringComparer.Ordinal);
+    private readonly HashSet<string> startingProjects = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim changes = new(1, 1);
+    private readonly string directory = Path.GetFullPath(stateDirectory);
+
+    public IReadOnlyList<InstanceRecord> List() => records.Values.OrderBy(r => r.InstanceId).ToArray();
+
+    public InstanceRecord Get(string instanceId) => records.TryGetValue(instanceId, out var record)
+        ? record : throw new AutomationException("unknown_instance", "The instance ID is not attached to this server.");
+
+    public NativeClient Client(string instanceId)
+    {
+        InstanceRecord record = Get(instanceId);
+        return clients.GetOrAdd(instanceId, _ => new NativeClient(transport, record.Endpoint, record.Epoch));
+    }
+
+    public async Task<InstanceRecord> AttachAsync(string endpoint, string expectedInstanceId,
+                                                 CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParseExact(expectedInstanceId, "D", out _))
+            throw new AutomationException("invalid_instance", "An instance UUID is required.");
+        NngTransport.ValidateEndpoint(endpoint);
+        await changes.WaitAsync(cancellationToken);
+        try { return await AttachCoreAsync(endpoint, expectedInstanceId, null, cancellationToken); }
+        finally { changes.Release(); }
+    }
+
+    public async Task<InstanceRecord> ReattachAsync(string instanceId, CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParseExact(instanceId, "D", out _))
+            throw new AutomationException("invalid_instance", "An instance UUID is required.");
+        string path = Path.Combine(directory, instanceId + ".json");
+        if (!File.Exists(path))
+        {
+            var launch = await ReadLaunchAsync(instanceId, cancellationToken);
+            await changes.WaitAsync(cancellationToken);
+            try
+            {
+                var attached = await AttachCoreAsync(launch.Endpoint, instanceId, launch.ProcessId,
+                    cancellationToken, launch.ProjectPath);
+                RetireLaunch(instanceId);
+                return attached;
+            }
+            finally { changes.Release(); }
+        }
+        InstanceRecord saved = await ReadSavedAsync(instanceId, cancellationToken);
+        await changes.WaitAsync(cancellationToken);
+        try
+        {
+            var attached = await AttachCoreAsync(saved.Endpoint, saved.InstanceId, saved.ProcessId,
+                cancellationToken, saved.ProjectPath, saved.Epoch);
+            RetireLaunch(instanceId);
+            return attached;
+        }
+        finally { changes.Release(); }
+    }
+
+    public async Task<InstanceRecord> StartAsync(string executable, string projectPath,
+                                                CancellationToken cancellationToken = default,
+                                                bool? softwareRendering = null)
+    {
+        projectPath = Path.GetFullPath(projectPath);
+        executable = Path.GetFullPath(executable);
+        if (!File.Exists(projectPath) || Path.GetExtension(projectPath) != ".kicad_pro")
+            throw new AutomationException("invalid_project", "An existing .kicad_pro file is required.");
+        if (!File.Exists(executable))
+            throw new AutomationException("missing_executable", "The native KiCad executable does not exist.");
+
+        await changes.WaitAsync(cancellationToken);
+        try
+        {
+            if (records.Values.Any(r => r.ProjectPath == projectPath) || !startingProjects.Add(projectPath))
+                throw new AutomationException("project_owned", "This project already has an attached writer; use another worktree for an independent instance.");
+        }
+        finally { changes.Release(); }
+        try
+        {
+            string id = Guid.NewGuid().ToString("D");
+            // macOS's per-user TMPDIR can exhaust the Unix-domain socket path
+            // limit before the UUID is appended. Both supported hosts have /tmp.
+            string runtime = Path.Combine("/tmp", "kicad-automation", id);
+            Directory.CreateDirectory(runtime);
+            string socket = Path.Combine(runtime, "api.sock");
+            string endpoint = "ipc://" + socket;
+            var start = new ProcessStartInfo(executable)
+            {
+                WorkingDirectory = Path.GetDirectoryName(projectPath)!,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            foreach (string argument in new[] { "--new", "--automation", id, "--api-socket", socket,
+                                                "--automation-log", Path.Combine(runtime, "native.log") })
+                start.ArgumentList.Add(argument);
+            if (softwareRendering ?? OperatingSystem.IsLinux()) start.ArgumentList.Add("--software-rendering");
+            start.ArgumentList.Add(projectPath);
+            configureProcess?.Invoke(start);
+            var launch = new UnverifiedInstanceLaunch(id, projectPath, endpoint, null, DateTimeOffset.UtcNow);
+            await SaveLaunchAsync(launch, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            Process process = Process.Start(start) ?? throw new AutomationException("start_failed", "KiCad could not be started.");
+            // The native --automation-log option redirects its own descriptors, so
+            // editor lifetime does not depend on MCP's diagnostic pipes (SA-04).
+            _ = CaptureAsync(process.StandardOutput, Path.Combine(runtime, "bootstrap.stdout.log"));
+            _ = CaptureAsync(process.StandardError, Path.Combine(runtime, "bootstrap.stderr.log"));
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(TimeSpan.FromSeconds(45));
+            try
+            {
+                // The launch intent is already durable if MCP disconnects
+                // between process creation and this diagnostic PID update.
+                await SaveLaunchAsync(launch with { ProcessId = process.Id }, CancellationToken.None);
+                while (true)
+                {
+                    deadline.Token.ThrowIfCancellationRequested();
+                    if (process.HasExited)
+                        throw new AutomationException("start_failed", $"KiCad exited with code {process.ExitCode}; inspect {runtime}.");
+                    try
+                    {
+                        // Readiness probes do not hold the registry gate: separate
+                        // projects must be able to start concurrently.
+                        var probe = new NativeClient(transport, endpoint);
+                        var ready = await probe.HandshakeAsync(deadline.Token);
+                        await changes.WaitAsync(deadline.Token);
+                        try
+                        {
+                            var attached = await AttachCoreAsync(endpoint, id, process.Id, deadline.Token, projectPath, ready.Epoch);
+                            RetireLaunch(id);
+                            return attached;
+                        }
+                        finally { changes.Release(); }
+                    }
+                    catch (NngException) { }
+                    catch (NativeApiException e) when (e.Status is 4 or 7) { }
+                    await Task.Delay(TimeSpan.FromMilliseconds(100), deadline.Token);
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new AutomationException("startup_timeout", $"KiCad did not become ready; it was not killed. Inspect {runtime} and reattach instance {id} at {endpoint} if it recovers.");
+            }
+            finally { process.Dispose(); } // Dispose never kills the native process.
+        }
+        finally
+        {
+            await changes.WaitAsync(CancellationToken.None);
+            try { startingProjects.Remove(projectPath); }
+            finally { changes.Release(); }
+        }
+    }
+
+    private async Task<InstanceRecord> AttachCoreAsync(string endpoint, string expectedId, int? processId,
+                                                       CancellationToken cancellationToken,
+                                                       string? expectedProject = null, string? expectedEpoch = null)
+    {
+        var client = new NativeClient(transport, endpoint, expectedEpoch);
+        AutomationSession session = await client.HandshakeAsync(cancellationToken);
+        if (session.InstanceId != expectedId)
+            throw new AutomationException("instance_mismatch", "The endpoint belongs to a different instance.");
+        if ((expectedProject is not null && session.ProjectPath != expectedProject)
+            || (expectedEpoch is not null && session.Epoch != expectedEpoch))
+            throw new AutomationException("instance_changed", "The native session no longer matches the requested project or recorded epoch.");
+        if (records.TryGetValue(expectedId, out var existing)
+            && (existing.Epoch != session.Epoch || existing.ProjectPath != session.ProjectPath || existing.Endpoint != endpoint))
+            throw new AutomationException("instance_changed", "An attached identity cannot be rebound to another process, project or endpoint.");
+        if (records.Values.Any(r => r.ProjectPath == session.ProjectPath && r.InstanceId != expectedId))
+            throw new AutomationException("project_owned", "A different instance already owns this project's registry entry.");
+        var record = new InstanceRecord(session.InstanceId, session.ProjectPath, endpoint,
+                                        session.Epoch, processId, DateTimeOffset.UtcNow);
+        Directory.CreateDirectory(directory);
+        string destination = Path.Combine(directory, record.InstanceId + ".json");
+        string temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(record), cancellationToken);
+            File.Move(temporary, destination, true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        records[record.InstanceId] = record;
+        clients.TryAdd(record.InstanceId, client);
+        return record;
+    }
+
+    private static async Task CaptureAsync(StreamReader source, string path)
+    {
+        try
+        {
+            await using var output = new StreamWriter(path, false);
+            var buffer = new char[4096];
+            int read;
+            while ((read = await source.ReadAsync(buffer)) != 0)
+                await output.WriteAsync(buffer.AsMemory(0, read));
+        }
+        catch (IOException) { /* Native process diagnostics remain in native.log. */ }
+        catch (ObjectDisposedException) { }
+    }
+}

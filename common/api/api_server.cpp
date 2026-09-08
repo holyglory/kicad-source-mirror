@@ -30,12 +30,15 @@
 #include <api/api_server.h>
 #include <kiid.h>
 #include <kinng.h>
+#include <kinng_publisher.h>
+#include <limits>
 #include <paths.h>
 #include <pgm_base.h>
 #include <settings/common_settings.h>
 #include <string_utils.h>
 
 #include <api/common/envelope.pb.h>
+#include <api/common/commands/automation_commands.pb.h>
 
 #ifdef __UNIX__
 #include <sys/file.h>
@@ -145,6 +148,14 @@ void KICAD_API_SERVER::Start()
 
     if( socket.Exists() )
     {
+        // Explicit endpoints are an identity contract. Never substitute another
+        // socket when an automation client asked for this exact one.
+        if( !m_socketPathOverride.IsEmpty() )
+        {
+            wxLogError( "API endpoint is already in use: %s", socket.GetFullPath() );
+            return;
+        }
+
         socket.SetFullName( wxString::Format( wxS( "api-%lu.sock" ), ::wxGetProcessId() ) );
 
         if( socket.Exists() )
@@ -159,10 +170,42 @@ void KICAD_API_SERVER::Start()
             fmt::format( "ipc://{}", socket.GetFullPath().ToStdString() ) );
     m_server->SetCallback( [&]( std::string* aRequest ) { onApiRequest( aRequest ); } );
 
+    if( IsAutomation() )
+    {
+        // Separate per-start identity: never attach an observer to an old
+        // publication after the API is stopped and restarted in this process.
+        m_eventEpoch = KIID().AsStdString();
+        m_eventSequence = 0;
+        // Keep the basename no longer than api.sock: a valid request endpoint
+        // may already be close to the platform's sockaddr_un path limit. The
+        // full stream UUID travels in discovery and every packet; a filename
+        // collision fails listen without removing another publisher's socket.
+        wxFileName events( socket.GetPath(), wxString( m_eventEpoch.substr( 0, 8 ) ) );
+        m_eventEndpoint = "ipc://" + events.GetFullPath().ToStdString();
+        kiapi::automation::v1::AutomationEvent heartbeat;
+        heartbeat.set_protocol_version( 1 );
+        heartbeat.set_instance_id( m_automationInstanceId );
+        heartbeat.set_process_epoch( m_token );
+        heartbeat.set_event_epoch( m_eventEpoch );
+        heartbeat.mutable_heartbeat();
+        m_eventPublisher = std::make_unique<KINNG_PUBLISHER>( m_eventEndpoint );
+        if( !m_eventPublisher->Start( heartbeat.SerializeAsString() ) )
+        {
+            wxLogError( "Unable to start automation event endpoint %s: %s",
+                        m_eventEndpoint, m_eventPublisher->LastError() );
+            m_eventPublisher.reset();
+            m_eventEndpoint.clear();
+            m_server.reset();
+            return;
+        }
+    }
+
     if( !m_server->Start() )
     {
         wxLogTrace( traceApi, "Server: failed to start KINNG listener thread" );
         m_server.reset( nullptr );
+        m_eventPublisher.reset();
+        m_eventEndpoint.clear();
         return;
     }
 
@@ -182,6 +225,8 @@ void KICAD_API_SERVER::Start()
 
 void KICAD_API_SERVER::Stop()
 {
+    m_eventPublisher.reset();
+    m_eventEndpoint.clear();
     if( !Running() )
         return;
 
@@ -196,6 +241,27 @@ void KICAD_API_SERVER::Stop()
 bool KICAD_API_SERVER::Running() const
 {
     return m_server && m_server->Running();
+}
+
+void KICAD_API_SERVER::PublishSchematicCommit(
+        const kiapi::automation::v1::SchematicCommitNotification& aCommit )
+{
+    if( !m_eventPublisher ) return;
+    if( m_eventSequence == std::numeric_limits<uint64_t>::max() )
+    {
+        m_eventEpoch = KIID().AsStdString();
+        m_eventSequence = 0;
+    }
+    kiapi::automation::v1::AutomationEvent event;
+    event.set_protocol_version( 1 );
+    event.set_instance_id( m_automationInstanceId );
+    event.set_process_epoch( m_token );
+    event.set_event_epoch( m_eventEpoch );
+    event.set_sequence( ++m_eventSequence );
+    *event.mutable_schematic_commit() = aCommit;
+    kiapi::automation::v1::AutomationEvent heartbeat = event;
+    heartbeat.mutable_heartbeat(); // Clears the mutually exclusive change payload.
+    m_eventPublisher->Publish( event.SerializeAsString(), heartbeat.SerializeAsString() );
 }
 
 
@@ -223,6 +289,7 @@ void KICAD_API_SERVER::onApiRequest( std::string* aRequest )
     if( !m_readyToReply.load( std::memory_order_acquire ) )
     {
         ApiResponse notHandled;
+        notHandled.mutable_header()->set_kicad_token( m_token );
         notHandled.mutable_status()->set_status( ApiStatusCode::AS_NOT_READY );
         notHandled.mutable_status()->set_error_message( "KiCad is not ready to reply" );
         m_server->Reply( notHandled.SerializeAsString() );
@@ -284,17 +351,36 @@ void KICAD_API_SERVER::handleApiRequestString( std::string& aRequestString )
         return;
     }
 
-    API_RESULT result;
-
-    for( API_HANDLER* handler : m_handlers )
+    if( request.message().Is<kiapi::automation::v1::GetAutomationSession>() )
     {
-        result = handler->Handle( request );
+        ApiResponse reply;
+        reply.mutable_header()->set_kicad_token( m_token );
 
-        if( result.has_value() )
-            break;
-        else if( result.error().status() != ApiStatusCode::AS_UNHANDLED )
-            break;
+        if( !IsAutomation() )
+        {
+            reply.mutable_status()->set_status( ApiStatusCode::AS_UNIMPLEMENTED );
+            reply.mutable_status()->set_error_message( "This process was not started in automation mode" );
+        }
+        else
+        {
+            kiapi::automation::v1::AutomationSession session;
+            session.set_protocol_version( 1 );
+            session.set_instance_id( m_automationInstanceId );
+            session.set_project_path( m_automationProjectPath );
+            session.set_epoch( m_token );
+            session.add_capabilities( "session.info" );
+            session.add_capabilities( "version.read" );
+            session.set_event_endpoint( m_eventEndpoint );
+            session.set_event_epoch( m_eventEpoch );
+            reply.mutable_message()->PackFrom( session );
+            reply.mutable_status()->set_status( ApiStatusCode::AS_OK );
+        }
+
+        m_server->Reply( reply.SerializeAsString() );
+        return;
     }
+
+    API_RESULT result = DispatchToHandlers( request );
 
     // Note: at the point we call Reply(), we no longer own requestString.
 
@@ -325,6 +411,29 @@ void KICAD_API_SERVER::handleApiRequestString( std::string& aRequestString )
         if( ADVANCED_CFG::GetCfg().m_EnableAPILogging )
             log( "Response (ERROR): " + error.Utf8DebugString() );
     }
+}
+
+
+API_RESULT KICAD_API_SERVER::DispatchToHandlers( ApiRequest& aRequest )
+{
+    wxASSERT( wxIsMainThread() );
+    ApiResponseStatus unhandled;
+    unhandled.set_status( ApiStatusCode::AS_UNHANDLED );
+    API_RESULT result = tl::unexpected( unhandled );
+
+    // Opening an editor may register a handler during an outer dispatch.
+    // Snapshot pointers so insertion does not alter that request's traversal.
+    const std::vector<API_HANDLER*> handlers( m_handlers.begin(), m_handlers.end() );
+
+    for( API_HANDLER* handler : handlers )
+    {
+        result = handler->Handle( aRequest );
+
+        if( result.has_value() || result.error().status() != ApiStatusCode::AS_UNHANDLED )
+            break;
+    }
+
+    return result;
 }
 
 

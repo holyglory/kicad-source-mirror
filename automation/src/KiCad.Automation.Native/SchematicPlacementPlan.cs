@@ -1,0 +1,121 @@
+using Kiapi.Common.Types;
+using Kiapi.Schematic.Types;
+using KiCad.Automation.Model;
+using KiCad.Automation.Protocol;
+
+namespace KiCad.Automation.Native;
+
+public sealed record PlacementPlanIssue(string Code, Guid? SymbolOccurrenceId, string Message);
+public sealed record SchematicPlacementPlanResult(EngineeringDesign? ReconciledModel,
+    IReadOnlyList<SchematicItemOperation> Operations, IReadOnlyList<PlacementPlanIssue> Issues,
+    IReadOnlyList<SchematicProjectionConflict> Conflicts, IReadOnlyList<SchematicBindingIssue> BindingIssues,
+    IReadOnlyList<HierarchyCoverageGap> CoverageGaps, bool UnprojectedSnapshotChanges);
+
+/// <summary>Pure forward translation planning after conflict-preserving reverse reconciliation.
+/// Operations contain exact sheet/symbol identities but no live admission or retry token.
+/// Native execution must revalidate revision, preserve connectivity, and capture the actual
+/// resulting wire geometry before updating a synchronized checkpoint.</summary>
+public static class SchematicPlacementPlan
+{
+    public static SchematicPlacementPlanResult Plan(SchematicDesign baseline, EngineeringDesign desired,
+        SchematicHierarchyData observed, IReadOnlyCollection<ComponentKnowledgeLibrary> libraries,
+        CancellationToken cancellationToken = default)
+    {
+        var projection = SchematicModelProjection.Reconcile(baseline, desired, observed, libraries, cancellationToken);
+        var issues = new List<PlacementPlanIssue>();
+        var operations = new List<SchematicItemOperation>();
+        SchematicPlacementPlanResult Result() => new(projection.Candidate,
+            issues.Count == 0 && projection.Candidate is not null ? operations : [], issues,
+            projection.Conflicts, projection.BindingIssues, projection.CoverageGaps, projection.UnprojectedSnapshotChanges);
+        if (projection.Candidate is null)
+        {
+            if (projection.ErrorCode is not null)
+                issues.Add(new(projection.ErrorCode, null, projection.ErrorMessage ?? "Reconcile model/native ownership before planning placement."));
+            return Result();
+        }
+        var candidate = projection.Candidate;
+        var native = SchematicModelProjection.NativeSymbols(baseline, observed);
+        var oldNative = SchematicModelProjection.NativeSymbols(baseline, baseline.Schematic);
+        var originalSymbols = baseline.Engineering.Circuit.Symbols.ToDictionary(s => s.Id);
+        var componentSheets = candidate.Circuit.Components.ToDictionary(c => c.Id, c => c.SheetInstanceId);
+        var paths = baseline.SheetBindings.ToDictionary(b => b.SheetInstanceId,
+            b => SchematicDesignBindings.PathKey(b.NativePath));
+        var screens = observed.Instances.ToDictionary(s => string.Join('/', s.Metadata.Document.SheetPath.Path.Select(id => id.Value)));
+        var bindings = baseline.SymbolBindings.ToDictionary(b => b.SymbolOccurrenceId, b => b.NativeObjectId);
+        var shared = new Dictionary<string, List<(Guid Id, DocumentSpecifier Document, Guid NativeId,
+            SymbolPlacement Current, SymbolPlacement Desired)>>();
+
+        foreach (var symbol in candidate.Circuit.Symbols.OrderBy(s => s.Id))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var current = SchematicModelProjection.Placement(native[symbol.Id]);
+                var previous = SchematicModelProjection.Placement(oldNative[symbol.Id]);
+                var original = originalSymbols[symbol.Id].Placement;
+                if (original is not null && original != previous)
+                    issues.Add(new("unaligned_placement_baseline", symbol.Id, "The saved model placement does not match its native baseline."));
+                // Missing coordinates do not request deletion or movement. A later layout
+                // refinement can supply them without fabricating a native placement now.
+                var wanted = symbol.Placement ?? current;
+                if (symbol.Unit != native[symbol.Id].Unit.Unit)
+                    issues.Add(new("unit_change_requires_electrical_update", symbol.Id, "Apply and verify the symbol-unit change before placement."));
+                if (current.RotationDegrees != wanted.RotationDegrees || current.MirrorX != wanted.MirrorX
+                    || current.MirrorY != wanted.MirrorY || current.Locked != wanted.Locked)
+                    issues.Add(new("nontranslation_placement_change", symbol.Id, "Rotation, mirroring and lock changes need their native operations; they cannot be replaced by translation."));
+                if (current.Locked && current != wanted)
+                    issues.Add(new("locked_symbol", symbol.Id, "Preserve the locked native symbol placement."));
+                foreach (decimal coordinate in new[] { current.XMillimeters, current.YMillimeters,
+                    wanted.XMillimeters, wanted.YMillimeters })
+                {
+                    long units = Coordinates.MillimetersToSchematicUnits(coordinate);
+                    if (units < int.MinValue || units > int.MaxValue)
+                        throw new AutomationException("native_coordinate_range", "Placement exceeds the native schematic coordinate range.");
+                }
+                var screen = screens[paths[componentSheets[symbol.ComponentId]]];
+                string key = screen.Metadata.ScreenId.Value + "#" + bindings[symbol.Id];
+                if (!shared.TryGetValue(key, out var owners)) shared.Add(key, owners = []);
+                owners.Add((symbol.Id, screen.Metadata.Document, bindings[symbol.Id], current, wanted));
+            }
+            catch (Exception error) when (error is AutomationException or OverflowException)
+            {
+                issues.Add(new(error is AutomationException automation ? automation.Code : "native_coordinate_range",
+                    symbol.Id, error.Message));
+            }
+        }
+        foreach (var owners in shared.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Value))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var first = owners.OrderBy(o => string.Join('/', o.Document.SheetPath.Path.Select(id => id.Value)), StringComparer.Ordinal).First();
+            if (owners.Any(o => o.Desired != first.Desired))
+            {
+                foreach (var owner in owners)
+                    issues.Add(new("shared_placement_conflict", owner.Id, "Repeated instances share one native symbol geometry but request different placements."));
+                continue;
+            }
+            try
+            {
+                long x = Coordinates.MillimetersToNanometers(first.Desired.XMillimeters - first.Current.XMillimeters);
+                long y = Coordinates.MillimetersToNanometers(first.Desired.YMillimeters - first.Current.YMillimeters);
+                if (x / 100 < int.MinValue || x / 100 > int.MaxValue || y / 100 < int.MinValue || y / 100 > int.MaxValue)
+                    throw new AutomationException("native_displacement_range", "The connected movement exceeds native displacement range.");
+                if (x == 0 && y == 0) continue;
+                // Move a rigid group together so native drag sees both ends of its internal wires.
+                var operation = operations.FirstOrDefault(o => o.TargetDocument.Equals(first.Document)
+                    && o.MoveConnectedSymbols.Delta.XNm == x && o.MoveConnectedSymbols.Delta.YNm == y);
+                if (operation is null)
+                {
+                    operation = new() { TargetDocument = first.Document.Clone(),
+                        MoveConnectedSymbols = new() { Delta = new() { XNm = x, YNm = y } } };
+                    operations.Add(operation);
+                }
+                operation.MoveConnectedSymbols.Symbols.Add(new KIID { Value = first.NativeId.ToString("D") });
+            }
+            catch (Exception error) when (error is AutomationException or OverflowException)
+            {
+                issues.Add(new(error is AutomationException automation ? automation.Code : "native_displacement_range", first.Id, error.Message));
+            }
+        }
+        return Result();
+    }
+}

@@ -1,0 +1,110 @@
+using System.Xml;
+using System.Xml.Linq;
+using System.Xml.Schema;
+
+namespace KiCad.Automation.Model;
+
+/// <summary>Library-owned knowledge and design-owned instance binding fragments.
+/// Neither document is a complete schematic. Unknown fields fail instead of being dropped.</summary>
+public static class ComponentKnowledgeXml
+{
+    public const string Namespace = "urn:kicad:automation:knowledge:1";
+    private static readonly XNamespace Ns = Namespace;
+    private static readonly Lazy<XmlSchemaSet> Schema = new(() =>
+    {
+        var schema = new XmlSchemaSet { XmlResolver = null };
+        var assembly = typeof(ComponentKnowledgeXml).Assembly;
+        string name = assembly.GetManifestResourceNames().Single(n => n.EndsWith("component-knowledge-v1.xsd", StringComparison.Ordinal));
+        using Stream stream = assembly.GetManifestResourceStream(name)!;
+        using XmlReader reader = XmlReader.Create(stream, Settings());
+        schema.Add(Namespace, reader);
+        schema.Compile();
+        return schema;
+    });
+
+    public static ComponentKnowledgeLibrary ReadLibrary(string xml)
+    {
+        XElement root = Read(xml, "component-library");
+        var result = new ComponentKnowledgeLibrary(Id(root), Text(root, "revision"),
+            root.Elements(Ns + "class").Select(c => new ComponentClass(Id(c), Text(c, "name"), OptionalId(c, "base"),
+                c.Elements(Ns + "guidance").Select(ReadStatement).ToArray())).ToArray());
+        ComponentGuidance.Validate(result);
+        return result;
+    }
+
+    public static ComponentKnowledgeBinding ReadBinding(string xml, ComponentKnowledgeLibrary library)
+    {
+        XElement root = Read(xml, "component-binding");
+        var result = new ComponentKnowledgeBinding(Id(root, "component"), Id(root, "library"),
+            Text(root, "library-revision"), Id(root, "class"), root.Elements(Ns + "guidance").Select(ReadStatement).ToArray());
+        ComponentGuidance.Resolve(library, result);
+        return result;
+    }
+
+    public static string WriteLibrary(ComponentKnowledgeLibrary library)
+    {
+        ComponentGuidance.Validate(library);
+        return EngineeringXmlText.Render(E("component-library", A("version", 1), A("id", library.Id), A("revision", library.Revision),
+            library.Classes.OrderBy(c => c.Id).Select(c => E("class", A("id", c.Id), A("name", c.Name),
+                c.BaseClassId is Guid parent ? A("base", parent) : null,
+                c.Guidance.OrderBy(s => s.Id).Select(WriteStatement)))));
+    }
+
+    public static string WriteBinding(ComponentKnowledgeBinding binding, ComponentKnowledgeLibrary library)
+    {
+        ComponentGuidance.Resolve(library, binding);
+        return EngineeringXmlText.Render(E("component-binding", A("version", 1), A("component", binding.ComponentInstanceId),
+            A("library", binding.LibraryId), A("library-revision", binding.LibraryRevision), A("class", binding.ClassId),
+            binding.Guidance.OrderBy(s => s.Id).Select(WriteStatement)));
+    }
+
+    private static XElement Read(string xml, string expected)
+    {
+        try
+        {
+            using var input = new StringReader(xml);
+            using XmlReader reader = XmlReader.Create(input, Settings());
+            // Preserve whitespace in the statement text, including multi-line instructions.
+            XDocument document = XDocument.Load(reader, LoadOptions.PreserveWhitespace | LoadOptions.SetLineInfo);
+            if (document.Root?.Name != Ns + expected)
+                throw new AutomationException("invalid_knowledge_xml", "Expected " + expected + " in the supported knowledge namespace.");
+            document.Validate(Schema.Value, null);
+            return document.Root;
+        }
+        catch (Exception error) when (error is XmlException or XmlSchemaException)
+        {
+            throw new AutomationException("invalid_knowledge_xml", error.Message);
+        }
+    }
+
+    private static GuidanceStatement ReadStatement(XElement s) => new(Id(s), Text(s, "key"), Text(s, "category"),
+        s.Element(Ns + "text")!.Value, Enum.Parse<GuidanceStrength>(Text(s, "strength")), Text(s, "applicability"),
+        s.Elements(Ns + "source").Select(p => new SourceReference(Text(p, "document"), Text(p, "revision"),
+            p.Attribute("page") is XAttribute page ? ReadPage(page.Value) : null,
+            (string?)p.Attribute("table"), (string?)p.Attribute("part-variant"))).ToArray(),
+        Enum.Parse<VerificationState>(Text(s, "verification")), OptionalId(s, "replaces"), (string?)s.Element(Ns + "exception-rationale"));
+
+    private static int ReadPage(string value)
+    {
+        if (!int.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int page))
+            throw new AutomationException("invalid_knowledge_xml", "Source page must fit a positive integer.");
+        return page;
+    }
+
+    private static XElement WriteStatement(GuidanceStatement s) => E("guidance", A("id", s.Id), A("key", s.Key),
+        A("category", s.Category), A("strength", s.Strength), A("applicability", s.Applicability), A("verification", s.Verification),
+        s.Replaces is Guid target ? A("replaces", target) : null, E("text", s.Text),
+        s.ExceptionRationale is string rationale ? E("exception-rationale", rationale) : null,
+        s.Sources.Select(p => E("source", A("document", p.DocumentId), A("revision", p.Revision),
+            p.Page is int page ? A("page", page) : null, p.Table is string table ? A("table", table) : null,
+            p.PartVariant is string variant ? A("part-variant", variant) : null)));
+
+    // SA-05: no DTD expansion or implicit retrieval of documents named in the XML.
+    private static XmlReaderSettings Settings() => new() { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
+    private static XElement E(string name, params object?[] content) => new(Ns + name, content);
+    private static XAttribute A(string name, object value) => new(name, value);
+    private static string Text(XElement e, string attribute) => e.Attribute(attribute)!.Value;
+    private static Guid Id(XElement e, string attribute = "id") => Guid.TryParseExact(Text(e, attribute), "D", out Guid id)
+        ? id : throw new AutomationException("invalid_knowledge_xml", "Expected an exact UUID for " + attribute + ".");
+    private static Guid? OptionalId(XElement e, string attribute) => e.Attribute(attribute) is null ? null : Id(e, attribute);
+}

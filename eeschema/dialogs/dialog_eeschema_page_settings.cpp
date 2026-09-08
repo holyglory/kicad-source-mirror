@@ -24,6 +24,8 @@
 #include <sch_screen.h>
 #include <schematic.h>
 #include <eeschema_settings.h>
+#include <sch_page_settings_undo.h>
+#include <set>
 
 
 DIALOG_EESCHEMA_PAGE_SETTINGS::DIALOG_EESCHEMA_PAGE_SETTINGS( EDA_DRAW_FRAME* aParent,
@@ -131,13 +133,19 @@ bool DIALOG_EESCHEMA_PAGE_SETTINGS::onSavePageSettings()
                  "DIALOG_PAGES_SETTINGS::OnDateApplyClick frame is not a schematic frame!" );
 
     // Exports settings to other sheets if requested:
-    SCH_SCREENS ScreenList( dynamic_cast<SCH_EDIT_FRAME*>( m_parent )->Schematic().Root() );
+    std::set<SCH_SCREEN*> screens;
+    for( const SCH_SHEET_PATH& path : dynamic_cast<SCH_EDIT_FRAME*>( m_parent )->Schematic().Hierarchy() )
+        if( path.LastScreen() )
+            screens.insert( path.LastScreen() );
 
     // Update page info and/or title blocks for all screens
-    for( SCH_SCREEN* screen = ScreenList.GetFirst(); screen; screen = ScreenList.GetNext() )
+    for( SCH_SCREEN* screen : screens )
     {
         if( screen == m_screen )
             continue;
+
+        const std::string before = SCH_PAGE_SETTINGS_UNDO_ITEM::Serialize(
+                screen->GetPageSettings(), screen->GetTitleBlock() );
 
         if( m_PaperExport->IsChecked() )
             screen->SetPageSettings( m_pageInfo );
@@ -184,6 +192,8 @@ bool DIALOG_EESCHEMA_PAGE_SETTINGS::onSavePageSettings()
             tb2.SetComment( 8, m_tb.GetComment( 8 ) );
 
         screen->SetTitleBlock( tb2 );
+        if( before != SCH_PAGE_SETTINGS_UNDO_ITEM::Serialize( screen->GetPageSettings(), tb2 ) )
+            screen->SetContentModified();
     }
 
     return true;

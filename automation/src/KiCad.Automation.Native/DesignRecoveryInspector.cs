@@ -1,0 +1,134 @@
+using KiCad.Automation.Model;
+using KiCad.Automation.Protocol;
+
+namespace KiCad.Automation.Native;
+
+public enum DesignRecoveryDisposition
+{
+    NoPendingOperation,
+    NotFound,
+    CompletedNeedsReconciliation,
+    Rejected,
+    Indeterminate
+}
+
+public sealed record DesignRecoveryInspection(string RevisionToken, DesignRecoveryDisposition Disposition,
+    SchematicOperationReceipt? Receipt);
+
+public sealed record DesignRecoveryObservation(DesignRecoveryInspection Inspection,
+    SchematicHierarchyDataSnapshot Snapshot);
+
+/// <summary>Inspect the saved operation only. Never submit, clear a pending edit,
+/// replace the desired file, or advance the synchronized baseline.</summary>
+public static class DesignRecoveryInspector
+{
+    /// <summary>Persist a fresh observation only, leaving baseline and desired bytes intact.
+    /// An unconfirmed mutation must first be reconciled through its exact receipt; refreshing
+    /// cannot silently drop it or overwrite the revision required for an identical retry.</summary>
+    public static async Task<StoredDesignRecovery> RefreshAsync(DesignRecoveryStore store,
+        NativeClient client, string expectedRevisionToken, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var saved = store.Read();
+        if (saved is null || saved.RevisionToken != expectedRevisionToken)
+            throw new AutomationException("design_recovery_changed", "Reload the recovery record before refreshing its native observation.");
+        if (saved.State.PendingMutation is not null)
+            throw new AutomationException("pending_recovery_requires_reconciliation",
+                "Inspect and reconcile the saved pending operation before replacing its observed revision.");
+        var observed = await ObserveAsync(store, client, cancellationToken);
+        if (observed.Inspection.RevisionToken != expectedRevisionToken)
+            throw new AutomationException("design_recovery_changed", "Recovery state changed during native refresh.");
+        cancellationToken.ThrowIfCancellationRequested();
+        var snapshot = observed.Snapshot;
+        bool changed = !snapshot.Data.Equals(saved.State.Observed)
+            || snapshot.Revision.Epoch != saved.State.NativeRevision.Epoch
+            || snapshot.Revision.Sequence != saved.State.NativeRevision.Sequence
+            || snapshot.TrackingComplete != saved.State.TrackingComplete;
+        // The store performs the final compare-and-swap under its file lock. Even an
+        // unchanged observation must pass that check rather than return a stale success.
+        return store.Save(saved.State with
+        {
+            Observed = snapshot.Data,
+            NativeRevision = new(snapshot.Revision.Epoch, snapshot.Revision.Sequence),
+            TrackingComplete = snapshot.TrackingComplete,
+            HierarchyResolution = changed ? null : saved.State.HierarchyResolution
+        }, expectedRevisionToken);
+    }
+
+    /// <summary>Read the current hierarchy after receipt inspection. A later revision may
+    /// include undo or unrelated edits; never treat it as the operation's original result.
+    /// Return both observations for reconciliation without changing the recovery record.</summary>
+    public static async Task<DesignRecoveryObservation> ObserveAsync(DesignRecoveryStore store,
+        NativeClient client, CancellationToken cancellationToken = default)
+    {
+        var saved = store.Read() ?? throw new AutomationException("missing_design_recovery", "No saved design recovery state exists.");
+        var inspection = await InspectAsync(store, client, cancellationToken);
+        if (inspection.RevisionToken != saved.RevisionToken)
+            throw new AutomationException("design_recovery_changed", "Recovery state changed before observation; reload it before continuing.");
+        // InspectAsync intentionally makes no IPC call when there is no pending operation.
+        // Observation always verifies the saved instance, including that case.
+        var session = await client.HandshakeAsync(cancellationToken);
+        if (session.InstanceId != saved.State.InstanceId.ToString("D"))
+            throw new AutomationException("recovery_instance_mismatch", "Reattach the exact instance recorded by this design before recovery.");
+        var snapshot = await client.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(
+            new() { Document = (saved.State.PendingMutation?.Document ?? saved.State.Baseline.Schematic.Document).Clone() },
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (store.Read()?.RevisionToken != saved.RevisionToken)
+            throw new AutomationException("design_recovery_changed", "Recovery state changed during observation; reload it before continuing.");
+        if (snapshot.Data?.Document is null || !snapshot.Data.Document.Equals(saved.State.Baseline.Schematic.Document))
+            throw new AutomationException("invalid_recovery_snapshot", "The native snapshot identifies a different design.");
+        ulong minimumSequence = Math.Max(saved.State.NativeRevision.Sequence,
+            inspection.Receipt?.Result?.Revision?.Sequence ?? 0);
+        if (snapshot.Revision is not { } revision || revision.Epoch != saved.State.NativeRevision.Epoch
+            || revision.Sequence < minimumSequence)
+            throw new AutomationException("invalid_recovery_revision", "The native snapshot predates recovery or belongs to a different document session.");
+        // Validate supported typed serialization before handing data to reconciliation.
+        // Explicit coverage gaps and incomplete tracking remain in the returned snapshot.
+        _ = SchematicDataXml.Read(SchematicDataXml.Write(snapshot.Data));
+        return new(inspection, snapshot);
+    }
+
+    public static async Task<DesignRecoveryInspection> InspectAsync(DesignRecoveryStore store,
+        NativeClient client, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var saved = store.Read() ?? throw new AutomationException("missing_design_recovery", "No saved design recovery state exists.");
+        var pending = saved.State.PendingMutation;
+        if (pending is null) return new(saved.RevisionToken, DesignRecoveryDisposition.NoPendingOperation, null);
+        var session = await client.HandshakeAsync(cancellationToken);
+        if (session.InstanceId != saved.State.InstanceId.ToString("D"))
+            throw new AutomationException("recovery_instance_mismatch", "Reattach the exact instance recorded by this design before recovery.");
+        var request = new InspectSchematicOperation
+        {
+            Document = pending.Document.Clone(), DocumentEpoch = pending.DocumentEpoch,
+            OperationId = pending.OperationId, ExpectedRequest = pending.Clone()
+        };
+        var receipt = await client.InvokeAsync<InspectSchematicOperation, SchematicOperationReceipt>(request, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (store.Read()?.RevisionToken != saved.RevisionToken)
+            throw new AutomationException("design_recovery_changed", "Recovery state changed during inspection; reload it before continuing.");
+        if (!Equals(receipt.Document, request.Document) || receipt.DocumentEpoch != request.DocumentEpoch
+            || receipt.OperationId != request.OperationId)
+            throw new AutomationException("invalid_recovery_receipt", "The native reply identifies a different pending edit.");
+        if (receipt.State != SchematicOperationReceipt.Types.State.NotFound && !receipt.ExpectedRequestVerified)
+            throw new AutomationException("unverified_recovery_receipt", "The native peer did not verify the exact saved request; retain it for reconciliation.");
+        if (receipt.State == SchematicOperationReceipt.Types.State.Completed
+            && (receipt.Result?.Revision is not { } revision || revision.Epoch != pending.DocumentEpoch
+                || revision.Sequence < pending.ExpectedRevision.Sequence))
+            throw new AutomationException("invalid_recovery_revision", "The completed edit has no matching non-regressing result revision; reobserve before reconciliation.");
+        var disposition = receipt.State switch
+        {
+            SchematicOperationReceipt.Types.State.NotFound when receipt.Result is null && !receipt.ExpectedRequestVerified
+                && receipt.NativeStatusCode == 0 => DesignRecoveryDisposition.NotFound,
+            SchematicOperationReceipt.Types.State.Completed when receipt.Result is not null && receipt.NativeStatusCode == 0
+                => DesignRecoveryDisposition.CompletedNeedsReconciliation,
+            SchematicOperationReceipt.Types.State.Rejected when receipt.Result is null && receipt.NativeStatusCode > 1
+                => DesignRecoveryDisposition.Rejected,
+            SchematicOperationReceipt.Types.State.Indeterminate when receipt.Result is null && receipt.NativeStatusCode == 0
+                => DesignRecoveryDisposition.Indeterminate,
+            _ => throw new AutomationException("invalid_recovery_receipt", "The native receipt has an unknown or inconsistent outcome.")
+        };
+        return new(saved.RevisionToken, disposition, receipt);
+    }
+}

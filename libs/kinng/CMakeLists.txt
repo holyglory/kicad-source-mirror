@@ -17,6 +17,7 @@
 
 set( KINNG_SRCS
     src/kinng.cpp
+    src/kinng_publisher.cpp
     )
 
 add_library( kinng STATIC

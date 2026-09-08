@@ -666,6 +666,91 @@ void SCH_MOVE_TOOL::preprocessBreakOrSliceSelection( SCH_COMMIT* aCommit, const 
 }
 
 
+bool SCH_MOVE_TOOL::DragSelectionBy( SCH_COMMIT* aCommit, const VECTOR2I& aDelta, wxString& aError )
+{
+    SCH_SELECTION& selection = m_selectionTool->GetSelection();
+    if( !aCommit || selection.Empty() || m_inMoveTool || m_moveInProgress )
+    {
+        aError = "Connected movement requires an idle tool and an explicit nonempty selection";
+        return false;
+    }
+
+    REENTRANCY_GUARD guard( &m_inMoveTool );
+    const MOVE_MODE previousMode = m_mode;
+    m_mode = DRAG;
+    m_moveOffset = { 0, 0 };
+    m_anchorPos.reset();
+    EE_GRID_HELPER grid( m_toolMgr );
+    GRID_HELPER_GRIDS snapLayer;
+    std::vector<DANGLING_END_ITEM> internalPoints;
+
+    auto releaseState = [&]()
+    {
+        m_dragAdditions.clear();
+        m_lineConnectionCache.clear();
+        m_changedDragLines.clear();
+        m_specialCaseLabels.clear();
+        m_specialCaseSheetPins.clear();
+        m_sheetPinDragArc.clear();
+        m_hiddenJunctions.clear();
+        m_moveOffset = { 0, 0 };
+        m_anchorPos.reset();
+        m_moveInProgress = false;
+        m_mode = previousMode;
+    };
+    auto abandon = [&]()
+    {
+        // Bend lines are screen-owned only after finalization stages them.
+        // Leave staged additions for the caller's commit rollback.
+        for( SCH_LINE* line : m_newDragLines )
+        {
+            if( !( aCommit->GetStatus( line, m_frame->GetScreen() ) & CHT_ADD ) )
+            {
+                m_frame->RemoveFromScreen( line, m_frame->GetScreen() );
+                delete line;
+            }
+        }
+        m_newDragLines.clear();
+        for( EDA_ITEM* item : selection )
+        {
+            item->ClearFlags( IS_MOVING );
+            static_cast<SCH_ITEM*>( item )->RunOnChildren(
+                    []( SCH_ITEM* child ) { child->ClearFlags( IS_MOVING ); }, RECURSE_MODE::RECURSE );
+        }
+        for( const HIDDEN_JUNCTION& hidden : m_hiddenJunctions )
+            m_view->Hide( hidden.m_junction, false );
+        releaseState();
+    };
+
+    try
+    {
+        prepareMoveItems( selection, aCommit, internalPoints, snapLayer, grid );
+        for( EDA_ITEM* item : selection )
+        {
+            if( item->IsLocked() )
+            {
+                aError = "Connected movement would move a locked item";
+                abandon();
+                return false;
+            }
+        }
+        selection.SetReferencePoint( static_cast<SCH_ITEM*>( selection.Front() )->GetPosition() );
+        m_moveInProgress = true;
+        int xBendCount = 1;
+        int yBendCount = 1;
+        performItemMove( selection, aDelta, aCommit, xBendCount, yBendCount, grid );
+        finalizeMoveOperation( selection, aCommit, false, internalPoints, false );
+        releaseState();
+        return true;
+    }
+    catch( ... )
+    {
+        abandon();
+        throw;
+    }
+}
+
+
 bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aCommit )
 {
     KIGFX::VIEW_CONTROLS* controls = getViewControls();
@@ -1078,6 +1163,29 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
 
     if( restore_state )
     {
+        // The cancelled tool must release the same cursor state as a drop;
+        // otherwise the next move can stay pinned to the former snap anchor.
+        controls->ForceCursorPosition( false );
+        controls->ShowCursor( false );
+        controls->SetAutoPan( false );
+        m_moveOffset = { 0, 0 };
+        m_anchorPos.reset();
+
+        // Revert restores persisted data but SwapFlags deliberately preserves
+        // transient edit flags. End this tool's moving state before handing
+        // the commit back to its owner (including synchronous callers).
+        for( EDA_ITEM* item : selection )
+        {
+            item->ClearFlags( IS_MOVING );
+
+            if( SCH_ITEM* schItem = dynamic_cast<SCH_ITEM*>( item ) )
+            {
+                schItem->RunOnChildren(
+                        []( SCH_ITEM* child ) { child->ClearFlags( IS_MOVING ); },
+                        RECURSE_MODE::RECURSE );
+            }
+        }
+
         for( const HIDDEN_JUNCTION& hidden : m_hiddenJunctions )
             m_view->Hide( hidden.m_junction, false );
 
@@ -1299,15 +1407,10 @@ void SCH_MOVE_TOOL::setupItemsForMove( SCH_SELECTION& aSelection, std::vector<DA
 }
 
 
-void SCH_MOVE_TOOL::initializeMoveOperation( const TOOL_EVENT& aEvent, SCH_SELECTION& aSelection, SCH_COMMIT* aCommit,
-                                             std::vector<DANGLING_END_ITEM>& aInternalPoints,
-                                             GRID_HELPER_GRIDS&              aSnapLayer )
+void SCH_MOVE_TOOL::prepareMoveItems( SCH_SELECTION& aSelection, SCH_COMMIT* aCommit,
+                                      std::vector<DANGLING_END_ITEM>& aInternalPoints,
+                                      GRID_HELPER_GRIDS& aSnapLayer, const EE_GRID_HELPER& aGrid )
 {
-    KIGFX::VIEW_CONTROLS* controls = getViewControls();
-    EE_GRID_HELPER        grid( m_toolMgr );
-    SCH_ITEM*             sch_item = static_cast<SCH_ITEM*>( aSelection.Front() );
-    bool                  placingNewItems = sch_item && sch_item->IsNew();
-
     //------------------------------------------------------------------------
     // Setup a drag or a move
     //
@@ -1332,7 +1435,7 @@ void SCH_MOVE_TOOL::initializeMoveOperation( const TOOL_EVENT& aEvent, SCH_SELEC
     recordRedundantJunctions( aSelection );
 
     // Generic setup
-    aSnapLayer = grid.GetSelectionGrid( aSelection );
+    aSnapLayer = aGrid.GetSelectionGrid( aSelection );
 
     for( EDA_ITEM* item : aSelection )
     {
@@ -1385,6 +1488,20 @@ void SCH_MOVE_TOOL::initializeMoveOperation( const TOOL_EVENT& aEvent, SCH_SELEC
             m_sheetPinDragArc[pin] = sheetBorderArc( pin->GetParent(), pin->GetSide(), pin->GetPosition() );
         }
     }
+}
+
+
+void SCH_MOVE_TOOL::initializeMoveOperation( const TOOL_EVENT& aEvent, SCH_SELECTION& aSelection,
+                                             SCH_COMMIT* aCommit,
+                                             std::vector<DANGLING_END_ITEM>& aInternalPoints,
+                                             GRID_HELPER_GRIDS& aSnapLayer )
+{
+    KIGFX::VIEW_CONTROLS* controls = getViewControls();
+    EE_GRID_HELPER        grid( m_toolMgr );
+    SCH_ITEM*             sch_item = static_cast<SCH_ITEM*>( aSelection.Front() );
+    bool                  placingNewItems = sch_item && sch_item->IsNew();
+
+    prepareMoveItems( aSelection, aCommit, aInternalPoints, aSnapLayer, grid );
 
     // Set up the starting position and move/drag offset
     m_cursor = controls->GetCursorPosition();
@@ -2067,7 +2184,8 @@ void SCH_MOVE_TOOL::migrateHiddenJunctions( SCH_COMMIT* aCommit )
 
 
 void SCH_MOVE_TOOL::finalizeMoveOperation( SCH_SELECTION& aSelection, SCH_COMMIT* aCommit, bool aUnselect,
-                                           const std::vector<DANGLING_END_ITEM>& aInternalPoints )
+                                           const std::vector<DANGLING_END_ITEM>& aInternalPoints,
+                                           bool aInteractive )
 {
     KIGFX::VIEW_CONTROLS* controls = getViewControls();
     const bool            isSlice = ( m_mode == SLICE );
@@ -2085,9 +2203,12 @@ void SCH_MOVE_TOOL::finalizeMoveOperation( SCH_SELECTION& aSelection, SCH_COMMIT
     for( SCH_LINE* oldLine : m_changedDragLines )
         oldLine->ClearEditFlags();
 
-    controls->ForceCursorPosition( false );
-    controls->ShowCursor( false );
-    controls->SetAutoPan( false );
+    if( aInteractive )
+    {
+        controls->ForceCursorPosition( false );
+        controls->ShowCursor( false );
+        controls->SetAutoPan( false );
+    }
 
     m_moveOffset = { 0, 0 };
     m_anchorPos.reset();

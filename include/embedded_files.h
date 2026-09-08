@@ -89,6 +89,15 @@ public:
     EMBEDDED_FILES( const EMBEDDED_FILES& other );
     EMBEDDED_FILES( const EMBEDDED_FILES& other, bool aDeepCopy );
 
+    // Exchange persisted assets and derived font paths without transferring
+    // callbacks owned by the live document. Used by atomic native undo/redo.
+    void SwapData( EMBEDDED_FILES& aOther ) noexcept
+    {
+        m_files.swap( aOther.m_files );
+        m_fontFiles.swap( aOther.m_fontFiles );
+        std::swap( m_embedFonts, aOther.m_embedFonts );
+    }
+
     virtual ~EMBEDDED_FILES() = default;
 
     using FILE_ADDED_CALLBACK = std::function<void( EMBEDDED_FILE* )>;

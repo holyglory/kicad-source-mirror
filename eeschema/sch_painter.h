@@ -74,7 +74,12 @@ public:
 
     void SetSchematic( SCHEMATIC* aSchematic ) { m_schematic = aSchematic; }
 
+    /** Optional explicit instance for private renderers; normal editor painters follow the UI. */
+    void SetSheetPath( const SCH_SHEET_PATH& aPath ) { m_sheetPath = aPath; }
+    void ClearSheetPath() { m_sheetPath.reset(); }
+
 private:
+    const SCH_SHEET_PATH* renderSheetPath() const;
     void drawItemBoundingBox( const EDA_ITEM* aItem );
     void draw( const EDA_ITEM*, int, bool aDimmed );
     void draw( const SCH_PIN* aPin, int aLayer, bool aDimmed );
@@ -145,6 +150,7 @@ public:
 private:
     SCH_RENDER_SETTINGS m_schSettings;
     SCHEMATIC*          m_schematic;
+    std::optional<SCH_SHEET_PATH> m_sheetPath;
 };
 
 }; // namespace KIGFX

@@ -27,6 +27,7 @@
 #include "drawing_sheet/ds_draw_item.h"
 
 class DS_DRAW_ITEM_TEXT;            // Forward declaration
+class DS_DATA_MODEL;
 
 #define TB_DEFAULT_TEXTSIZE 1.5     // default drawing sheet text size in mm
 
@@ -109,6 +110,11 @@ public:
     DS_DATA_ITEM( DS_ITEM_TYPE aType );
 
     virtual ~DS_DATA_ITEM();
+
+    // A private renderer must use its own layout environment, not the GUI's
+    // singleton. Unattached editor items retain the historical default context.
+    void SetDataModel( DS_DATA_MODEL* aModel ) { m_dataModel = aModel; }
+    DS_DATA_MODEL& GetDataModel() const;
 
     const std::vector<DS_DRAW_ITEM_BASE*>& GetDrawItems() const { return m_drawItems; }
 
@@ -208,6 +214,7 @@ public:
     int            m_IncrementLabel;
 
 protected:
+    DS_DATA_MODEL* m_dataModel = nullptr; // Non-owning; bound by the owning model.
     DS_ITEM_TYPE   m_type;
     PAGE_OPTION    m_pageOption;
 

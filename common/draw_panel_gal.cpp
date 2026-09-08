@@ -582,10 +582,16 @@ void EDA_DRAW_PANEL_GAL::ForceRefresh()
 
 bool EDA_DRAW_PANEL_GAL::GetScreenshot( wxImage& aDstImage )
 {
-    if( m_backend != GAL_TYPE_OPENGL || !m_gal )
+    if( !m_gal || ( m_backend != GAL_TYPE_OPENGL && m_backend != GAL_TYPE_CAIRO ) )
         return false;
 
-    DoRePaint( false );
+    // Never return an older frame when the requested rendering checkpoint
+    // cannot run (for example while drawing is disabled or the context is busy).
+    if( !DoRePaint( false ) )
+        return false;
+
+    if( m_backend == GAL_TYPE_CAIRO )
+        return static_cast<KIGFX::CAIRO_GAL*>( m_gal )->GetScreenshot( aDstImage );
 
     return static_cast<KIGFX::OPENGL_GAL*>( m_gal )->GetScreenshot( aDstImage );
 }

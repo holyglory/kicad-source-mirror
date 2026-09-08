@@ -30,6 +30,7 @@
 #include <lib_id.h>
 #include <api/common/envelope.pb.h>
 #include <api/common/types/base_types.pb.h>
+#include <api/common/types/embedded_files.pb.h>
 #include <layer_ids.h>
 #include <geometry/shape_line_chain.h>
 #include <math/vector2d.h>
@@ -43,6 +44,7 @@ class TEXT_ATTRIBUTES;
 class KIID_PATH;
 class EDA_ITEM;
 class PROJECT;
+class EMBEDDED_FILES;
 
 /**
  * Flag to enable debug output related to the IPC API and its plugin system
@@ -61,6 +63,13 @@ KICOMMON_API std::optional<KICAD_T> TypeNameFromAny( const google::protobuf::Any
 KICOMMON_API LIB_ID UnpackLibId( const types::LibraryIdentifier& aId );
 
 KICOMMON_API void PackLibId( types::LibraryIdentifier* aOutput, const LIB_ID& aId );
+
+KICOMMON_API void PackEmbeddedFiles( types::EmbeddedFiles& aOutput, const EMBEDDED_FILES& aInput );
+
+// Decodes into temporary ownership; errors never partially replace aOutput.
+// Font-embedding policy and callbacks belong to the caller and remain unchanged.
+KICOMMON_API std::optional<wxString> UnpackEmbeddedFiles( const types::EmbeddedFiles& aInput,
+                                                       EMBEDDED_FILES& aOutput );
 
 KICOMMON_API void PackVector2( types::Vector2& aOutput, const VECTOR2I& aInput,
                                const EDA_IU_SCALE& aScale = pcbIUScale );

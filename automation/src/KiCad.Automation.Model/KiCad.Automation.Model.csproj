@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <EmbeddedResource Include="../../schemas/*.xsd" Link="Schemas/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

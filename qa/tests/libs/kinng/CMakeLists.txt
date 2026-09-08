@@ -18,6 +18,7 @@
 set( QA_KINNG_SRCS
     kinng_test_module.cpp
     test_kinng.cpp
+    test_publisher.cpp
     )
 
 add_executable( qa_kinng
@@ -28,6 +29,7 @@ target_link_libraries( qa_kinng
     qa_utils
     kinng
     kiapi
+    kicommon
     ${NNG_LIBRARY}
     ${wxWidgets_LIBRARIES}
     )
@@ -36,6 +38,7 @@ target_include_directories( qa_kinng PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/qa/mocks/include
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${NNG_INCLUDE_DIR}
     )
 
 kicad_add_boost_test( qa_kinng qa_kinng )

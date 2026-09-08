@@ -371,6 +371,10 @@ public:
      */
     BOX2I GetTextBox( const RENDER_SETTINGS* aSettings, int aLine = -1 ) const;
 
+    /** Measure explicitly resolved text without reading or changing the current-context cache. */
+    BOX2I GetTextBoxForText( const RENDER_SETTINGS* aSettings, const wxString& aShownText,
+                            int aLine = -1 ) const;
+
     /**
      * Return the distance between two lines of text.
      *

@@ -578,6 +578,10 @@ public:
                              std::vector<VECTOR2I>& aPoints,
                              const VECTOR2I& aPos ) const override;
 
+    void CreateGraphicShape( const RENDER_SETTINGS* aRenderSettings,
+                             std::vector<VECTOR2I>& aPoints, const VECTOR2I& aPos,
+                             const SCH_SHEET_PATH* aPath ) const;
+
     bool ResolveTextVar( const SCH_SHEET_PATH* aPath, wxString* token, int aDepth ) const override;
 
     bool IsConnectable() const override { return true; }

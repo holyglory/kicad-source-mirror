@@ -29,6 +29,17 @@
 
 using namespace kiapi::common::commands;
 
+namespace
+{
+ApiResponseStatus StagedTransactionBusy()
+{
+    ApiResponseStatus error;
+    error.set_status( ApiStatusCode::AS_BUSY );
+    error.set_error_message( "A staged transaction owns this document; finish or cancel it first" );
+    return error;
+}
+}
+
 
 API_HANDLER_EDITOR::API_HANDLER_EDITOR( EDA_BASE_FRAME* aFrame ) :
         API_HANDLER(),
@@ -59,6 +70,9 @@ HANDLER_RESULT<BeginCommitResponse> API_HANDLER_EDITOR::handleBeginCommit(
         e.set_status( ApiStatusCode::AS_UNHANDLED );
         return tl::unexpected( e );
     }
+
+    if( !m_commits.empty() && !m_commits.contains( aCtx.ClientName ) )
+        return tl::unexpected( StagedTransactionBusy() );
 
     if( m_commits.count( aCtx.ClientName ) )
     {
@@ -224,11 +238,36 @@ std::optional<ApiResponseStatus> API_HANDLER_EDITOR::checkForBusy()
     if( !m_frame )
         return std::nullopt;
 
-    if( !m_frame->CanAcceptApiCommands() )
+    // Some native modal loops leave wxWindow::IsEnabled() true even while
+    // input is owned by a dialog. Do not let API edits race that dialog's
+    // preview or pending settings. Other editors' dialogs do not own this one.
+    bool ownedModal = false;
+    std::string modalTitle;
+
+    for( wxWindow* window : wxTopLevelWindows )
+    {
+        auto* dialog = dynamic_cast<wxDialog*>( window );
+
+        if( !dialog || !dialog->IsShown() || !dialog->IsModal() )
+            continue;
+
+        for( wxWindow* parent = dialog->GetParent(); parent; parent = parent->GetParent() )
+        {
+            if( parent == m_frame )
+            {
+                ownedModal = true;
+                modalTitle = dialog->GetTitle().ToStdString();
+                break;
+            }
+        }
+    }
+
+    if( ownedModal || !m_frame->CanAcceptApiCommands() )
     {
         ApiResponseStatus e;
         e.set_status( ApiStatusCode::AS_BUSY );
-        e.set_error_message( "KiCad is busy and cannot respond to API requests right now" );
+        e.set_error_message( ownedModal ? "KiCad is busy with modal dialog: " + modalTitle
+                                      : "KiCad editor is disabled and cannot respond to API requests right now" );
         return e;
     }
 
@@ -241,6 +280,16 @@ HANDLER_RESULT<CreateItemsResponse> API_HANDLER_EDITOR::handleCreateItems(
 {
     if( std::optional<ApiResponseStatus> busy = checkForBusy() )
         return tl::unexpected( *busy );
+
+    if( !validateItemHeaderDocument( aCtx.Request.header() ) )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_UNHANDLED );
+        return tl::unexpected( error );
+    }
+
+    if( !m_commits.empty() && !m_commits.contains( aCtx.ClientName ) )
+        return tl::unexpected( StagedTransactionBusy() );
 
     CreateItemsResponse response;
 
@@ -268,6 +317,16 @@ HANDLER_RESULT<UpdateItemsResponse> API_HANDLER_EDITOR::handleUpdateItems(
 {
     if( std::optional<ApiResponseStatus> busy = checkForBusy() )
         return tl::unexpected( *busy );
+
+    if( !validateItemHeaderDocument( aCtx.Request.header() ) )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_UNHANDLED );
+        return tl::unexpected( error );
+    }
+
+    if( !m_commits.empty() && !m_commits.contains( aCtx.ClientName ) )
+        return tl::unexpected( StagedTransactionBusy() );
 
     UpdateItemsResponse response;
 
@@ -303,6 +362,9 @@ HANDLER_RESULT<DeleteItemsResponse> API_HANDLER_EDITOR::handleDeleteItems(
         e.set_status( ApiStatusCode::AS_UNHANDLED );
         return tl::unexpected( e );
     }
+
+    if( !m_commits.empty() && !m_commits.contains( aCtx.ClientName ) )
+        return tl::unexpected( StagedTransactionBusy() );
 
     std::map<KIID, ItemDeletionStatus> itemsToDelete;
 
@@ -438,10 +500,18 @@ API_HANDLER_EDITOR::handleGetTitleBlockInfo( const HANDLER_CONTEXT<GetTitleBlock
 HANDLER_RESULT<google::protobuf::Empty>
 API_HANDLER_EDITOR::handleSetTitleBlockInfo( const HANDLER_CONTEXT<SetTitleBlockInfo>& aCtx )
 {
+    if( auto busy = checkForBusy() )
+        return tl::unexpected( *busy );
+
     HANDLER_RESULT<bool> documentValidation = validateDocument( aCtx.Request.document() );
 
     if( !documentValidation )
         return tl::unexpected( documentValidation.error() );
+
+    // Metadata setters do not participate in the staged item commit. Even its
+    // owner must finish or cancel before applying an independent settings edit.
+    if( !m_commits.empty() )
+        return tl::unexpected( StagedTransactionBusy() );
 
     if( !aCtx.Request.has_title_block() )
     {
@@ -488,6 +558,9 @@ API_HANDLER_EDITOR::handleSetTitleBlockInfo( const HANDLER_CONTEXT<SetTitleBlock
 HANDLER_RESULT<types::PageSettings> API_HANDLER_EDITOR::handleGetPageSettings(
         const HANDLER_CONTEXT<commands::GetPageSettings>& aCtx)
 {
+    if( auto busy = checkForBusy() )
+        return tl::unexpected( *busy );
+
     HANDLER_RESULT<bool> documentValidation = validateDocument( aCtx.Request.document() );
 
     if( !documentValidation )
@@ -522,10 +595,16 @@ HANDLER_RESULT<types::PageSettings> API_HANDLER_EDITOR::handleGetPageSettings(
 HANDLER_RESULT<types::PageSettings> API_HANDLER_EDITOR::handleSetPageSettings(
         const HANDLER_CONTEXT<commands::SetPageSettings>& aCtx )
 {
+    if( auto busy = checkForBusy() )
+        return tl::unexpected( *busy );
+
     HANDLER_RESULT<bool> documentValidation = validateDocument( aCtx.Request.document() );
 
     if( !documentValidation )
         return tl::unexpected( documentValidation.error() );
+
+    if( !m_commits.empty() )
+        return tl::unexpected( StagedTransactionBusy() );
 
     if( !aCtx.Request.has_page_settings() )
     {

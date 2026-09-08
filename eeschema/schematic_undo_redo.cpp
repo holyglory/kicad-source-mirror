@@ -31,6 +31,9 @@
 #include <sch_table.h>
 #include <tools/sch_selection_tool.h>
 #include <drawing_sheet/ds_proxy_undo_item.h>
+#include <sch_page_settings_undo.h>
+#include <sch_embedded_files_undo.h>
+#include <sch_library_cache_undo.h>
 #include <tool/actions.h>
 #include <wx/log.h>
 
@@ -253,6 +256,18 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
     SCH_SHEET_LIST         sheets= m_schematic->Hierarchy();
     bool                   clearedRepeatItems = false;
 
+    std::map<SCH_LIBRARY_CACHE_UNDO_ITEM*, SCH_SYMBOL_CACHE_STATE> cacheBefore;
+    std::vector<std::unique_ptr<SCH_SYMBOL_CACHE_EDIT_SCOPE>> cacheScopes;
+    for( unsigned ii = 0; ii < aList->GetCount(); ++ii )
+    {
+        if( aList->GetPickedItemStatus( ii ) == UNDO_REDO::LIBRARY_CACHE )
+        {
+            auto* item = static_cast<SCH_LIBRARY_CACHE_UNDO_ITEM*>( aList->GetPickedItem( ii ) );
+            cacheBefore.emplace( item, item->CaptureCurrent() );
+            cacheScopes.push_back( std::make_unique<SCH_SYMBOL_CACHE_EDIT_SCOPE>( item->Screen() ) );
+        }
+    }
+
     // Undo in the reverse order of list creation: (this can allow stacked changes like the
     // same item can be changed and deleted in the same complex command).
     // After hitting 0, subtracting 1 will roll the value over to its max representation
@@ -346,6 +361,15 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
 
             bulkAddedItems.emplace_back( schItem );
         }
+        else if( status == UNDO_REDO::LIBRARY_CACHE )
+        {
+            // Restore after all graphical entries; redo retains the state
+            // captured before any graphical undo changed the screen.
+        }
+        else if( status == UNDO_REDO::EMBEDDED_FILES )
+        {
+            static_cast<SCH_EMBEDDED_FILES_UNDO_ITEM*>( eda_item )->Swap( *Schematic().GetEmbeddedFiles() );
+        }
         else if( status == UNDO_REDO::PAGESETTINGS )
         {
             if( GetCurrentSheet() != undoSheet )
@@ -355,10 +379,29 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
             }
 
             // swap current settings with stored settings
-            DS_PROXY_UNDO_ITEM  alt_item( this );
             DS_PROXY_UNDO_ITEM* item = static_cast<DS_PROXY_UNDO_ITEM*>( eda_item );
-            item->Restore( this );
-            *item = std::move( alt_item );
+            if( auto* allPages = dynamic_cast<SCH_PAGE_SETTINGS_UNDO_ITEM*>( item ) )
+            {
+                if( !allPages->BusAliasesMatch( Schematic() ) || !allPages->TextVariablesMatch( this )
+                        || allPages->IncludesNetChains() )
+                {
+                    dirtyConnectivity = true;
+                    connectivityCleanUp = GLOBAL_CLEANUP;
+                }
+                SCH_PAGE_SETTINGS_UNDO_ITEM alternate( this );
+                alternate.CopyProjectSettingsScope( *allPages );
+                allPages->RestoreAll( this );
+                *allPages = std::move( alternate );
+            }
+            else
+            {
+                DS_PROXY_UNDO_ITEM alternate( this );
+                item->Restore( this );
+                *item = std::move( alternate );
+            }
+            Schematic().Settings().m_SchDrawingSheetFileName = BASE_SCREEN::m_DrawingSheetFileName;
+            refreshHierarchy = true;
+            rebuildHierarchyNavigator = true;
         }
         else if( status == UNDO_REDO::REPEAT_ITEM )
         {
@@ -509,6 +552,10 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
 
     GetCanvas()->GetView()->ClearHiddenFlags();
 
+    for( auto& [item, before] : cacheBefore )
+        item->RestoreForUndo( std::move( before ) );
+    cacheScopes.clear();
+
     // Notify our listeners
     if( bulkAddedItems.size() > 0 )
         Schematic().OnItemsAdded( bulkAddedItems );
@@ -619,5 +666,3 @@ void SCH_EDIT_FRAME::ClearUndoORRedoList( UNDO_REDO_LIST whichList, int aItemCou
         }
     }
 }
-
-

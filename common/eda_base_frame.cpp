@@ -955,12 +955,18 @@ void EDA_BASE_FRAME::CommonSettingsChanged( int aFlags )
 
     COMMON_SETTINGS* settings = Pgm().GetCommonSettings();
 
-    bool running = Pgm().GetApiServer().Running();
+    // An explicit automation startup owns its local endpoint independently of
+    // the ordinary desktop preference. Rechecking that preference while an API
+    // request refreshes project text can otherwise stop the responding server.
+    if( !Pgm().GetApiServer().IsAutomation() )
+    {
+        bool running = Pgm().GetApiServer().Running();
 
-    if( running && !settings->m_Api.enable_server )
-        Pgm().GetApiServer().Stop();
-    else if( !running && settings->m_Api.enable_server )
-        Pgm().GetApiServer().Start();
+        if( running && !settings->m_Api.enable_server )
+            Pgm().GetApiServer().Stop();
+        else if( !running && settings->m_Api.enable_server )
+            Pgm().GetApiServer().Start();
+    }
 
     if( m_fileHistory )
     {

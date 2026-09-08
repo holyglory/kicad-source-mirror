@@ -44,6 +44,7 @@
 #include <sch_commit.h>
 #include <sch_pin.h>
 #include <sch_symbol.h>
+#include <sch_symbol_cache_state.h>
 #include <sch_group.h>
 #include <sch_junction.h>
 #include <sch_line.h>
@@ -164,7 +165,7 @@ void SCH_SCREEN::Append( SCH_ITEM* aItem, bool aUpdateLibSymbol )
         // Ensure the item can reach the SCHEMATIC through this screen
         aItem->SetParent( this );
 
-        if( aItem->Type() == SCH_SYMBOL_T && aUpdateLibSymbol )
+        if( aItem->Type() == SCH_SYMBOL_T && aUpdateLibSymbol && m_managedSymbolCacheDepth == 0 )
         {
             SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( aItem );
 
@@ -339,7 +340,7 @@ bool SCH_SCREEN::Remove( SCH_ITEM* aItem, bool aUpdateLibSymbol )
     bool retv = m_rtree.remove( aItem );
 
     // Check if the library symbol for the removed schematic symbol is still required.
-    if( retv && aItem->Type() == SCH_SYMBOL_T && aUpdateLibSymbol )
+    if( retv && aItem->Type() == SCH_SYMBOL_T && aUpdateLibSymbol && m_managedSymbolCacheDepth == 0 )
     {
         SCH_SYMBOL* removedSymbol = static_cast<SCH_SYMBOL*>( aItem );
 
@@ -1452,6 +1453,12 @@ SCH_LABEL_BASE* SCH_SCREEN::GetLabel( const VECTOR2I& aPosition, int aAccuracy )
     }
 
     return nullptr;
+}
+
+
+void SCH_SCREEN::SwapLibSymbolCache( SCH_SYMBOL_CACHE_STATE& aState )
+{
+    aState.Swap( m_libSymbols );
 }
 
 

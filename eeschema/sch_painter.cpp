@@ -109,6 +109,15 @@ SCH_PAINTER::SCH_PAINTER( GAL* aGal ) :
 { }
 
 
+const SCH_SHEET_PATH* SCH_PAINTER::renderSheetPath() const
+{
+    if( m_sheetPath )
+        return &*m_sheetPath;
+
+    return m_schematic ? &m_schematic->CurrentSheet() : nullptr;
+}
+
+
 bool SCH_PAINTER::Draw( const VIEW_ITEM* aItem, int aLayer )
 {
     const EDA_ITEM* item = dynamic_cast<const EDA_ITEM*>( aItem );
@@ -418,7 +427,7 @@ COLOR4D SCH_PAINTER::getRenderColor( const SCH_ITEM* aItem, int aLayer, bool aDr
         }
 
         if( color.m_text && m_schematic )
-            color = COLOR4D( aItem->ResolveText( *color.m_text, &m_schematic->CurrentSheet() ) );
+            color = COLOR4D( aItem->ResolveText( *color.m_text, renderSheetPath() ) );
     }
     else  /* overrideItemColors */
     {
@@ -1741,7 +1750,7 @@ void SCH_PAINTER::draw( const SCH_LINE* aLine, int aLayer )
     // highlighted chain is immediately visible.
     if( drawingWires && !drawingShadows && m_schematic && !m_schematic->GetHighlightedNetChain().IsEmpty() )
     {
-        SCH_CONNECTION* conn = !aLine->IsConnectivityDirty() ? aLine->Connection() : nullptr;
+        SCH_CONNECTION* conn = !aLine->IsConnectivityDirty() ? aLine->Connection( renderSheetPath() ) : nullptr;
 
         if( conn && !conn->Name().IsEmpty() )
         {
@@ -2205,7 +2214,7 @@ void SCH_PAINTER::draw( const SCH_TEXT* aText, int aLayer, bool aDimmed )
         SCH_CONNECTION* conn = nullptr;
 
         if( !aText->IsConnectivityDirty() )
-            conn = aText->Connection();
+            conn = aText->Connection( renderSheetPath() );
 
         if( conn && conn->IsBus() )
             color = getRenderColor( aText, LAYER_BUS, drawingShadows, aDimmed );
@@ -2227,7 +2236,7 @@ void SCH_PAINTER::draw( const SCH_TEXT* aText, int aLayer, bool aDimmed )
     m_gal->SetFillColor( color );
     m_gal->SetHoverColor( color );
 
-    wxString        shownText( aText->GetShownText( true ) );
+    wxString        shownText( aText->GetShownText( renderSheetPath(), true ) );
     VECTOR2I        text_offset = aText->GetSchematicTextOffset( &m_schSettings );
     TEXT_ATTRIBUTES attrs = aText->GetAttributes();
     KIFONT::FONT*   font = getFont( aText );
@@ -2319,7 +2328,7 @@ void SCH_PAINTER::draw( const SCH_TEXT* aText, int aLayer, bool aDimmed )
         }
 
         if( aText->Type() == SCH_TEXT_T )
-            text_offset += aText->GetOffsetToMatchSCH_FIELD( nullptr );
+            text_offset += aText->GetOffsetToMatchSCH_FIELD( nullptr, shownText );
 
         if( nonCached( aText ) && aText->RenderAsBitmap( m_gal->GetWorldScale() )
                                && !shownText.Contains( wxT( "\n" ) ) )
@@ -2451,7 +2460,7 @@ void SCH_PAINTER::draw( const SCH_TEXTBOX* aTextBox, int aLayer, bool aDimmed )
         }
         else
         {
-            wxString        shownText = aTextBox->GetShownText( true );
+            wxString        shownText = aTextBox->GetShownText( nullptr, renderSheetPath(), true );
             TEXT_ATTRIBUTES attrs = aTextBox->GetAttributes();
             wxString        activeUrl;
 
@@ -2608,7 +2617,7 @@ wxString SCH_PAINTER::expandLibItemTextVars( const wxString& aSourceText,
                 if( !m_schematic )
                     return false;
 
-                return aSymbolContext->ResolveTextVar( &m_schematic->CurrentSheet(), token );
+                return aSymbolContext->ResolveTextVar( renderSheetPath(), token );
             };
 
     return ExpandTextVars( aSourceText, &symbolResolver );
@@ -2626,7 +2635,7 @@ void SCH_PAINTER::draw( const SCH_SYMBOL* aSymbol, int aLayer )
 
     if( m_schematic )
     {
-        optSheetPath = m_schematic->CurrentSheet();
+        optSheetPath = *renderSheetPath();
         variantName = m_schematic->GetCurrentVariant();
         wxLogTrace( traceSchPainter,
                     "SCH_PAINTER::draw symbol %s: Current sheet path='%s', variant='%s', size=%zu, empty=%d",
@@ -2660,7 +2669,7 @@ void SCH_PAINTER::draw( const SCH_SYMBOL* aSymbol, int aLayer )
         // return;
     }
 
-    int unit = m_schematic ? aSymbol->GetUnitSelection( &m_schematic->CurrentSheet() ) : 1;
+    int unit = m_schematic ? aSymbol->GetUnitSelection( renderSheetPath() ) : 1;
     int bodyStyle = aSymbol->GetBodyStyle();
 
     // Use the effective symbol (variant alternate or base), falling back to dummy.
@@ -2747,7 +2756,7 @@ void SCH_PAINTER::draw( const SCH_SYMBOL* aSymbol, int aLayer )
         {
             const wxString original = symbolPin->GetShownNumber();
             const wxString effective =
-                    symbolPin->GetEffectivePadNumber( m_schematic->CurrentSheet(), m_schematic->GetCurrentVariant() );
+                    symbolPin->GetEffectivePadNumber( *renderSheetPath(), m_schematic->GetCurrentVariant() );
 
             if( effective != original )
             {
@@ -2906,12 +2915,12 @@ void SCH_PAINTER::draw( const SCH_FIELD* aField, int aLayer, bool aDimmed )
     // The selection anchor and umbilical line below must still draw for a transparent field.
     bool transparentColor = !drawingShadows && color.a <= 0.0;
 
-    SCH_SHEET_PATH* sheetPath = nullptr;
+    const SCH_SHEET_PATH* sheetPath = nullptr;
     wxString        variant;
 
     if( m_schematic )
     {
-        sheetPath = &m_schematic->CurrentSheet();
+        sheetPath = renderSheetPath();
         variant = m_schematic->GetCurrentVariant();
     }
 
@@ -2945,7 +2954,7 @@ void SCH_PAINTER::draw( const SCH_FIELD* aField, int aLayer, bool aDimmed )
      *   to calculate so the easier way is to use no justifications (centered text) and use
      *   GetBoundingBox to know the text coordinate considered as centered
      */
-    BOX2I bbox = aField->GetBoundingBox();
+    BOX2I bbox = m_sheetPath ? aField->GetBoundingBox( sheetPath, variant ) : aField->GetBoundingBox();
 
     if( aField->GetParent() && aField->GetParent()->Type() == SCH_GLOBAL_LABEL_T )
     {
@@ -3112,7 +3121,7 @@ void SCH_PAINTER::draw( const SCH_GLOBALLABEL* aLabel, int aLayer, bool aDimmed 
         std::vector<VECTOR2I> pts;
         std::deque<VECTOR2D> pts2;
 
-        aLabel->CreateGraphicShape( &m_schSettings, pts, aLabel->GetTextPos() );
+        aLabel->CreateGraphicShape( &m_schSettings, pts, aLabel->GetTextPos(), renderSheetPath() );
 
         for( const VECTOR2I& p : pts )
             pts2.emplace_back( VECTOR2D( p.x, p.y ) );
@@ -3313,13 +3322,13 @@ void SCH_PAINTER::draw( const SCH_DIRECTIVE_LABEL* aLabel, int aLayer, bool aDim
 
 void SCH_PAINTER::draw( const SCH_SHEET* aSheet, int aLayer )
 {
-    SCH_SHEET_PATH* sheetPath = nullptr;
+    const SCH_SHEET_PATH* sheetPath = nullptr;
     wxString        variant;
     bool            DNP = false;
 
     if( m_schematic )
     {
-        sheetPath = &m_schematic->CurrentSheet();
+        sheetPath = renderSheetPath();
         variant = m_schematic->GetCurrentVariant();
         DNP = aSheet->GetDNP( sheetPath, variant );
     }

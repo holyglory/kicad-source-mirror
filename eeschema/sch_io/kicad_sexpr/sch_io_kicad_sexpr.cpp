@@ -40,6 +40,7 @@
 #include <libraries/symbol_library_adapter.h>
 #include <progress_reporter.h>
 #include <schematic.h>
+#include <sch_root_instance.h>
 #include <schematic_lexer.h>
 #include <sch_bitmap.h>
 #include <sch_bus_entry.h>
@@ -394,6 +395,9 @@ void SCH_IO_KICAD_SEXPR::SaveSchematicFile( const wxString& aFileName, SCH_SHEET
     wxCHECK_RET( aSheet != nullptr, "NULL SCH_SHEET object." );
     wxCHECK_RET( !aFileName.IsEmpty(), "No schematic file name defined." );
 
+    if( ResolveRootInstance( aSchematic, *aSheet ).conflict )
+        THROW_IO_ERROR( _( "Root page numbers conflict between instances of the same schematic file." ) );
+
     wxString sanityResult = aSheet->GetScreen()->GroupsSanityCheck();
 
     if( sanityResult != wxEmptyString && m_queryUserCallback )
@@ -470,7 +474,7 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
     m_out->Print( "(lib_symbols" );
 
     for( const auto& [ libItemName, libSymbol ] : screen->GetLibSymbols() )
-        SCH_IO_KICAD_SEXPR_LIB_CACHE::SaveSymbol( libSymbol, *m_out, libItemName );
+        SCH_IO_KICAD_SEXPR_LIB_CACHE::SaveSymbol( libSymbol, *m_out, libItemName, true, true );
 
     m_out->Print( ")" );
 
@@ -564,29 +568,23 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
     // match the embedded files convention below.
     if( m_schematic->GetTopLevelSheet( 0 ) == aSheet )
     {
-        for( const auto& sigPtr : m_schematic->ConnectionGraph()->GetCommittedNetChains() )
+        for( const auto& [name, definition] : m_schematic->ConnectionGraph()->GetNetChainDefinitions() )
         {
-            if( !sigPtr )
-                continue;
+            m_out->Print( "(net_chain %s", m_out->Quotew( name ).c_str() );
 
-            const SCH_NETCHAIN& sig = *sigPtr;
+            const auto& from = definition.terminals.first;
+            const auto& to = definition.terminals.second;
+            if( !from.ref.IsEmpty() || !from.pin.IsEmpty() )
+                m_out->Print( " (from %s %s)", m_out->Quotew( from.ref ).c_str(), m_out->Quotew( from.pin ).c_str() );
+            if( !to.ref.IsEmpty() || !to.pin.IsEmpty() )
+                m_out->Print( " (to %s %s)", m_out->Quotew( to.ref ).c_str(), m_out->Quotew( to.pin ).c_str() );
 
-            if( sig.GetTerminalRef( 0 ).IsEmpty() || sig.GetTerminalRef( 1 ).IsEmpty() )
-                continue;
+            if( !definition.netClass.IsEmpty() )
+                m_out->Print( " (net_class %s)", m_out->Quotew( definition.netClass ).c_str() );
 
-            m_out->Print( "(net_chain %s", m_out->Quotew( sig.GetName() ).c_str() );
-
-            m_out->Print( " (from %s %s)", m_out->Quotew( sig.GetTerminalRef( 0 ) ).c_str(),
-                          m_out->Quotew( sig.GetTerminalPinNum( 0 ) ).c_str() );
-            m_out->Print( " (to %s %s)", m_out->Quotew( sig.GetTerminalRef( 1 ) ).c_str(),
-                          m_out->Quotew( sig.GetTerminalPinNum( 1 ) ).c_str() );
-
-            if( !sig.GetNetClass().IsEmpty() )
-                m_out->Print( " (net_class %s)", m_out->Quotew( sig.GetNetClass() ).c_str() );
-
-            if( sig.GetColor() != KIGFX::COLOR4D::UNSPECIFIED )
+            if( definition.color != KIGFX::COLOR4D::UNSPECIFIED )
             {
-                const KIGFX::COLOR4D& c = sig.GetColor();
+                const KIGFX::COLOR4D& c = definition.color;
                 m_out->Print( " (color %d %d %d %s)",
                               KiROUND( c.r * 255.0 ),
                               KiROUND( c.g * 255.0 ),
@@ -594,21 +592,11 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
                               FormatDouble2Str( c.a ).c_str() );
             }
 
-            // Synthetic subgraph names are not stable across runs, so they are
-            // skipped when persisting the member-net list.
-            std::vector<wxString> persistableNets;
-
-            for( const wxString& n : sig.GetNets() )
-            {
-                if( !n.IsEmpty() && !n.StartsWith( SCH_NETCHAIN::SYNTHETIC_NET_PREFIX ) )
-                    persistableNets.push_back( n );
-            }
-
-            if( !persistableNets.empty() )
+            if( !definition.memberNets.empty() )
             {
                 m_out->Print( " (nets" );
 
-                for( const wxString& n : persistableNets )
+                for( const wxString& n : definition.memberNets )
                     m_out->Print( " %s", m_out->Quotew( n ).c_str() );
 
                 m_out->Print( ")" );
@@ -618,11 +606,15 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
         }
     }
 
-    if( aSheet->HasRootInstance() )
+    const auto rootState = ResolveRootInstance( m_schematic, *aSheet );
+    if( rootState.conflict )
+        THROW_IO_ERROR( _( "Root page numbers conflict between instances of the same schematic file." ) );
+    if( rootState.pageNumber )
     {
         std::vector< SCH_SHEET_INSTANCE> instances;
-
-        instances.emplace_back( aSheet->GetRootInstance() );
+        SCH_SHEET_INSTANCE rootInstance;
+        rootInstance.m_PageNumber = *rootState.pageNumber;
+        instances.emplace_back( std::move( rootInstance ) );
         saveInstances( instances );
     }
 
@@ -680,7 +672,7 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SELECTION* aSelection, SCH_SHEET_PATH* aSel
         m_out->Print( "(lib_symbols" );
 
         for( const auto& [name, libSymbol] : libSymbols )
-            SCH_IO_KICAD_SEXPR_LIB_CACHE::SaveSymbol( libSymbol, *m_out, name, false );
+            SCH_IO_KICAD_SEXPR_LIB_CACHE::SaveSymbol( libSymbol, *m_out, name, false, true );
 
         m_out->Print( ")" );
     }
@@ -1744,8 +1736,9 @@ void SCH_IO_KICAD_SEXPR::saveTable( SCH_TABLE* aTable )
     KICAD_FORMAT::FormatBool( m_out, "external", aTable->StrokeExternal() );
     KICAD_FORMAT::FormatBool( m_out, "header", aTable->StrokeHeaderSeparator() );
 
-    if( aTable->StrokeExternal() || aTable->StrokeHeaderSeparator() )
-        aTable->GetBorderStroke().Format( m_out, schIUScale );
+    // Disabled lines still own their configured appearance. Retain it so
+    // reload/reconstruction does not replace it before the user re-enables it.
+    aTable->GetBorderStroke().Format( m_out, schIUScale );
 
     m_out->Print( ")" );               // Close `border` token.
 
@@ -1753,8 +1746,7 @@ void SCH_IO_KICAD_SEXPR::saveTable( SCH_TABLE* aTable )
     KICAD_FORMAT::FormatBool( m_out, "rows", aTable->StrokeRows() );
     KICAD_FORMAT::FormatBool( m_out, "cols", aTable->StrokeColumns() );
 
-    if( aTable->StrokeRows() || aTable->StrokeColumns() )
-        aTable->GetSeparatorsStroke().Format( m_out, schIUScale );
+    aTable->GetSeparatorsStroke().Format( m_out, schIUScale );
 
     m_out->Print( ")" );               // Close `separators` token.
 

@@ -80,6 +80,7 @@
 #include <tools/sch_tool_utils.h>
 #include <tools/sch_edit_table_tool.h>
 #include <drawing_sheet/ds_proxy_undo_item.h>
+#include <sch_page_settings_undo.h>
 #include <drawing_sheet/ds_proxy_view_item.h>
 #include <view/view_controls.h>
 #include <widgets/wx_infobar.h>
@@ -497,13 +498,9 @@ int SCH_EDITOR_CONTROL::ShowSchematicSetup( const TOOL_EVENT& aEvent )
 
 int SCH_EDITOR_CONTROL::PageSetup( const TOOL_EVENT& aEvent )
 {
-    PICKED_ITEMS_LIST   undoCmd;
-    DS_PROXY_UNDO_ITEM* undoItem = new DS_PROXY_UNDO_ITEM( m_frame );
-    ITEM_PICKER         wrapper( m_frame->GetScreen(), undoItem, UNDO_REDO::PAGESETTINGS );
-
-    undoCmd.PushItem( wrapper );
-    undoCmd.SetDescription( _( "Page Settings" ) );
-    m_frame->SaveCopyInUndoList( undoCmd, UNDO_REDO::PAGESETTINGS, false );
+    // Capture before preview, but do not publish an undo entry yet: publishing
+    // clears Redo, which must survive opening and cancelling this dialog.
+    auto undoItem = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( m_frame );
 
     DIALOG_EESCHEMA_PAGE_SETTINGS dlg( m_frame, m_frame->Schematic().GetEmbeddedFiles(),
                                        VECTOR2I( MAX_PAGE_SIZE_EESCHEMA_MILS, MAX_PAGE_SIZE_EESCHEMA_MILS ) );
@@ -511,16 +508,28 @@ int SCH_EDITOR_CONTROL::PageSetup( const TOOL_EVENT& aEvent )
 
     if( dlg.ShowModal() == wxID_OK )
     {
+        PICKED_ITEMS_LIST undoCmd;
+        undoCmd.PushItem( ITEM_PICKER( m_frame->GetScreen(), undoItem.get(), UNDO_REDO::PAGESETTINGS ) );
+        undoCmd.SetDescription( _( "Page Settings" ) );
+        m_frame->SaveCopyInUndoList( undoCmd, UNDO_REDO::PAGESETTINGS, false );
+        undoItem.release();
+
         // Update text variables
         m_frame->GetCanvas()->GetView()->MarkDirty();
         m_frame->GetCanvas()->GetView()->UpdateAllItems( KIGFX::REPAINT );
         m_frame->GetCanvas()->Refresh();
 
         m_frame->OnModify();
+        m_frame->Schematic().RecordCommittedChange( DOCUMENT_CHANGE_JOURNAL::KIND::COMMIT,
+                                                   "Edit Page Settings" );
     }
     else
     {
-        m_frame->RollbackSchematicFromUndo();
+        undoItem->RestoreAll( m_frame );
+        m_frame->Schematic().Settings().m_SchDrawingSheetFileName = BASE_SCREEN::m_DrawingSheetFileName;
+        m_frame->GetCanvas()->GetView()->MarkDirty();
+        m_frame->GetCanvas()->GetView()->UpdateAllItems( KIGFX::REPAINT );
+        m_frame->GetCanvas()->Refresh();
     }
 
     return 0;
@@ -2039,6 +2048,9 @@ int SCH_EDITOR_CONTROL::Undo( const TOOL_EVENT& aEvent )
     m_frame->GetCanvas()->Refresh();
     m_frame->OnModify();
 
+    m_frame->Schematic().RecordCommittedChange( DOCUMENT_CHANGE_JOURNAL::KIND::UNDO,
+                                               "Undo" );
+
     return 0;
 }
 
@@ -2069,6 +2081,9 @@ int SCH_EDITOR_CONTROL::Redo( const TOOL_EVENT& aEvent )
 
     m_frame->GetCanvas()->Refresh();
     m_frame->OnModify();
+
+    m_frame->Schematic().RecordCommittedChange( DOCUMENT_CHANGE_JOURNAL::KIND::REDO,
+                                               "Redo" );
 
     return 0;
 }

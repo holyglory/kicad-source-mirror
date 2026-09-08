@@ -72,6 +72,8 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
         m_AnnotateStartNum( 0 ),
         m_AnnotateSortOrder( 0 ),
         m_AnnotateMethod( 0 ),
+        m_SubpartIdSeparator( 0 ),
+        m_SubpartFirstId( 'A' ),
         m_IntersheetRefsShow( false ),
         m_IntersheetRefsListOwnPage( true ),
         m_IntersheetRefsFormatShort( false ),

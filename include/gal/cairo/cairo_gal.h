@@ -255,6 +255,7 @@ public:
     void EndDrawing() override;
 
 
+
 protected:
     // Geometric transforms according to the m_currentWorld2Screen transform matrix:
     double xform( double x );             // scale
@@ -485,6 +486,10 @@ public:
     /// @copydoc GAL::SetNativeCursorStyle()
     bool SetNativeCursorStyle( KICURSOR aCursor, bool aHiDPI ) override;
 
+    /// Copy the completed software-rendered frame, excluding stride padding.
+    /// The caller must complete a repaint first. The returned image owns its pixels.
+    bool GetScreenshot( wxImage& aImage ) const;
+
     /// @copydoc GAL::BeginDrawing()
     void BeginDrawing() override;
 
@@ -554,6 +559,7 @@ protected:
     wxEvtHandler*       m_paintListener;       ///< Paint listener
     unsigned int        m_bufferSize;          ///< Size of buffers cairoOutput, bitmapBuffers
     unsigned char*      m_wxOutput;            ///< wxImage compatible buffer
+    bool                m_hasCompletedFrame = false;
 
     // Variables related to Cairo <-> wxWidgets
     unsigned char*      m_bitmapBuffer;        ///< Storage of the Cairo image

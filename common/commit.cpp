@@ -295,4 +295,3 @@ UNDO_REDO COMMIT::convert( CHANGE_TYPE aType ) const
     default: wxFAIL; return UNDO_REDO::CHANGED;
     }
 }
-

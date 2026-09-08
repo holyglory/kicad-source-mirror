@@ -1497,8 +1497,23 @@ CAIRO_GAL::~CAIRO_GAL()
 }
 
 
+bool CAIRO_GAL::GetScreenshot( wxImage& aImage ) const
+{
+    if( !m_hasCompletedFrame || !m_wxOutput || m_screenSize.x <= 0 || m_screenSize.y <= 0
+            || m_wxBufferWidth < m_screenSize.x )
+        return false;
+
+    // EndDrawing converts the composited Cairo frame to this RGB buffer.
+    // Copy before returning: later paints/resizes reuse or release the buffer.
+    wxImage frame( m_wxBufferWidth, m_screenSize.y, m_wxOutput, true );
+    aImage = frame.GetSubImage( wxRect( 0, 0, m_screenSize.x, m_screenSize.y ) );
+    return aImage.IsOk();
+}
+
+
 void CAIRO_GAL::BeginDrawing()
 {
+    m_hasCompletedFrame = false;
     initSurface();
 
     CAIRO_GAL_BASE::BeginDrawing();
@@ -1551,6 +1566,7 @@ void CAIRO_GAL::EndDrawing()
         srcRow += stride;
     }
 
+    m_hasCompletedFrame = true;
     wxImage    img( m_wxBufferWidth, m_screenSize.y, m_wxOutput, true );
     wxBitmap   bmp( img );
     wxMemoryDC mdc( bmp );
@@ -1740,6 +1756,7 @@ void CAIRO_GAL::allocateBitmaps()
 
 void CAIRO_GAL::deleteBitmaps()
 {
+    m_hasCompletedFrame = false;
     delete[] m_bitmapBuffer;
     m_bitmapBuffer = nullptr;
 
@@ -2208,6 +2225,11 @@ void CAIRO_GAL_BASE::DrawGlyph( const KIFONT::GLYPH& aGlyph, int aNth, int aTota
 {
     if( aGlyph.IsStroke() )
     {
+        // Outline-font markup can insert stroke glyphs (overbars/underlines)
+        // between filled letters. Select state by glyph type, not batch index.
+        flushPath();
+        SetIsFill( false );
+        SetIsStroke( true );
         const KIFONT::STROKE_GLYPH& glyph = static_cast<const KIFONT::STROKE_GLYPH&>( aGlyph );
 
         for( const std::vector<VECTOR2D>& pointList : glyph )
@@ -2217,15 +2239,10 @@ void CAIRO_GAL_BASE::DrawGlyph( const KIFONT::GLYPH& aGlyph, int aNth, int aTota
     {
         const KIFONT::OUTLINE_GLYPH& glyph = static_cast<const KIFONT::OUTLINE_GLYPH&>( aGlyph );
 
-        if( aNth == 0 )
-        {
-            cairo_close_path( m_currentContext );
-            flushPath();
-
-            cairo_new_path( m_currentContext );
-            SetIsFill( true );
-            SetIsStroke( false );
-        }
+        flushPath();
+        cairo_new_path( m_currentContext );
+        SetIsFill( true );
+        SetIsStroke( false );
 
         // eventually glyphs should not be drawn as polygons at all,
         // but as bitmaps with antialiasing, this is just a stopgap measure

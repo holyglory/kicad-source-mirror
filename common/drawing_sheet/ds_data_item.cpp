@@ -37,7 +37,8 @@
  *  texts are expanded if they contain format symbols.
  *  Items with m_RepeatCount > 1 are created m_RepeatCount times
  *
- * the DS_DATA_MODEL is created only once.
+ * A DS_DATA_MODEL owns a persistent layout, either for the application or for
+ * an isolated renderer with its own page-coordinate environment.
  * the DS_DRAW_ITEM_LIST is created each time the drawing sheet is plotted/drawn
  *
  * the DS_DATA_MODEL instance is created from a S expression which
@@ -72,6 +73,12 @@ DS_DATA_ITEM::~DS_DATA_ITEM()
 {
     for( DS_DRAW_ITEM_BASE* item : m_drawItems )
         delete item;
+}
+
+
+DS_DATA_MODEL& DS_DATA_ITEM::GetDataModel() const
+{
+    return m_dataModel ? *m_dataModel : DS_DATA_MODEL::GetTheInstance();
 }
 
 
@@ -130,7 +137,7 @@ void DS_DATA_ITEM::SyncDrawItems( DS_DRAW_ITEM_LIST* aCollector, KIGFX::VIEW* aV
 
 int DS_DATA_ITEM::GetPenSizeIU()
 {
-    DS_DATA_MODEL& model = DS_DATA_MODEL::GetTheInstance();
+    DS_DATA_MODEL& model = GetDataModel();
 
     if( m_LineWidth != 0 )
         return KiROUND( m_LineWidth * model.m_WSunits2Iu );
@@ -142,8 +149,8 @@ int DS_DATA_ITEM::GetPenSizeIU()
 void DS_DATA_ITEM::MoveToIU( const VECTOR2I& aPosition )
 {
     VECTOR2D pos_mm;
-    pos_mm.x = aPosition.x / DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
-    pos_mm.y = aPosition.y / DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
+    pos_mm.x = aPosition.x / GetDataModel().m_WSunits2Iu;
+    pos_mm.y = aPosition.y / GetDataModel().m_WSunits2Iu;
 
     MoveTo( pos_mm );
 }
@@ -167,7 +174,7 @@ void DS_DATA_ITEM::MoveTo( const VECTOR2D& aPosition )
 
 void DS_DATA_ITEM::MoveStartPointTo( const VECTOR2D& aPosition )
 {
-    DS_DATA_MODEL& model = DS_DATA_MODEL::GetTheInstance();
+    DS_DATA_MODEL& model = GetDataModel();
     VECTOR2D       position;
 
     // Calculate the position of the starting point
@@ -200,8 +207,8 @@ void DS_DATA_ITEM::MoveStartPointTo( const VECTOR2D& aPosition )
 
 void DS_DATA_ITEM::MoveStartPointToIU( const VECTOR2I& aPosition )
 {
-    VECTOR2D pos_mm( aPosition.x / DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu,
-                     aPosition.y / DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu );
+    VECTOR2D pos_mm( aPosition.x / GetDataModel().m_WSunits2Iu,
+                     aPosition.y / GetDataModel().m_WSunits2Iu );
 
     MoveStartPointTo( pos_mm );
 }
@@ -209,7 +216,7 @@ void DS_DATA_ITEM::MoveStartPointToIU( const VECTOR2I& aPosition )
 
 void DS_DATA_ITEM::MoveEndPointTo( const VECTOR2D& aPosition )
 {
-    DS_DATA_MODEL& model = DS_DATA_MODEL::GetTheInstance();
+    DS_DATA_MODEL& model = GetDataModel();
     VECTOR2D       position;
 
     // Calculate the position of the starting point
@@ -253,8 +260,8 @@ void DS_DATA_ITEM::MoveEndPointTo( const VECTOR2D& aPosition )
 void DS_DATA_ITEM::MoveEndPointToIU( const VECTOR2I& aPosition )
 {
     VECTOR2D pos_mm;
-    pos_mm.x = aPosition.x / DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
-    pos_mm.y = aPosition.y / DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
+    pos_mm.x = aPosition.x / GetDataModel().m_WSunits2Iu;
+    pos_mm.y = aPosition.y / GetDataModel().m_WSunits2Iu;
 
     MoveEndPointTo( pos_mm );
 }
@@ -262,7 +269,7 @@ void DS_DATA_ITEM::MoveEndPointToIU( const VECTOR2I& aPosition )
 
 const VECTOR2D DS_DATA_ITEM::GetStartPos( int ii ) const
 {
-    DS_DATA_MODEL& model = DS_DATA_MODEL::GetTheInstance();
+    DS_DATA_MODEL& model = GetDataModel();
     VECTOR2D       pos( m_Pos.m_Pos.x + ( m_IncrementVector.x * ii ),
                         m_Pos.m_Pos.y + ( m_IncrementVector.y * ii ) );
 
@@ -293,7 +300,7 @@ const VECTOR2D DS_DATA_ITEM::GetStartPos( int ii ) const
 
 const VECTOR2I DS_DATA_ITEM::GetStartPosIU( int ii ) const
 {
-    return KiROUND( GetStartPos( ii ) * DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu );
+    return KiROUND( GetStartPos( ii ) * GetDataModel().m_WSunits2Iu );
 }
 
 
@@ -305,21 +312,21 @@ const VECTOR2D DS_DATA_ITEM::GetEndPos( int ii ) const
     switch( m_End.m_Anchor )
     {
     case RB_CORNER:      // right bottom corner
-        pos = DS_DATA_MODEL::GetTheInstance().m_RB_Corner - pos;
+        pos = GetDataModel().m_RB_Corner - pos;
         break;
 
     case RT_CORNER:      // right top corner
-        pos.x = DS_DATA_MODEL::GetTheInstance().m_RB_Corner.x - pos.x;
-        pos.y = DS_DATA_MODEL::GetTheInstance().m_LT_Corner.y + pos.y;
+        pos.x = GetDataModel().m_RB_Corner.x - pos.x;
+        pos.y = GetDataModel().m_LT_Corner.y + pos.y;
         break;
 
     case LB_CORNER:      // left bottom corner
-        pos.x = DS_DATA_MODEL::GetTheInstance().m_LT_Corner.x + pos.x;
-        pos.y = DS_DATA_MODEL::GetTheInstance().m_RB_Corner.y - pos.y;
+        pos.x = GetDataModel().m_LT_Corner.x + pos.x;
+        pos.y = GetDataModel().m_RB_Corner.y - pos.y;
         break;
 
     case LT_CORNER:      // left top corner
-        pos = DS_DATA_MODEL::GetTheInstance().m_LT_Corner + pos;
+        pos = GetDataModel().m_LT_Corner + pos;
         break;
     }
 
@@ -330,14 +337,14 @@ const VECTOR2D DS_DATA_ITEM::GetEndPos( int ii ) const
 const VECTOR2I DS_DATA_ITEM::GetEndPosIU( int ii ) const
 {
     VECTOR2D pos = GetEndPos( ii );
-    pos = pos * DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
+    pos = pos * GetDataModel().m_WSunits2Iu;
     return VECTOR2I( KiROUND( pos.x ), KiROUND( pos.y ) );
 }
 
 
 bool DS_DATA_ITEM::IsInsidePage( int ii ) const
 {
-    DS_DATA_MODEL& model = DS_DATA_MODEL::GetTheInstance();
+    DS_DATA_MODEL& model = GetDataModel();
 
     BOX2D page( model.m_LT_Corner, model.m_RB_Corner - model.m_LT_Corner );
 
@@ -438,7 +445,7 @@ void DS_DATA_ITEM_POLYGONS::SyncDrawItems( DS_DRAW_ITEM_LIST* aCollector, KIGFX:
 
 int DS_DATA_ITEM_POLYGONS::GetPenSizeIU()
 {
-    return KiROUND( m_LineWidth * DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu );
+    return KiROUND( m_LineWidth * GetDataModel().m_WSunits2Iu );
 }
 
 
@@ -489,7 +496,7 @@ void DS_DATA_ITEM_POLYGONS::SetBoundingBox()
 
 bool DS_DATA_ITEM_POLYGONS::IsInsidePage( int ii ) const
 {
-    DS_DATA_MODEL& model = DS_DATA_MODEL::GetTheInstance();
+    DS_DATA_MODEL& model = GetDataModel();
 
     BOX2D page( model.m_LT_Corner, model.m_RB_Corner - model.m_LT_Corner );
 
@@ -507,7 +514,7 @@ bool DS_DATA_ITEM_POLYGONS::IsInsidePage( int ii ) const
 const VECTOR2I DS_DATA_ITEM_POLYGONS::GetCornerPositionIU( unsigned aIdx, int aRepeat ) const
 {
     VECTOR2D pos = GetCornerPosition( aIdx, aRepeat );
-    pos = pos * DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
+    pos = pos * GetDataModel().m_WSunits2Iu;
     return VECTOR2I( int( pos.x ), int( pos.y ) );
 }
 
@@ -533,7 +540,7 @@ void DS_DATA_ITEM_TEXT::SyncDrawItems( DS_DRAW_ITEM_LIST* aCollector, KIGFX::VIE
     int   pensize = GetPenSizeIU();
     bool  multilines = false;
 
-    if( DS_DATA_MODEL::GetTheInstance().m_EditMode )
+    if( GetDataModel().m_EditMode )
     {
         m_FullText = m_TextBase;
     }
@@ -553,8 +560,8 @@ void DS_DATA_ITEM_TEXT::SyncDrawItems( DS_DRAW_ITEM_LIST* aCollector, KIGFX::VIE
     SetConstrainedTextSize();
     VECTOR2I textsize;
 
-    textsize.x = KiROUND( m_ConstrainedTextSize.x * DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu );
-    textsize.y = KiROUND( m_ConstrainedTextSize.y * DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu );
+    textsize.x = KiROUND( m_ConstrainedTextSize.x * GetDataModel().m_WSunits2Iu );
+    textsize.y = KiROUND( m_ConstrainedTextSize.y * GetDataModel().m_WSunits2Iu );
 
     std::map<size_t, EDA_ITEM_FLAGS> itemFlags;
     DS_DRAW_ITEM_TEXT*               text = nullptr;
@@ -581,7 +588,7 @@ void DS_DATA_ITEM_TEXT::SyncDrawItems( DS_DRAW_ITEM_LIST* aCollector, KIGFX::VIE
             continue;
 
         EDA_IU_SCALE iuscale = aCollector ? aCollector->GetIuScale()
-                                          : DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
+                                          : GetDataModel().m_WSunits2Iu;
 
         text = new DS_DRAW_ITEM_TEXT( iuscale, this, j, m_FullText, GetStartPosIU( j ), textsize,
                                       pensize, m_Font, m_Italic, m_Bold, m_TextColor );
@@ -609,7 +616,7 @@ void DS_DATA_ITEM_TEXT::SyncDrawItems( DS_DRAW_ITEM_LIST* aCollector, KIGFX::VIE
 
 int DS_DATA_ITEM_TEXT::GetPenSizeIU()
 {
-    DS_DATA_MODEL& model = DS_DATA_MODEL::GetTheInstance();
+    DS_DATA_MODEL& model = GetDataModel();
 
     if( m_LineWidth != 0 )
         return KiROUND( m_LineWidth * model.m_WSunits2Iu );
@@ -676,10 +683,10 @@ void DS_DATA_ITEM_TEXT::SetConstrainedTextSize()
     m_ConstrainedTextSize = m_TextSize;
 
     if( m_ConstrainedTextSize.x == 0  )
-        m_ConstrainedTextSize.x = DS_DATA_MODEL::GetTheInstance().m_DefaultTextSize.x;
+        m_ConstrainedTextSize.x = GetDataModel().m_DefaultTextSize.x;
 
     if( m_ConstrainedTextSize.y == 0 )
-        m_ConstrainedTextSize.y = DS_DATA_MODEL::GetTheInstance().m_DefaultTextSize.y;
+        m_ConstrainedTextSize.y = GetDataModel().m_DefaultTextSize.y;
 
     if( m_BoundingBoxSize.x > 0 || m_BoundingBoxSize.y > 0 )
     {

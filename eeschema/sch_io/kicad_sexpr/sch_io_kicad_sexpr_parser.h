@@ -227,7 +227,8 @@ private:
      */
     bool parseMaybeAbsentBool( bool aDefaultValue );
 
-    LIB_SYMBOL* parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLibMap );
+    // A cache key remains independent of an optional owned-definition lib_id.
+    LIB_SYMBOL* parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, wxString* aCacheKey = nullptr );
 
     /**
      * Parse stroke definition \a aStroke.

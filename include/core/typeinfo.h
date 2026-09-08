@@ -237,6 +237,8 @@ enum KICAD_T
     PCB_SHAPE_LOCATE_ELLIPSE_ARC_T,
     PCB_CONSTRAINT_T,      ///< class PCB_CONSTRAINT, a geometric constraint between board items
     PCB_GRIDITEM_T,
+    SCH_EMBEDDED_FILES_UNDO_T, ///< Schematic asset-state undo payload, not a placed item
+    SCH_LIBRARY_CACHE_UNDO_T, ///< Schematic cache ownership undo payload, not a placed item
 
     // End value
     MAX_STRUCT_TYPE_ID

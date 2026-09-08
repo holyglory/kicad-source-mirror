@@ -496,9 +496,16 @@ std::vector<int> SCH_TEXT::ViewGetLayers() const
 
 VECTOR2I SCH_TEXT::GetOffsetToMatchSCH_FIELD( SCH_RENDER_SETTINGS* aRenderSettings ) const
 {
+    return GetOffsetToMatchSCH_FIELD( aRenderSettings, GetShownText( true ) );
+}
+
+
+VECTOR2I SCH_TEXT::GetOffsetToMatchSCH_FIELD( SCH_RENDER_SETTINGS* aRenderSettings,
+                                           const wxString& aShownText ) const
+{
     if( GetDrawFont( aRenderSettings )->IsOutline() )
     {
-        BOX2I    firstLineBBox = GetTextBox( aRenderSettings, 0 );
+        BOX2I    firstLineBBox = GetTextBoxForText( aRenderSettings, aShownText, 0 );
         int      sizeDiff = firstLineBBox.GetHeight() - GetTextSize().y;
         int      adjust = KiROUND( sizeDiff * 0.4 );
         VECTOR2I adjust_offset( 0, -adjust );

@@ -494,6 +494,15 @@ public:
      */
     const std::map<wxString, LIB_SYMBOL*>& GetLibSymbols() const { return m_libSymbols; }
 
+    // The caller owns the native commit and has validated all placed-symbol
+    // references. The state receives the old cache for rollback/undo.
+    void SwapLibSymbolCache( class SCH_SYMBOL_CACHE_STATE& aState );
+
+    // Scoped native transactions own cache updates explicitly while exchanging
+    // placed objects and definitions together. Calls must be balanced.
+    void BeginManagedSymbolCache() { ++m_managedSymbolCacheDepth; }
+    void EndManagedSymbolCache() { wxASSERT( m_managedSymbolCacheDepth > 0 ); --m_managedSymbolCacheDepth; }
+
     /**
      * Add \a aLibSymbol to the library symbol map.
      *
@@ -530,6 +539,10 @@ public:
     }
 
     const KIID& GetUuid() const { return m_uuid; }
+
+    /// Assign the persisted identity while constructing a screen from a model.
+    /// Callers must validate uniqueness before attaching it to the hierarchy.
+    void SetUuid( const KIID& aUuid ) { m_uuid = aUuid; }
 
     void AssignNewUuid() { m_uuid = KIID(); }
 
@@ -709,6 +722,7 @@ private:
 
     /// Library symbols required for this schematic.
     std::map<wxString, LIB_SYMBOL*> m_libSymbols;
+    unsigned m_managedSymbolCacheDepth = 0;
 
     /**
      * The list of symbol instances loaded from the schematic file.

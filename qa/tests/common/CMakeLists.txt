@@ -40,6 +40,7 @@ set( QA_COMMON_SRCS
     test_collector.cpp
     test_color4d.cpp
     test_commit.cpp
+    test_document_change_journal.cpp
     test_coroutine.cpp
     test_filter_kruskal.cpp
     test_design_block_io.cpp
@@ -178,6 +179,7 @@ set( QA_COMMON_SRCS
     test_project_file.cpp
     test_settings_manager.cpp
     test_nested_settings.cpp
+    test_settings_snapshot.cpp
     test_net_settings.cpp
     test_component_class_settings.cpp
     test_project_local_settings.cpp
@@ -277,3 +279,10 @@ endif()
 kicad_add_boost_test( qa_common qa_common )
 
 setup_qa_env( qa_common )
+
+# The recovery journal has no GUI dependencies. Keep its focused tests usable
+# without initializing an editor or a display; the cases also run in qa_common.
+add_executable( qa_document_change_journal
+    test_document_change_journal_main.cpp test_document_change_journal.cpp )
+target_link_libraries( qa_document_change_journal PRIVATE Boost::headers Boost::unit_test_framework )
+kicad_add_boost_test( qa_document_change_journal qa_document_change_journal )

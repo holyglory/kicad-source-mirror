@@ -80,10 +80,10 @@ protected:
     HANDLER_RESULT<commands::HitTestResponse> handleHitTest(
         const HANDLER_CONTEXT<commands::HitTest>& aCtx );
 
-    HANDLER_RESULT<types::TitleBlockInfo> handleGetTitleBlockInfo(
+    virtual HANDLER_RESULT<types::TitleBlockInfo> handleGetTitleBlockInfo(
             const HANDLER_CONTEXT<commands::GetTitleBlockInfo>& aCtx );
 
-    HANDLER_RESULT<google::protobuf::Empty> handleSetTitleBlockInfo(
+    virtual HANDLER_RESULT<google::protobuf::Empty> handleSetTitleBlockInfo(
             const HANDLER_CONTEXT<commands::SetTitleBlockInfo>& aCtx );
 
     HANDLER_RESULT<types::PageSettings> handleGetPageSettings(

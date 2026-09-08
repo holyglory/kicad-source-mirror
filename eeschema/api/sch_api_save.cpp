@@ -30,6 +30,7 @@
 #include <sch_sheet.h>
 #include <sch_sheet_path.h>
 #include <schematic.h>
+#include <sch_root_instance.h>
 #include <settings/settings_manager.h>
 #include <wildcards_and_files_ext.h>
 
@@ -153,6 +154,11 @@ void UpdateProjectFile( SCHEMATIC& aSchematic, PROJECT& aProject )
 
 bool SaveSchematic( SCHEMATIC& aSchematic, PROJECT& aProject )
 {
+    // All callers, including Save Copy targeting the current root filename,
+    // must reject known conflicts before writing the first screen.
+    if( HasRootInstanceConflicts( aSchematic ) )
+        return false;
+
     SCH_SCREEN* rootScreen = aSchematic.RootScreen();
 
     if( !rootScreen || rootScreen->GetFileName().IsEmpty() )

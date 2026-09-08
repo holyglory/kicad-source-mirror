@@ -275,6 +275,8 @@ void SCH_PIN::Serialize( google::protobuf::Any& aContainer ) const
     SchematicPin pin;
 
     pin.mutable_id()->set_value( m_Uuid.AsStdString() );
+    if( m_libPin )
+        pin.mutable_library_pin_id()->set_value( m_libPin->m_Uuid.AsStdString() );
     pin.set_name( GetBaseName().ToUTF8() );
     pin.set_number( GetNumber().ToUTF8() );
 

@@ -1,0 +1,183 @@
+using Google.Protobuf.WellKnownTypes;
+using KiCad.Automation.Native;
+using KiCad.Automation.Protocol;
+using Kiapi.Common.Commands;
+using Kiapi.Common.Types;
+using Kiapi.Schematic.Types;
+using System.Text.RegularExpressions;
+using Group = Kiapi.Schematic.Types.Group;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace KiCad.Automation.Tests;
+
+public sealed partial class NativeSessionTests
+{
+    private static async Task<(string Native, EmbeddedFile Expected)> MakeEmbeddedAssetFixture(
+        string repository, CancellationToken token)
+    {
+        // Reuse a real native compressed payload/checksum. This fixture is not
+        // a second asset compressor or a production schematic-file parser.
+        string source = await File.ReadAllTextAsync(Path.Combine(repository, "qa", "data", "pcbnew", "api_kitchen_sink.kicad_pcb"), token);
+        var matches = Regex.Matches(source,
+            "\\(name \\\"icon_pcbnew_48\\.png\\\"\\)\\s*\\(type other\\)\\s*\\(data \\|(?<data>.*?)\\|\\s*\\)\\s*\\(checksum \\\"(?<hash>[A-Fa-f0-9]+)\\\"\\)",
+            RegexOptions.Singleline, TimeSpan.FromSeconds(1));
+        Assert.AreEqual(1, matches.Count, "The declared native fixture must contain one complete asset payload.");
+        var asset = new EmbeddedFile
+        {
+            Name = "icon_pcbnew_48.png", Type = EmbeddedFileType.EftOther,
+            Data = Google.Protobuf.ByteString.CopyFromUtf8(string.Concat(matches[0].Groups["data"].Value.Where(c => !char.IsWhiteSpace(c)))),
+            DataHash = matches[0].Groups["hash"].Value
+        };
+        var metadata = new SchematicMetadata { EmbeddedFiles = new EmbeddedFiles() };
+        metadata.EmbeddedFiles.Files.Add(asset);
+        var restored = ((SchematicMetadata)SchematicDataXml.Read(SchematicDataXml.Write(metadata))).EmbeddedFiles.Files.Single();
+        Assert.AreEqual(asset, restored);
+        return ($"(embedded_files (file (name \"{restored.Name}\") (type other) (data |{restored.Data.ToStringUtf8()}|) (checksum \"{restored.DataHash}\")))", asset);
+    }
+
+    private static async Task VerifyMetadataXml(NativeClient client, DocumentSpecifier root,
+        HierarchyFixture hierarchy, string evidence, string instanceId, EmbeddedFile expectedAsset,
+        int processId, string display, CancellationToken token)
+    {
+        var query = new ReadSchematicMetadata { Document = root };
+        var snapshot = await client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(query, token);
+        Assert.IsFalse(snapshot.TrackingComplete);
+        Assert.IsNotEmpty(snapshot.Metadata.UnrepresentedState);
+        Assert.AreEqual(root, snapshot.Metadata.Document);
+        Assert.AreEqual(root.SheetPath.Path[0], snapshot.Metadata.ScreenId);
+        Assert.AreEqual("電源 & timing", snapshot.Metadata.TextVariables["ENGINEERING_NOTE"]);
+        // This pinned fixture uses the pre-tail-alignment MMH3 checksum. Native
+        // DecompressAndDecode validates it, then migrates to the current hash.
+        // The expected current digest was measured through the native loader;
+        // the compressed asset bytes themselves must remain unchanged.
+        Assert.AreEqual("9AB164C455965EC6CA9F3928F341F0B3", expectedAsset.DataHash);
+        var normalizedAsset = expectedAsset.Clone();
+        normalizedAsset.DataHash = "3BD716F21242DA650CEA9D846C9AE7F1";
+        Assert.AreEqual(normalizedAsset, snapshot.Metadata.EmbeddedFiles.Files.Single(),
+            "Native loading and saving must preserve the real asset reconstructed from XML.");
+        var alias = snapshot.Metadata.BusAliases.Single(a => a.Name == "DATA");
+        Assert.IsTrue(snapshot.Metadata.LoadedNativeFormatVersion > 0);
+        Assert.IsTrue(snapshot.Metadata.WriterNativeFormatVersion >= snapshot.Metadata.LoadedNativeFormatVersion);
+        Assert.AreEqual(SchematicItemDelta.SupportedWriterFormatVersion, snapshot.Metadata.WriterNativeFormatVersion,
+            "The pinned native writer format must not silently change.");
+        Assert.IsFalse(snapshot.Metadata.UnrepresentedState.Contains("native_format_version"));
+        CollectionAssert.AreEqual(new[] { "D0", "D1", "ENABLE" }, alias.Members.ToArray());
+        Assert.AreEqual(await client.InvokeAsync<GetPageSettings, PageSettings>(new() { Document = root }, token), snapshot.Metadata.Page);
+        Assert.AreEqual(await client.InvokeAsync<GetTitleBlockInfo, TitleBlockInfo>(new() { Document = root }, token), snapshot.Metadata.TitleBlock);
+        string xml = SchematicDataXml.Write(snapshot.Metadata);
+        Assert.AreEqual(snapshot.Metadata, SchematicDataXml.Read(xml));
+        await File.WriteAllTextAsync(Path.Combine(evidence, instanceId + "-metadata.xml"), xml, token);
+        Assert.AreEqual(snapshot, await client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(query, token));
+
+        // One native dispatch collects settings and top-level objects. This is
+        // an explicitly partial screen record, not complete design generation.
+        var screenQuery = new ReadSchematicScreenData { Document = root };
+        var screen = await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(screenQuery, token);
+        Assert.IsFalse(screen.TrackingComplete);
+        Assert.AreEqual(snapshot.Revision, screen.Revision);
+        Assert.AreEqual(snapshot.Metadata, screen.Data.Metadata);
+        Assert.IsNotEmpty(screen.Data.Items);
+        Assert.AreEqual(0, screen.Data.UnrepresentedItems.Count, "The acceptance fixture uses supported top-level objects.");
+        Assert.AreEqual(2, screen.Data.Items.Count(i => i.Is(SheetSymbol.Descriptor)));
+        Assert.IsTrue(screen.Data.Items.Any(i => i.Is(SchematicSymbolInstance.Descriptor)));
+        string screenXml = SchematicDataXml.Write(screen.Data);
+        Assert.AreEqual(screen.Data, SchematicDataXml.Read(screenXml));
+        await File.WriteAllTextAsync(Path.Combine(evidence, instanceId + "-screen.xml"), screenXml, token);
+        Assert.AreEqual(screen, await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(screenQuery, token));
+
+        var wrong = root.Clone(); wrong.SheetPath.Path.Add(new KIID { Value = hierarchy.First });
+        await Assert.ThrowsExactlyAsync<NativeApiException>(() =>
+            client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(new() { Document = wrong }, token));
+        await Assert.ThrowsExactlyAsync<NativeApiException>(() =>
+            client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = wrong }, token));
+        Assert.AreEqual(snapshot, await client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(query, token));
+        var header = new ItemHeader { Document = root };
+        var staged = await client.InvokeAsync<BeginCommit, BeginCommitResponse>(new() { Header = header }, token);
+        Assert.AreEqual(7, (await Assert.ThrowsExactlyAsync<NativeApiException>(() =>
+            client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(query, token))).Status);
+        Assert.AreEqual(7, (await Assert.ThrowsExactlyAsync<NativeApiException>(() =>
+            client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(screenQuery, token))).Status);
+        await client.InvokeAsync<EndCommit, EndCommitResponse>(new() { Header = header, Id = staged.Id, Action = (CommitAction)2 }, token);
+        Assert.AreEqual(snapshot, await client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(query, token));
+
+        KIID? sharedScreen = null;
+        try
+        {
+            foreach (string id in new[] { hierarchy.First, hierarchy.Second })
+            {
+                var child = root.Clone(); child.SheetPath.Path.Add(new KIID { Value = id });
+                await client.InvokeAsync<ActivateSchematicSheet, DocumentSpecifier>(new() { Document = child }, token);
+                var childSnapshot = await client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(new() { Document = child }, token);
+                Assert.AreNotEqual(snapshot.Metadata.ScreenId, childSnapshot.Metadata.ScreenId);
+                if (sharedScreen is not null) Assert.AreEqual(sharedScreen, childSnapshot.Metadata.ScreenId);
+                sharedScreen = childSnapshot.Metadata.ScreenId;
+                Assert.AreEqual(snapshot.Metadata.TextVariables, childSnapshot.Metadata.TextVariables);
+                Assert.AreEqual(snapshot.Metadata.BusAliases, childSnapshot.Metadata.BusAliases);
+                Assert.AreEqual(snapshot.Metadata.EmbeddedFiles, childSnapshot.Metadata.EmbeddedFiles);
+                Assert.AreEqual(childSnapshot.Metadata, SchematicDataXml.Read(SchematicDataXml.Write(childSnapshot.Metadata)));
+                var childScreen = await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = child }, token);
+                Assert.AreEqual(childSnapshot.Metadata, childScreen.Data.Metadata);
+                Assert.AreEqual(childScreen.Data, SchematicDataXml.Read(SchematicDataXml.Write(childScreen.Data)));
+                var groups = childScreen.Data.Items.Where(i => i.Is(Group.Descriptor)).Select(i => i.Unpack<Group>()).ToArray();
+                Assert.AreEqual(2, groups.Length);
+                var linked = groups.Single(g => g.Name == "Linked supply");
+                Assert.AreEqual("FixtureBlocks:Supply", linked.DesignBlockLibraryId);
+                Assert.AreEqual(hierarchy.TextId, linked.Items.Single().Value);
+                Assert.AreEqual(linked.Id, groups.Single(g => g.Name == "Outer assembly").Items.Single());
+                Assert.AreEqual(0, SchematicItemDelta.Plan(childScreen.Data, childScreen.Data).Count);
+                async Task WriteGroup(Group value)
+                {
+                    var batch = new ApplySchematicItemBatch { Document = child };
+                    batch.Operations.Add(new SchematicItemOperation { Update = Any.Pack(value) });
+                    await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(batch, token);
+                }
+                var invalid = linked.Clone(); invalid.DesignBlockLibraryId = "bad\0link";
+                await Assert.ThrowsExactlyAsync<NativeApiException>(() => WriteGroup(invalid));
+                Assert.AreEqual(childScreen, await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = child }, token));
+                var revised = linked.Clone(); revised.DesignBlockLibraryId = "FixtureBlocks:SupplyRevised";
+                revised.Name = "Revised linked supply";
+                var desiredGroupData = childScreen.Data.Clone();
+                desiredGroupData.Items[desiredGroupData.Items.IndexOf(Any.Pack(linked))] = Any.Pack(revised);
+                var planned = new ApplySchematicItemBatch { Document = child, ExpectedRevision = childScreen.Revision,
+                    DocumentEpoch = childScreen.Revision.Epoch, OperationId = Guid.NewGuid().ToString("D") };
+                planned.Operations.Add(SchematicItemDelta.Plan(childScreen.Data, desiredGroupData));
+                Assert.AreEqual(1, planned.Operations.Count);
+                await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(planned, token);
+                var changed = await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = child }, token);
+                Assert.IsTrue(changed.Data.Items.Contains(Any.Pack(revised)));
+                foreach (var (key, expected) in new[] { ("z", childScreen.Data), ("y", changed.Data) })
+                {
+                    var before = await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = child }, token);
+                    NativeKeyboard.SchematicShortcut(display, processId, key);
+                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    deadline.CancelAfter(TimeSpan.FromSeconds(5));
+                    SchematicScreenDataSnapshot observed;
+                    do
+                    {
+                        observed = await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = child }, deadline.Token);
+                        if (observed.Revision.Equals(before.Revision)) await Task.Delay(100, deadline.Token);
+                    } while (observed.Revision.Equals(before.Revision));
+                    Assert.AreEqual(expected, observed.Data, "Group metadata undo/redo must preserve nested ownership and contents.");
+                }
+                await WriteGroup(linked);
+                var recovered = await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = child }, token);
+                Assert.AreEqual(childScreen.Data, recovered.Data, "Changing a library link must preserve group membership and child content.");
+                foreach (string problem in new[] { "missing", "duplicate", "self", "foreign", "cycle" })
+                {
+                    var broken = linked.Clone();
+                    broken.Items.Add(new KIID { Value = problem switch
+                    {
+                        "missing" => Guid.NewGuid().ToString("D"),
+                        "duplicate" => hierarchy.TextId,
+                        "self" => linked.Id.Value,
+                        "foreign" => hierarchy.First,
+                        _ => groups.Single(g => g.Name == "Outer assembly").Id.Value
+                    } });
+                    await Assert.ThrowsExactlyAsync<NativeApiException>(() => WriteGroup(broken), problem);
+                    Assert.AreEqual(recovered, await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = child }, token));
+                }
+            }
+        }
+        finally { await client.InvokeAsync<ActivateSchematicSheet, DocumentSpecifier>(new() { Document = root }, token); }
+    }
+}

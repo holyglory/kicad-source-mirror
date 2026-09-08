@@ -133,6 +133,14 @@ int CLI::API_SERVER_COMMAND::doPerform( KIWAY& aKiway )
     auto openDocument = [&]( const commands::OpenDocument& aRequest )
             -> HANDLER_RESULT<commands::OpenDocumentResponse>
     {
+        if( aRequest.create_if_missing() )
+        {
+            ApiResponseStatus e;
+            e.set_status( ApiStatusCode::AS_UNIMPLEMENTED );
+            e.set_error_message( "Explicit schematic creation requires graphical automation mode" );
+            return tl::unexpected( e );
+        }
+
         types::DocumentType requestType = aRequest.type();
 
         if( requestType != types::DOCTYPE_PCB && requestType != types::DOCTYPE_SCHEMATIC

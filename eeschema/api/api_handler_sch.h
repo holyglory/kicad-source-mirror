@@ -22,6 +22,7 @@
 #define KICAD_API_HANDLER_SCH_H
 
 #include <api/api_handler_editor.h>
+#include <api/common/commands/automation_commands.pb.h>
 #include <api/sch_context.h>
 #include <api/common/commands/cross_probe_commands.pb.h>
 #include <api/common/commands/editor_commands.pb.h>
@@ -97,7 +98,58 @@ protected:
 
     PROJECT& project() const { return context()->Prj(); }
 
+    HANDLER_RESULT<kiapi::automation::v1::SchematicMetadataSnapshot> handleReadMetadata(
+            const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicMetadata>& aCtx );
+
 private:
+    HANDLER_RESULT<kiapi::automation::v1::SchematicSaveState> handleReadSaveState(
+            const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicSaveState>& aCtx );
+    HANDLER_RESULT<kiapi::automation::v1::SchematicHierarchyDataSnapshot> handleReadHierarchyData(
+            const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicHierarchyData>& aCtx );
+    HANDLER_RESULT<kiapi::automation::v1::SchematicMetadataSnapshot> readMetadataForPath(
+            const SCH_SHEET_PATH& aPath, const kiapi::common::types::DocumentSpecifier& aDocument );
+    HANDLER_RESULT<kiapi::schematic::types::SchematicScreenData> readScreenDataForPath(
+            const SCH_SHEET_PATH& aPath, const kiapi::common::types::DocumentSpecifier& aDocument );
+    HANDLER_RESULT<kiapi::automation::v1::SchematicObservation> handleCaptureObservation(
+            const HANDLER_CONTEXT<kiapi::automation::v1::CaptureSchematicObservation>& aCtx );
+
+    HANDLER_RESULT<kiapi::automation::v1::SchematicScreenDataSnapshot> handleReadScreenData(
+            const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicScreenData>& aCtx );
+
+    HANDLER_RESULT<kiapi::automation::v1::SchematicOperationReceipt> handleInspectOperation(
+            const HANDLER_CONTEXT<kiapi::automation::v1::InspectSchematicOperation>& aCtx );
+    HANDLER_RESULT<kiapi::automation::v1::SchematicPresentationFacts> handleReadPresentationFacts(
+            const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicPresentationFacts>& aCtx );
+    HANDLER_RESULT<commands::GetBoundingBoxResponse> handleGetBoundingBox(
+            const HANDLER_CONTEXT<commands::GetBoundingBox>& aCtx );
+    bool m_atomicBatchActive = false;
+    // Non-owning pointer to the current request's staged-object ownership.
+    // These objects are not in the screen until the native commit is pushed.
+    using STAGED_ITEMS = std::map<std::pair<SCH_SCREEN*, KIID>, std::unique_ptr<SCH_ITEM>>;
+    STAGED_ITEMS* m_atomicCreatedItems = nullptr;
+    const SCH_SHEET_PATH* m_atomicTargetPath = nullptr;
+    std::optional<SCH_SHEET_PATH> resolveBatchSheet( const KIID_PATH& aPath ) const;
+    HANDLER_RESULT<kiapi::automation::v1::SchematicItemBatchResult> handleApplyItemBatch(
+            const HANDLER_CONTEXT<kiapi::automation::v1::ApplySchematicItemBatch>& aCtx );
+    HANDLER_RESULT<types::PageSettings> handleGetPageSettings(
+            const HANDLER_CONTEXT<commands::GetPageSettings>& aCtx );
+    HANDLER_RESULT<types::PageSettings> handleSetPageSettings(
+            const HANDLER_CONTEXT<commands::SetPageSettings>& aCtx );
+    HANDLER_RESULT<bool> validateDisplayedSheet( const DocumentSpecifier& aDocument );
+    HANDLER_RESULT<types::TitleBlockInfo> handleGetTitleBlockInfo(
+            const HANDLER_CONTEXT<commands::GetTitleBlockInfo>& aCtx ) override;
+    HANDLER_RESULT<google::protobuf::Empty> handleSetTitleBlockInfo(
+            const HANDLER_CONTEXT<commands::SetTitleBlockInfo>& aCtx ) override;
+    std::optional<ApiResponseStatus> checkForStableObservation();
+    HANDLER_RESULT<kiapi::automation::v1::SchematicChangeJournal> handleReadChangeJournal(
+            const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicChangeJournal>& aCtx );
+    HANDLER_RESULT<kiapi::automation::v1::SchematicPreview> handleCapturePreview(
+            const HANDLER_CONTEXT<kiapi::automation::v1::CaptureSchematicPreview>& aCtx );
+    HANDLER_RESULT<kiapi::automation::v1::SchematicViewSet> handleRenderViews(
+            const HANDLER_CONTEXT<kiapi::automation::v1::RenderSchematicViews>& aCtx );
+    HANDLER_RESULT<types::DocumentSpecifier> handleActivateSheet(
+            const HANDLER_CONTEXT<kiapi::automation::v1::ActivateSchematicSheet>& aCtx );
+
     HANDLER_RESULT<google::protobuf::Empty> handleSaveDocument(
             const HANDLER_CONTEXT<commands::SaveDocument>& aCtx );
 
@@ -179,6 +231,17 @@ private:
     SCH_EDIT_FRAME*              m_frame;
     std::shared_ptr<SCH_CONTEXT> m_context;
     static std::set<KICAD_T>     s_allowedTypes;
+
+    struct BATCH_RECEIPT
+    {
+        std::string request;
+        kiapi::automation::v1::SchematicItemBatchResult result;
+        bool completed = false;
+        std::optional<ApiResponseStatus> failure;
+    };
+    std::string m_batchReceiptEpoch;
+    std::map<std::string, BATCH_RECEIPT> m_batchReceipts;
+    size_t m_batchReceiptBytes = 0;
 };
 
 

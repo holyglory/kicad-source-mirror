@@ -22,6 +22,24 @@
 #pragma once
 
 #include <commit.h>
+#include <memory>
+#include <map>
+#include <optional>
+#include <array>
+#include <connection_graph.h>
+
+class EMBEDDED_FILES;
+namespace kiapi::schematic::types { class SchematicFormattingSettings; }
+class BUS_ALIAS;
+class SCH_EMBEDDED_FILES_UNDO_ITEM;
+class SCH_PAGE_SETTINGS_UNDO_ITEM;
+class SCH_LIBRARY_CACHE_UNDO_ITEM;
+class SCH_SYMBOL_CACHE_EDIT_SCOPE;
+class SCH_SYMBOL_CACHE_STATE;
+class SCH_SHEET;
+class SCH_SCREEN;
+class TITLE_BLOCK;
+class PAGE_INFO;
 
 class PICKED_ITEMS_LIST;
 class TOOL_MANAGER;
@@ -49,12 +67,38 @@ public:
     virtual void Push( const wxString& aMessage = wxT( "A commit" ), int aCommitFlags = 0 ) override;
 
     virtual void Revert() override;
+    bool Empty() const override;
+    void SetAutomationOrigin( const std::string& aOriginId, const std::string& aOperationId )
+    {
+        m_originId = aOriginId;
+        m_operationId = aOperationId;
+    }
+    // Candidate has already been decoded and validated. Snapshot once, then
+    // include asset replacement in the same undo/cancellation as item edits.
+    void ReplaceEmbeddedFiles( EMBEDDED_FILES& aCandidate );
+    void CaptureLibraryCache( SCH_SCREEN& aScreen );
+    void ReplaceLibraryCache( SCH_SCREEN& aScreen, SCH_SYMBOL_CACHE_STATE& aCandidate );
+    bool ValidateLibraryCaches( wxString& aFailure );
+    void SetRootInstance( SCH_SHEET* aSheet, const std::optional<wxString>& aPageNumber );
+    void SetTitleBlock( SCH_SCREEN* aScreen, const TITLE_BLOCK& aTitle );
+    void SetBusAliases( const std::vector<std::shared_ptr<BUS_ALIAS>>& aAliases );
+    void SetTextVariables( const std::map<wxString, wxString>& aVariables );
+    void SetVariantDescription( const wxString& aName, const wxString& aDescription );
+    void StageVariantRegistry();
+    void SetDrawingRatios( const std::array<double, 5>& aRatios );
+    void SetFormatting( const kiapi::schematic::types::SchematicFormattingSettings& aFormatting );
+    void SetVariantRegistry( const std::map<wxString, wxString>& aDescriptions );
+    void SetNetChainDefinitions( const std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION>& aDefinitions );
+    void SetPageSettings( SCH_SCREEN* aScreen, const PAGE_INFO& aPage,
+                          const wxString& aDrawingSheet, const wxString& aPreparedLayout );
     COMMIT& Stage( EDA_ITEM *aItem, CHANGE_TYPE aChangeType, BASE_SCREEN *aScreen = nullptr,
                    RECURSE_MODE aRecurse = RECURSE_MODE::NO_RECURSE ) override;
     COMMIT& Stage( std::vector<EDA_ITEM*> &container, CHANGE_TYPE aChangeType,
                    BASE_SCREEN *aScreen = nullptr ) override;
 
 private:
+    std::string m_originId;
+    std::string m_operationId;
     EDA_ITEM* undoLevelItem( EDA_ITEM* aItem ) const override;
 
     EDA_ITEM* makeImage( EDA_ITEM* aItem ) const override;
@@ -67,4 +111,11 @@ private:
 private:
     TOOL_MANAGER*  m_toolMgr;
     bool           m_isLibEditor;
+    std::unique_ptr<SCH_EMBEDDED_FILES_UNDO_ITEM> m_embeddedFilesUndo;
+    std::unique_ptr<SCH_PAGE_SETTINGS_UNDO_ITEM> m_pageSettingsUndo;
+    std::map<SCH_SCREEN*, std::unique_ptr<SCH_LIBRARY_CACHE_UNDO_ITEM>> m_libraryCacheUndo;
+    // Destroy scopes before the undo items that retain the screen lifetime.
+    std::map<SCH_SCREEN*, std::unique_ptr<SCH_SYMBOL_CACHE_EDIT_SCOPE>> m_libraryCacheScopes;
+    bool m_libraryCacheChanged = false;
+    bool m_connectivitySettingsChanged = false;
 };

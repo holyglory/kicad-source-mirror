@@ -294,6 +294,14 @@ void DRAWING_SHEET_PARSER::Parse( DS_DATA_MODEL* aLayout )
             break;
         }
     }
+
+    if( token != T_RIGHT )
+        Expecting( T_RIGHT );
+
+    checkVersion();
+
+    if( NextTok() != EOF )
+        Unexpected( CurText() );
 }
 
 
@@ -322,6 +330,9 @@ void DRAWING_SHEET_PARSER::parseHeader( T aHeaderType )
     }
     else
     {
+        if( aHeaderType != T_page_layout )
+            Expecting( T_page_layout );
+
         // We assign version 0 to files that were created before there was any versioning of
         // worksheets. The below line is not strictly necessary, as `m_requiredVersion` is already
         // initialized to 0 in the constructor.
@@ -972,7 +983,32 @@ bool DS_DATA_MODEL::LoadFromName( const wxString& aSheetName, const wxString& aB
     resolver.SetProject( aProject );
     resolver.SetProgramBase( &Pgm() );
 
-    return LoadDrawingSheet( resolver.ResolvePath( aSheetName, aBasePath, std::move( aEmbeddedFilesStack ) ), aMsg );
+    wxString resolved = resolver.ResolvePath( aSheetName, aBasePath, std::move( aEmbeddedFilesStack ) );
+
+    // Empty input deliberately selects the default layout. An explicitly
+    // named asset that cannot be resolved must not silently become that default.
+    if( !aSheetName.empty() && resolved.empty() )
+    {
+        if( aMsg )
+            *aMsg = _( "The requested drawing sheet could not be resolved." );
+
+        return false;
+    }
+
+    return LoadDrawingSheet( resolved, aMsg );
+}
+
+
+std::unique_ptr<DS_DATA_MODEL> DS_DATA_MODEL::CloneForRendering()
+{
+    wxString serialized;
+    SaveInString( &serialized );
+    auto copy = std::make_unique<DS_DATA_MODEL>();
+    const auto utf8 = serialized.ToUTF8();
+    DRAWING_SHEET_PARSER parser( utf8.data(), wxS( "Private rendering layout" ) );
+    parser.Parse( copy.get() );
+    copy->AllowVoidList( VoidListAllowed() );
+    return copy;
 }
 
 

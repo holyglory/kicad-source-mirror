@@ -24,6 +24,7 @@
 #include <settings/nested_settings.h>
 #include <settings/bom_settings.h>
 #include <font/font_metrics.h>
+#include <array>
 
 class NGSPICE_SETTINGS;
 class REFDES_TRACKER;
@@ -67,6 +68,23 @@ public:
     SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath );
 
     virtual ~SCHEMATIC_SETTINGS();
+
+    // Snapshot only this ownership group; no JSON_SETTINGS pointers or other
+    // project fields are copied into an undo record.
+    std::array<double, 5> DrawingRatios() const
+    {
+        return { m_DashedLineDashRatio, m_DashedLineGapRatio, m_TextOffsetRatio,
+                 m_LabelSizeRatio, m_FontMetrics.m_OverbarHeight };
+    }
+
+    void SetDrawingRatios( const std::array<double, 5>& aValues )
+    {
+        m_DashedLineDashRatio = aValues[0];
+        m_DashedLineGapRatio = aValues[1];
+        m_TextOffsetRatio = aValues[2];
+        m_LabelSizeRatio = aValues[3];
+        m_FontMetrics.m_OverbarHeight = aValues[4];
+    }
 
     wxString SubReference( int aUnit, bool aAddSeparator = true ) const;
 

@@ -57,6 +57,12 @@ public:
      */
     virtual void Store( JSON_SETTINGS* aSettings ) const = 0;
 
+    /** Serialize live values without swallowing errors. Read-only snapshots
+     * must not mistake a failed getter for a successfully stored old value.
+     * Overrides whose Store() catches errors must override this method too.
+     */
+    virtual void StoreStrict( JSON_SETTINGS* aSettings ) const { Store( aSettings ); }
+
     virtual void SetDefault() = 0;
 
     /**
@@ -333,11 +339,16 @@ public:
     {
         try
         {
-            aSettings->Set<ValueType>( m_path, m_getter() );
+            StoreStrict( aSettings );
         }
         catch( ... )
         {
         }
+    }
+
+    void StoreStrict( JSON_SETTINGS* aSettings ) const override
+    {
+        aSettings->Set<ValueType>( m_path, m_getter() );
     }
 
     ValueType GetDefault() const

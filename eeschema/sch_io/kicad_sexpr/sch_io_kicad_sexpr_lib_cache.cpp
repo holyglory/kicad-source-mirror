@@ -364,7 +364,8 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::Save( const std::optional<bool>& aOpt )
 
 
 void SCH_IO_KICAD_SEXPR_LIB_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMATTER& aFormatter,
-                                               const wxString& aLibName, bool aIncludeData )
+                                               const wxString& aLibName, bool aIncludeData,
+                                               bool aPreserveCacheDefinitionId )
 {
     wxCHECK_RET( aSymbol, "Invalid LIB_SYMBOL pointer." );
 
@@ -394,6 +395,14 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMAT
     if( aSymbol->IsRoot() )
     {
         aFormatter.Print( "(symbol %s", name.c_str() );
+
+        // The cache key is a screen-owned alias, not necessarily the original
+        // identity of its owned definition. External libraries keep their
+        // existing syntax; only schematic cache callers request this record.
+        if( aPreserveCacheDefinitionId && !aLibName.IsEmpty()
+                && aLibName != aSymbol->GetLibId().Format().wx_str() )
+            aFormatter.Print( "(lib_id %s)",
+                              aFormatter.Quotew( aSymbol->GetLibId().Format().wx_str() ).c_str() );
 
         if( aSymbol->IsGlobalPower() )
             aFormatter.Print( "(power global)" );
@@ -679,31 +688,31 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::saveSymbolDrawItem( SCH_ITEM* aItem, OUTPUTFO
         switch( shape->GetShape() )
         {
         case SHAPE_T::ARC:
-            formatArc( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true );
+            formatArc( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true, shape->m_Uuid );
             break;
 
         case SHAPE_T::CIRCLE:
-            formatCircle( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true );
+            formatCircle( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true, shape->m_Uuid );
             break;
 
         case SHAPE_T::RECTANGLE:
-            formatRect( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true );
+            formatRect( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true, shape->m_Uuid );
             break;
 
         case SHAPE_T::BEZIER:
-            formatBezier(&aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true );
+            formatBezier( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true, shape->m_Uuid );
             break;
 
         case SHAPE_T::POLY:
-            formatPoly( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true );
+            formatPoly( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true, shape->m_Uuid );
             break;
 
         case SHAPE_T::ELLIPSE:
-            formatEllipse( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true );
+            formatEllipse( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true, shape->m_Uuid );
             break;
 
         case SHAPE_T::ELLIPSE_ARC:
-            formatEllipseArc( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true );
+            formatEllipseArc( &aFormatter, shape, isPrivate, stroke, fillMode, fillColor, true, shape->m_Uuid );
             break;
 
         default:
@@ -804,6 +813,7 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::savePin( SCH_PIN* aPin, OUTPUTFORMATTER& aFor
                           getPinShapeToken( alt.second.m_Shape ) );
     }
 
+    KICAD_FORMAT::FormatUuid( &aFormatter, aPin->m_Uuid );
     KICAD_FORMAT::FormatCustomProperties( &aFormatter, *aPin );
     aFormatter.Print( ")" );
 }
@@ -821,6 +831,7 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::saveText( SCH_TEXT* aText, OUTPUTFORMATTER& a
                       aText->GetTextAngle().AsTenthsOfADegree() );
 
     aText->EDA_TEXT::Format( &aFormatter, 0 );
+    KICAD_FORMAT::FormatUuid( &aFormatter, aText->m_Uuid );
     KICAD_FORMAT::FormatCustomProperties( &aFormatter, *aText );
     aFormatter.Print( ")" );
 }
@@ -851,6 +862,7 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::saveTextBox( SCH_TEXTBOX* aTextBox, OUTPUTFOR
     aTextBox->GetStroke().Format( &aFormatter, schIUScale );
     formatFill( &aFormatter, aTextBox->GetFillMode(), aTextBox->GetFillColor() );
     aTextBox->EDA_TEXT::Format( &aFormatter, 0 );
+    KICAD_FORMAT::FormatUuid( &aFormatter, aTextBox->m_Uuid );
     KICAD_FORMAT::FormatCustomProperties( &aFormatter, *aTextBox );
     aFormatter.Print( ")" );
 }

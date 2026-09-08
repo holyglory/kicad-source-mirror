@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="src/KiCad.Automation.Distribution/KiCad.Automation.Distribution.csproj" />
+  <Project Path="tools/KiCad.Automation.Downloads/KiCad.Automation.Downloads.csproj" />
+  <Project Path="tools/KiCad.Automation.Validation/KiCad.Automation.Validation.csproj" />
+  <Project Path="src/KiCad.Automation.Model/KiCad.Automation.Model.csproj" />
+  <Project Path="src/KiCad.Automation.Native/KiCad.Automation.Native.csproj" />
+  <Project Path="src/KiCad.Automation.Mcp/KiCad.Automation.Mcp.csproj" />
+  <Project Path="tests/KiCad.Automation.Tests/KiCad.Automation.Tests.csproj" />
+</Solution>

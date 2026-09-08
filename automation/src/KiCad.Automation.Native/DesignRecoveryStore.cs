@@ -1,0 +1,202 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Google.Protobuf;
+using Kiapi.Schematic.Types;
+using KiCad.Automation.Model;
+using KiCad.Automation.Protocol;
+using NativeRevision = KiCad.Automation.Model.DocumentRevision;
+
+namespace KiCad.Automation.Native;
+
+public sealed record DesignRecoveryState(Guid OriginId, Guid InstanceId, NativeRevision NativeRevision,
+    bool TrackingComplete, SchematicDesign Baseline, byte[] DesiredFileBytes,
+    SchematicHierarchyData Observed, IReadOnlyList<ComponentKnowledgeLibrary> KnowledgeLibraries,
+    ApplySchematicItemBatch? PendingMutation = null, DesignHierarchyResolution? HierarchyResolution = null);
+
+public sealed record DesignHierarchyResolution(string SnapshotToken,
+    IReadOnlyDictionary<string, SchematicConflictChoice> Choices, string NativeEpoch, ulong NativeSequence);
+
+public sealed record StoredDesignRecovery(string RevisionToken, DesignRecoveryState State);
+
+/// <summary>Durable full-design recovery, not a completion ledger or proof of synchronization.
+/// Keeps the last baseline, exact desired file bytes (including invalid XML), current native
+/// hierarchy and an optional unconfirmed mutation. Persist before dispatch; after interruption
+/// inspect the same native operation receipt and epoch, never invent a replacement operation ID.
+/// Saving does not edit either design, authorize a mutation or advance a baseline automatically.</summary>
+public sealed class DesignRecoveryStore(string statePath)
+{
+    private readonly string path = Path.GetFullPath(statePath);
+    private static readonly JsonSerializerOptions Json = new()
+        { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
+    private sealed record Envelope([property: JsonRequired] int Version,
+        [property: JsonRequired] Guid OriginId, [property: JsonRequired] Guid InstanceId,
+        [property: JsonRequired] string NativeEpoch, [property: JsonRequired] ulong NativeSequence,
+        [property: JsonRequired] bool TrackingComplete, [property: JsonRequired] string BaselineXml,
+        [property: JsonRequired] byte[] DesiredFileBytes, [property: JsonRequired] string ObservedXml,
+        [property: JsonRequired] string[] KnowledgeLibraryXml,
+        [property: JsonRequired] byte[]? PendingMutation,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DesignHierarchyResolution? HierarchyResolution = null);
+
+    public StoredDesignRecovery ResolveHierarchy(string expectedRevisionToken, string expectedSnapshotToken,
+        IReadOnlyDictionary<string, SchematicConflictChoice> choices)
+    {
+        var current = Read();
+        if (current is null || current.RevisionToken != expectedRevisionToken)
+            throw Failure("design_recovery_changed", "Recovery state changed; reload conflicts before choosing.");
+        var selected = current.State.HierarchyResolution?.Choices.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal) ?? [];
+        foreach (var (path, choice) in choices) selected[path] = choice;
+        var resolution = new DesignHierarchyResolution(expectedSnapshotToken, selected,
+            current.State.NativeRevision.Epoch, current.State.NativeRevision.Sequence);
+        // Validate the exact choice set before acquiring the save lock; Save performs
+        // a second CAS check under that lock and revalidates the serialized result.
+        return Save(current.State with { HierarchyResolution = resolution }, expectedRevisionToken);
+    }
+
+    public static SchematicHierarchyMergeResult PlanHierarchy(DesignRecoveryState state)
+    {
+        var desired = ReadDesired(state);
+        return state.HierarchyResolution is { } resolution
+            ? SchematicHierarchyMerge.Resolve(state.Baseline.Schematic, desired.Schematic, state.Observed,
+                resolution.SnapshotToken, resolution.Choices)
+            : SchematicHierarchyMerge.Plan(state.Baseline.Schematic, desired.Schematic, state.Observed);
+    }
+
+    public static string HierarchySnapshotToken(DesignRecoveryState state) =>
+        SchematicHierarchyMerge.SnapshotToken(state.Baseline.Schematic, ReadDesired(state).Schematic, state.Observed);
+
+    private static SchematicDesign ReadDesired(DesignRecoveryState state)
+    {
+        try { return SchematicDesignXml.Read(new System.Text.UTF8Encoding(false, true).GetString(state.DesiredFileBytes), state.KnowledgeLibraries); }
+        catch (System.Text.DecoderFallbackException error) { throw Failure("invalid_desired_design", error.Message); }
+    }
+
+    public StoredDesignRecovery? Read()
+    {
+        try { return ReadCore(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { throw Failure("design_recovery_io", error.Message); }
+    }
+
+    public StoredDesignRecovery Save(DesignRecoveryState state, string? expectedRevisionToken)
+    {
+        Validate(state);
+        var envelope = new Envelope(state.HierarchyResolution is null ? 1 : 2, state.OriginId, state.InstanceId, state.NativeRevision.Epoch,
+            state.NativeRevision.Sequence, state.TrackingComplete,
+            SchematicDesignXml.Write(state.Baseline, state.KnowledgeLibraries), state.DesiredFileBytes,
+            SchematicDataXml.Write(state.Observed), state.KnowledgeLibraries.Select(ComponentKnowledgeXml.WriteLibrary).ToArray(),
+            state.PendingMutation?.ToByteArray(), state.HierarchyResolution);
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(envelope, Json);
+        // Verify complete recoverability before touching the previous recovery file.
+        var next = Decode(bytes);
+        string? temporary = null;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            // Same trusted local coordination as SchematicSyncStore. Keep the inode:
+            // unlinking the lock would permit competing locks on different files.
+            using var ownership = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            var current = ReadCore();
+            if (current?.RevisionToken != expectedRevisionToken)
+                throw Failure("design_recovery_changed", "Recovery state changed; reload it before saving.");
+            if (current?.RevisionToken == next.RevisionToken) return current;
+            temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
+            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                output.Write(bytes);
+                output.Flush(flushToDisk: true);
+            }
+            File.Move(temporary, path, overwrite: true);
+            temporary = null;
+            return next;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { throw Failure("design_recovery_io", error.Message); }
+        finally
+        {
+            if (temporary is not null)
+            {
+                try { File.Delete(temporary); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+    }
+
+    private StoredDesignRecovery? ReadCore()
+    {
+        byte[] bytes;
+        try { bytes = File.ReadAllBytes(path); }
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
+        return Decode(bytes);
+    }
+
+    private static StoredDesignRecovery Decode(byte[] bytes)
+    {
+        try
+        {
+            using var json = JsonDocument.Parse(bytes);
+            if (json.RootElement.ValueKind != JsonValueKind.Object
+                || json.RootElement.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count()
+                    != json.RootElement.EnumerateObject().Count())
+                throw Failure("invalid_design_recovery", "Invalid or duplicate recovery fields.");
+            var envelope = JsonSerializer.Deserialize<Envelope>(bytes, Json)
+                ?? throw Failure("invalid_design_recovery", "Missing recovery state.");
+            if (envelope.Version is not (1 or 2) || envelope.KnowledgeLibraryXml is null
+                || (envelope.Version == 1 && envelope.HierarchyResolution is not null)
+                || (envelope.Version == 2 && envelope.HierarchyResolution is null))
+                throw Failure("invalid_design_recovery", "Unsupported or incomplete recovery state.");
+            var libraries = envelope.KnowledgeLibraryXml.Select(ComponentKnowledgeXml.ReadLibrary).ToArray();
+            var observed = SchematicDataXml.Read(envelope.ObservedXml) as SchematicHierarchyData
+                ?? throw Failure("invalid_design_recovery", "Recovery requires a typed native hierarchy.");
+            var state = new DesignRecoveryState(envelope.OriginId, envelope.InstanceId,
+                new(envelope.NativeEpoch, envelope.NativeSequence), envelope.TrackingComplete,
+                SchematicDesignXml.Read(envelope.BaselineXml, libraries), envelope.DesiredFileBytes, observed, libraries,
+                envelope.PendingMutation is null ? null : ApplySchematicItemBatch.Parser.ParseFrom(envelope.PendingMutation), envelope.HierarchyResolution);
+            Validate(state);
+            return new(Convert.ToHexStringLower(SHA256.HashData(bytes)), state);
+        }
+        catch (Exception error) when (error is JsonException or ArgumentException or InvalidProtocolBufferException)
+        { throw Failure("invalid_design_recovery", error.Message); }
+    }
+
+    private static void Validate(DesignRecoveryState state)
+    {
+        if (state.OriginId == Guid.Empty || state.InstanceId == Guid.Empty || state.NativeRevision is null
+            || string.IsNullOrWhiteSpace(state.NativeRevision.Epoch) || state.Baseline is null
+            || state.DesiredFileBytes is null || state.Observed is null || state.KnowledgeLibraries is null)
+            throw Failure("invalid_design_recovery", "An explicit instance, origin, revision and all design versions are required.");
+        var document = state.Baseline.Schematic.Document;
+        if (document?.SheetPath is null || document.SheetPath.Path.Count != 1
+            || !Guid.TryParseExact(document.SheetPath.Path[0].Value, "D", out var rootId) || rootId == Guid.Empty
+            || !document.Equals(state.Observed.Document))
+            throw Failure("invalid_design_recovery", "Native and baseline versions must identify the same hierarchy root.");
+        if (state.HierarchyResolution is { } resolution)
+        {
+            if (string.IsNullOrWhiteSpace(resolution.SnapshotToken) || resolution.Choices is null
+                || resolution.NativeEpoch != state.NativeRevision.Epoch || resolution.NativeSequence != state.NativeRevision.Sequence)
+                throw Failure("invalid_design_resolution", "Saved hierarchy choices require their exact snapshot token.");
+            _ = PlanHierarchy(state);
+        }
+        if (state.PendingMutation is not { } pending) return;
+        if (string.IsNullOrWhiteSpace(pending.OperationId) || System.Text.Encoding.UTF8.GetByteCount(pending.OperationId) > 128
+            || pending.OperationId.Contains('\0') || pending.DocumentEpoch != state.NativeRevision.Epoch
+            || pending.ExpectedRevision?.Epoch != state.NativeRevision.Epoch
+            || pending.ExpectedRevision.Sequence != state.NativeRevision.Sequence
+            || pending.OriginId != state.OriginId.ToString("D") || pending.Operations.Count == 0)
+            throw Failure("invalid_design_recovery", "A pending mutation requires its exact retry identity, origin and observed revision.");
+        bool SameOwner(Kiapi.Common.Types.DocumentSpecifier? target)
+        {
+            if (target?.SheetPath is null || target.SheetPath.Path.Count == 0
+                || target.SheetPath.Path.Any(id => !Guid.TryParseExact(id.Value, "D", out var value) || value == Guid.Empty)
+                || target.SheetPath.Path[0].Value != document.SheetPath.Path[0].Value) return false;
+            var rootTarget = target.Clone(); rootTarget.SheetPath = document.SheetPath.Clone();
+            return rootTarget.Equals(document);
+        }
+        if (!SameOwner(pending.Document) || pending.Operations.Any(o => o.TargetDocument is not null && !SameOwner(o.TargetDocument)))
+            throw Failure("invalid_design_recovery", "Pending mutation targets must belong to the recorded native design.");
+    }
+
+    private static AutomationException Failure(string code, string message) => new(code, message);
+}

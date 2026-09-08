@@ -22,6 +22,7 @@
 
 
 #include <algorithm>
+#include <api/api_server.h>
 
 #include <confirm.h>
 #include <common.h>
@@ -61,6 +62,7 @@
 #include <sch_sheet.h>
 #include <sch_sheet_path.h>
 #include <schematic.h>
+#include <sch_root_instance.h>
 #include <settings/settings_manager.h>
 #include <sim/simulator_frame.h>
 #include <symbol_import_reconciler.h>
@@ -78,6 +80,7 @@
 #include <wx/app.h>
 #include <wx/ffile.h>
 #include <wx/filedlg.h>
+#include <wx/generic/msgdlgg.h>
 #include <wx/log.h>
 #include <wx/richmsgdlg.h>
 #include <wx/stdpaths.h>
@@ -115,6 +118,55 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     wxString   fullFileName( aFileSet[0] );
     wxFileName wx_filename( fullFileName );
 
+    const bool automation = Pgm().GetApiServer().IsAutomation();
+    KIID creationRootId = niluuid;
+    wxString creationRootName;
+
+    if( automation )
+    {
+        // Reject interactive recovery/import paths before replacing any design
+        // state. Recovery files remain untouched for the operator to resolve.
+        if( wx_filename.GetExt() != FILEEXT::KiCadSchematicFileExtension
+                || ( !wx_filename.FileExists() && !( aCtl & KICTL_CREATE ) )
+                || ( wx_filename.FileExists() && !wxFileName::IsFileReadable( fullFileName ) )
+                || wxFileName::DirExists( fullFileName ) || IsContentModified() )
+        {
+            wxLogError( "Automation open requires a native schematic (or explicit creation) and an unmodified editor" );
+            return false;
+        }
+
+        if( !Kiway().LocalHistory().FindStaleAutosaveFiles(
+                    wx_filename.GetPath(), { FILEEXT::KiCadSchematicFileExtension } ).empty() )
+        {
+            wxLogError( "Recover stale schematic autosaves interactively before automation open" );
+            return false;
+        }
+
+        if( !wx_filename.FileExists() && ( aCtl & KICTL_CREATE ) )
+        {
+            const auto& roots = Prj().GetProjectFile().GetTopLevelSheets();
+            if( roots.size() > 1 )
+            {
+                wxLogError( "Creating a missing schematic in a multi-root project is not supported" );
+                return false;
+            }
+            if( !roots.empty() )
+            {
+                wxFileName declared( Prj().GetProjectPath(), roots.front().filename );
+                wxFileName requested( wx_filename );
+                declared.Normalize( wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE );
+                requested.Normalize( wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE );
+                if( declared != requested )
+                {
+                    wxLogError( "The requested new schematic does not match its project root declaration" );
+                    return false;
+                }
+                creationRootId = roots.front().uuid;
+                creationRootName = roots.front().name;
+            }
+        }
+    }
+
     // We insist on caller sending us an absolute path, if it does not, we say it's a bug.
     wxASSERT_MSG( wx_filename.IsAbsolute(), wxS( "Path is not absolute!" ) );
 
@@ -129,6 +181,12 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         {
             msg.Printf( _( "Schematic '%s' is already open by '%s' at '%s'." ), fullFileName,
                     m_file_checker->GetUsername(), m_file_checker->GetHostname() );
+
+            if( automation )
+            {
+                wxLogError( "%s", msg );
+                return false;
+            }
 
             if( !AskOverrideLock( this, msg ) )
                 return false;
@@ -218,6 +276,8 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     std::unique_ptr<SCHEMATIC> newSchematic = std::make_unique<SCHEMATIC>( &Prj() );
 
     SCH_IO_MGR::SCH_FILE_T schFileType = SCH_IO_MGR::GuessPluginTypeFromSchPath( fullFileName, aCtl );
+    if( automation && is_new && ( aCtl & KICTL_CREATE ) )
+        schFileType = SCH_IO_MGR::SCH_KICAD;
 
     bool isNonKicadImport = schFileType != SCH_IO_MGR::SCH_KICAD
                             && schFileType != SCH_IO_MGR::SCH_LEGACY
@@ -268,7 +328,9 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
 
     if( is_new || schFileType == SCH_IO_MGR::SCH_FILE_T::SCH_FILE_UNKNOWN )
     {
-        newSchematic->CreateDefaultScreens();
+        newSchematic->CreateDefaultScreens( creationRootId );
+        if( !creationRootName.IsEmpty() )
+            newSchematic->GetTopLevelSheet()->SetName( creationRootName );
         SetSchematic( newSchematic.release() );
 
         // mark new, unsaved file as modified.
@@ -400,6 +462,9 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
 
             if( !pi->GetError().IsEmpty() )
             {
+                if( automation )
+                    THROW_IO_ERROR( pi->GetError() );
+
                 DisplayErrorMessage( this, _( "The entire schematic could not be loaded.  Errors "
                                               "occurred attempting to load hierarchical sheets." ),
                                      pi->GetError() );
@@ -410,7 +475,10 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             newSchematic->CreateDefaultScreens();
             msg.Printf( _( "Error loading schematic '%s'." ), fullFileName );
             progressReporter.Hide();
-            DisplayErrorMessage( this, msg, ffe.Problem() );
+            if( automation )
+                wxLogError( "%s: %s", msg, ffe.Problem() );
+            else
+                DisplayErrorMessage( this, msg, ffe.Problem() );
 
             failedLoad = true;
         }
@@ -419,7 +487,10 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             newSchematic->CreateDefaultScreens();
             msg.Printf( _( "Error loading schematic '%s'." ), fullFileName );
             progressReporter.Hide();
-            DisplayErrorMessage( this, msg, ioe.What() );
+            if( automation )
+                wxLogError( "%s: %s", msg, ioe.What() );
+            else
+                DisplayErrorMessage( this, msg, ioe.What() );
 
             failedLoad = true;
         }
@@ -428,7 +499,10 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             newSchematic->CreateDefaultScreens();
             msg.Printf( _( "Memory exhausted loading schematic '%s'." ), fullFileName );
             progressReporter.Hide();
-            DisplayErrorMessage( this, msg, wxEmptyString );
+            if( automation )
+                wxLogError( "%s", msg );
+            else
+                DisplayErrorMessage( this, msg, wxEmptyString );
 
             failedLoad = true;
         }
@@ -475,11 +549,17 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         // fixed (modified).
         if( sheetList.IsModified() || repairedPageNumbers )
         {
-            DisplayInfoMessage( this,
-                                _( "An error was found when loading the schematic that has "
+            const wxString repaired = _( "An error was found when loading the schematic that has "
                                    "been automatically fixed.  Please save the schematic to "
                                    "repair the broken file or it may not be usable with other "
-                                   "versions of KiCad." ) );
+                                   "versions of KiCad." );
+            if( automation )
+            {
+                wxLogWarning( "%s", repaired );
+                m_infoBar->QueueShowMessage( repaired, wxICON_WARNING );
+            }
+            else
+                DisplayInfoMessage( this, repaired );
         }
 
         UpdateFileHistory( fullFileName );
@@ -1163,6 +1243,17 @@ bool PrepareSaveAsFiles( SCHEMATIC& aSchematic, SCH_SCREENS& aScreens,
 
 bool SCH_EDIT_FRAME::SaveProject( bool aSaveAs )
 {
+    if( HasRootInstanceConflicts( Schematic() ) )
+    {
+        // Keep this modal visible to the API's owned-dialog guard. Platform
+        // message boxes can run outside wxTopLevelWindows on GTK.
+        wxGenericMessageDialog conflict( this,
+                _( "Root page numbers conflict between instances of the same schematic file." ),
+                _( "Error" ), wxOK | wxICON_ERROR | wxCENTER );
+        conflict.ShowModal();
+        return false;
+    }
+
     wxString msg;
     SCH_SCREEN* screen;
     SCH_SCREENS screens( Schematic().Root() );

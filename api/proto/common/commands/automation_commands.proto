@@ -1,0 +1,389 @@
+/*
+ * KiCad automation extensions. GPL-3.0-or-later.
+ * These messages are shared by the native server and compiled MCP client.
+ */
+syntax = "proto3";
+package kiapi.automation.v1;
+option csharp_namespace = "KiCad.Automation.Protocol";
+import "common/types/base_types.proto";
+import "common/types/embedded_files.proto";
+import "google/protobuf/any.proto";
+import "schematic/schematic_types.proto";
+
+message ReadSchematicMetadata {
+  kiapi.common.types.DocumentSpecifier document = 1;
+}
+
+// Native in-memory save flags, not a filesystem comparison or complete project
+// persistence audit. Querying never saves, navigates or reloads the editor.
+message ReadSchematicSaveState {
+  kiapi.common.types.DocumentSpecifier document = 1;
+}
+
+message SchematicSaveState {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  DocumentRevision revision = 2;
+  bool tracking_complete = 3;
+  bool unsaved_schematic_changes = 4;
+  repeated kiapi.common.types.DocumentSpecifier modified_sheet_instances = 5;
+  bool project_settings_checked = 6;
+}
+
+message SchematicMetadataSnapshot {
+  kiapi.schematic.types.SchematicMetadata metadata = 1;
+  DocumentRevision revision = 2;
+  bool tracking_complete = 3;
+}
+
+message ReadSchematicScreenData {
+  kiapi.common.types.DocumentSpecifier document = 1;
+}
+
+message SchematicScreenDataSnapshot {
+  kiapi.schematic.types.SchematicScreenData data = 1;
+  DocumentRevision revision = 2;
+  bool tracking_complete = 3;
+}
+
+message ReadSchematicHierarchyData {
+  kiapi.common.types.DocumentSpecifier document = 1;
+}
+
+message SchematicHierarchyDataSnapshot {
+  kiapi.schematic.types.SchematicHierarchyData data = 1;
+  DocumentRevision revision = 2;
+  bool tracking_complete = 3;
+}
+
+// Current-canvas capture and supported objects collected in one native dispatch.
+// Incomplete tracking/serializer coverage remain explicit; not edit admission.
+message CaptureSchematicObservation {
+  kiapi.common.types.DocumentSpecifier document = 1;
+}
+
+message SchematicObservation {
+  SchematicScreenDataSnapshot snapshot = 1;
+  SchematicPreview preview = 2;
+}
+
+// Discovery does not imply support for editing, rendering or synchronization.
+message GetAutomationSession {}
+
+message AutomationSession {
+  uint32 protocol_version = 1;
+  string instance_id = 2;
+  string project_path = 3;
+  string epoch = 4;
+  repeated string capabilities = 5;
+  // Separate local notification channel; no request may infer another endpoint.
+  string event_endpoint = 6;
+  string event_epoch = 7;
+}
+
+// Notifications are hints to committed state, not a replacement for native
+// snapshots or the recovery journal. The process and event epochs must match
+// explicit discovery. Sequence increases for changes, not heartbeats. Initial
+// attachment, changed event epoch, or a gap requires fresh state; a heartbeat
+// advertises the latest sequence even if the last change packet was lost.
+message AutomationEvent {
+  uint32 protocol_version = 1;
+  string instance_id = 2;
+  string process_epoch = 3;
+  string event_epoch = 4;
+  uint64 sequence = 5;
+  oneof payload {
+    AutomationHeartbeat heartbeat = 6;
+    SchematicCommitNotification schematic_commit = 7;
+  }
+}
+
+message AutomationHeartbeat {}
+
+message SchematicCommitNotification {
+  // Canonical first top-level sheet path (never the virtual nil-UUID root).
+  // The journal covers all loaded sheet instances; this is not a touched-sheet list.
+  kiapi.common.types.DocumentSpecifier document = 1;
+  DocumentRevision revision = 2;
+  SchematicChange change = 3;
+  bool tracking_complete = 4;
+}
+
+// An epoch changes when its native process restarts. Sequence numbers alone
+// must never be compared across epochs.
+message DocumentRevision {
+  string epoch = 1;
+  uint64 sequence = 2;
+}
+
+// Native preview plumbing. Not a revision-safe observation or mutation token;
+// do not expose this as the completed observation contract through MCP.
+message CaptureSchematicPreview {
+  kiapi.common.types.DocumentSpecifier document = 1;
+}
+
+// Navigate the native editor to an exact hierarchy instance. Returns the
+// activated DocumentSpecifier; this is not a design mutation or revision token.
+message ActivateSchematicSheet {
+  kiapi.common.types.DocumentSpecifier document = 1;
+}
+
+message SchematicPreview {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  bytes png = 2;
+  uint32 width_pixels = 3;
+  uint32 height_pixels = 4;
+  // Diagnostic cursor only until tracking_complete is true. This does not
+  // authorize mutations or claim complete coverage of native edit paths.
+  DocumentRevision revision = 5;
+  bool tracking_complete = 6;
+  SchematicViewport viewport = 7;
+}
+
+// Affine pixel-to-sheet transform, in nanometres. Pixel (0,0) is the
+// top-left of the canvas, x increases right and y increases down.
+message SchematicViewport {
+  double origin_x_nm = 1;
+  double origin_y_nm = 2;
+  double pixel_x_dx_nm = 3;
+  double pixel_x_dy_nm = 4;
+  double pixel_y_dx_nm = 5;
+  double pixel_y_dy_nm = 6;
+  repeated int32 visible_native_layers = 7;
+  // Actual keyboard focus at a live canvas rendering checkpoint. Independent
+  // offscreen views have no keyboard focus and leave this false.
+  bool canvas_has_keyboard_focus = 8;
+}
+
+// Independent region images of an explicitly targeted loaded sheet; never navigates
+// the human view. Output regions are aspect-fitted with an exact affine transform.
+message RenderSchematicViews {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  repeated SchematicRenderView views = 2;
+}
+
+message SchematicRenderView {
+  string key = 1;
+  kiapi.common.types.Box2 region = 2;
+  uint32 width_pixels = 3;
+  uint32 height_pixels = 4;
+  // Empty selects all supported artwork layers, independently of GUI visibility.
+  repeated int32 native_layers = 5;
+}
+
+message SchematicRenderLayer {
+  int32 id = 1;
+  string name = 2;
+}
+
+message RenderedSchematicView {
+  string key = 1;
+  SchematicPreview preview = 2;
+}
+
+message SchematicViewSet {
+  SchematicScreenDataSnapshot snapshot = 1;
+  repeated RenderedSchematicView views = 2;
+  repeated SchematicRenderLayer available_layers = 3;
+  repeated string limitations = 4;
+}
+
+// Native current-sheet geometry facts for presentation checks. These do not
+// imply independent rendering, full glyph/clip coverage or safe edit admission.
+message ReadSchematicPresentationFacts {
+  kiapi.common.types.DocumentSpecifier document = 1;
+}
+
+message SchematicPresentationFacts {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  DocumentRevision revision = 2;
+  kiapi.common.types.Box2 page_bounds = 3;
+  repeated SchematicPresentationObject objects = 4;
+  bool coverage_complete = 5;
+  repeated string limitations = 6;
+  repeated SchematicPresentationWire wires = 7;
+  repeated kiapi.common.types.Vector2 junctions = 8;
+}
+
+message SchematicPresentationWire {
+  kiapi.common.types.KIID id = 1;
+  kiapi.common.types.Vector2 start = 2;
+  kiapi.common.types.Vector2 end = 3;
+  // Native graph code, scoped to the document revision. Not a persistent XML net ID.
+  string signal_key = 4;
+}
+
+message SchematicPresentationObject {
+  enum Kind { UNKNOWN = 0; GRAPHIC = 1; IMAGE = 2; TEXT = 3; REFERENCE_DESIGNATOR = 4; }
+  kiapi.common.types.KIID id = 1;
+  Kind kind = 2;
+  kiapi.common.types.Box2 bounds = 3;
+  bool visible = 4;
+  optional int64 text_height_nm = 5;
+  string text = 6;
+  // Fields have native runtime identities. Address persistent edits through
+  // their owning symbol/sheet and field name, not a field UUID across reloads.
+  kiapi.common.types.KIID owner_id = 7;
+  string field_name = 8;
+  // Text-box/table container bounds do not include overflowing text. Native
+  // font metrics, transformed to sheet coordinates; not a clipping rectangle.
+  kiapi.common.types.Box2 text_bounds = 9;
+}
+
+// Recovery-journal foundation. Until tracking_complete becomes true, this
+// cursor MUST NOT be used as a document mutation precondition. Live delivery,
+// complete property coverage and change payloads are separate unfinished work.
+message ReadSchematicChangeJournal {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string document_epoch = 2;
+  uint64 after_sequence = 3;
+}
+
+message SchematicChangeJournal {
+  string document_epoch = 1;
+  uint64 sequence = 2;
+  bool reset_required = 3;
+  bool tracking_complete = 4;
+  repeated SchematicChange changes = 5;
+}
+
+message SchematicChange {
+  enum Kind { UNKNOWN = 0; COMMIT = 1; UNDO = 2; REDO = 3; }
+  uint64 sequence = 1;
+  Kind kind = 2;
+  string description = 3;
+  // Empty for ordinary native edits, including user undo/redo. Attribution
+  // identifies the original automation commit, not all later uses of its undo.
+  string origin_id = 4;
+  string operation_id = 5;
+}
+
+// Native atomic-commit primitive. Not exposed as a completed MCP mutation:
+// complete revision admission is still required there. Retry receipts are
+// retained in the native document session, not across document epochs.
+message ApplySchematicItemBatch {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  repeated SchematicItemOperation operations = 2;
+  string description = 3;
+  // Retry identity is scoped to the document epoch. Both fields must be set
+  // together. This does not replace the still-unfinished revision admission.
+  string operation_id = 4;
+  string document_epoch = 5;
+  // Reject mismatched committed-change cursors before mutation. Current
+  // tracking remains partial: matching this value is NOT proof that every
+  // persisted property is unchanged. Public mutation readiness requires
+  // complete revision tracking as well as this admission guard.
+  DocumentRevision expected_revision = 6;
+  // Optional synchronization origin. Requires retry identity and expected
+  // revision. Recorded only when this batch actually commits a change.
+  string origin_id = 7;
+}
+
+message SchematicItemOperation {
+  // Optional per-operation target within the same loaded schematic. Absence
+  // uses the enclosing batch target. All operations share one native commit.
+  kiapi.common.types.DocumentSpecifier target_document = 8;
+  oneof operation {
+    google.protobuf.Any create = 1;
+    google.protobuf.Any update = 2;
+    kiapi.common.types.KIID remove = 3;
+    // Replace schematic-owned assets, not symbol-local assets. Validated with
+    // the native decoder before application; participates in this batch's undo.
+    SchematicEmbeddedFileState replace_embedded_files = 4;
+    kiapi.schematic.types.SchematicRootInstance set_root_instance = 5;
+    // Replace the explicitly targeted screen's title block in the same commit.
+    kiapi.common.types.TitleBlockInfo set_title_block = 6;
+    kiapi.common.types.PageSettings set_page_settings = 7;
+    SchematicBusAliasState replace_bus_aliases = 9;
+    SchematicTextVariableState replace_text_variables = 10;
+    SchematicNetChainState replace_net_chains = 11;
+    SchematicVariantRegistryState replace_variant_registry = 12;
+    kiapi.schematic.types.SchematicDrawingRatios set_drawing_ratios = 13;
+    SchematicLibraryCacheState replace_library_cache = 14;
+    kiapi.schematic.types.SchematicFormattingSettings set_formatting = 15;
+    SchematicConnectedSymbolMove move_connected_symbols = 16;
+  }
+}
+
+// Finite native drag, not an interactive mouse action. Currently requires the
+// explicitly targeted sheet to be displayed. The enclosing batch owns undo,
+// revision admission and retry identity. Connected wires/labels may also change.
+message SchematicConnectedSymbolMove {
+  repeated kiapi.common.types.KIID symbols = 1;
+  kiapi.common.types.Vector2 delta = 2;
+}
+
+message SchematicLibraryCacheState {
+  // Stable screen identity also admits cache ownership before sheet reparenting.
+  kiapi.common.types.KIID screen_id = 1;
+  repeated kiapi.schematic.types.SchematicCachedSymbol definitions = 2;
+}
+
+message SchematicEmbeddedFileState {
+  kiapi.common.types.EmbeddedFiles files = 1;
+  bool embedded_fonts = 2;
+}
+
+message SchematicBusAliasState {
+  repeated kiapi.schematic.types.SchematicBusAlias aliases = 1;
+}
+
+message SchematicTextVariableState {
+  map<string, string> variables = 1;
+}
+
+message SchematicNetChainState {
+  // Full replacement of schematic-wide declarations. committed is an
+  // observation, not an instruction; callers must clear it on every entry.
+  repeated kiapi.schematic.types.SchematicNetChainDefinition definitions = 1;
+}
+
+message SchematicVariantRegistryState {
+  // Replace only explicit project entries. Does not rename/delete symbol or
+  // sheet-instance variant declarations; those remain separately owned data.
+  map<string, string> descriptions = 1;
+}
+
+message SchematicItemBatchResult {
+  repeated google.protobuf.Any items = 1;
+  repeated kiapi.common.types.KIID removed = 2;
+  bool embedded_files_changed = 3;
+  bool root_instance_changed = 4;
+  bool title_block_changed = 5;
+  bool page_settings_changed = 6;
+  // Effective targets in request operation order, including metadata edits.
+  repeated kiapi.common.types.DocumentSpecifier operation_targets = 7;
+  bool bus_aliases_changed = 8;
+  bool text_variables_changed = 9;
+  bool net_chains_changed = 10;
+  bool variant_registry_changed = 11;
+  bool drawing_ratios_changed = 12;
+  bool library_cache_changed = 13;
+  bool formatting_changed = 14;
+  // Revision immediately after this operation (unchanged for a no-op).
+  // Retried operations retain their original result, not the current revision.
+  DocumentRevision revision = 15;
+  bool tracking_complete = 16;
+}
+
+message InspectSchematicOperation {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string document_epoch = 2;
+  string operation_id = 3;
+  // Optional exact saved command. When present, a found receipt must match
+  // all request fields, including map contents, before it can be returned.
+  ApplySchematicItemBatch expected_request = 4;
+}
+
+message SchematicOperationReceipt {
+  enum State { UNKNOWN = 0; NOT_FOUND = 1; COMPLETED = 2; REJECTED = 3; INDETERMINATE = 4; }
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string document_epoch = 2;
+  string operation_id = 3;
+  State state = 4;
+  SchematicItemBatchResult result = 5;
+  int32 native_status_code = 6;
+  string failure_message = 7;
+  // True only when the retained command matched expected_request. Older
+  // peers and NOT_FOUND responses cannot establish payload verification.
+  bool expected_request_verified = 8;
+}

@@ -909,7 +909,7 @@ bool SCH_LABEL_BASE::ResolveTextVar( const SCH_SHEET_PATH* aPath, wxString* toke
     {
         if( token->IsSameAs( field.GetName() ) )
         {
-            *token = field.GetShownText( false, aDepth + 1 );
+            *token = field.GetShownText( aPath, false, aDepth + 1, variant );
             return true;
         }
     }
@@ -1638,6 +1638,11 @@ bool unpackLabel( const LabelProto& aInput, SCH_LABEL_BASE& aLabel )
 {
     using namespace kiapi::schematic;
 
+    // Label constructors and undo copies are single-line. Do not admit a
+    // transport state which cannot survive native copy/save/restore semantics.
+    if( aInput.text().attributes().multiline() )
+        return false;
+
     const_cast<KIID&>( aLabel.m_Uuid ) = KIID( aInput.id().value() );
     aLabel.SetSpinStyle( FromProtoEnum<SPIN_STYLE::SPIN, types::SchematicLabelSpinStyle>( aInput.spin_style() ) );
     aLabel.SetLocked( aInput.locked() == kiapi::common::types::LockedState::LS_LOCKED );
@@ -2257,7 +2262,7 @@ bool SCH_GLOBALLABEL::ResolveTextVar( const SCH_SHEET_PATH* aPath, wxString* tok
 
             if( !settings.m_IntersheetRefsListOwnPage )
             {
-                int currentPage = schematic->CurrentSheet().GetVirtualPageNumber();
+                int currentPage = aPath->GetVirtualPageNumber();
                 std::erase( pageListCopy, currentPage );
             }
 
@@ -2296,10 +2301,18 @@ std::vector<int> SCH_GLOBALLABEL::ViewGetLayers() const
 void SCH_GLOBALLABEL::CreateGraphicShape( const RENDER_SETTINGS* aRenderSettings, std::vector<VECTOR2I>& aPoints,
                                           const VECTOR2I& aPos ) const
 {
+    CreateGraphicShape( aRenderSettings, aPoints, aPos, nullptr );
+}
+
+
+void SCH_GLOBALLABEL::CreateGraphicShape( const RENDER_SETTINGS* aRenderSettings, std::vector<VECTOR2I>& aPoints,
+                                          const VECTOR2I& aPos, const SCH_SHEET_PATH* aPath ) const
+{
     int margin = GetLabelBoxExpansion( aRenderSettings );
     int halfSize = ( GetTextHeight() / 2 ) + margin;
     int linewidth = GetPenWidth();
-    int symb_len = GetTextBox( aRenderSettings ).GetWidth() + 2 * margin;
+    int symb_len = ( aPath ? GetTextBoxForText( aRenderSettings, GetShownText( aPath, true ) )
+                          : GetTextBox( aRenderSettings ) ).GetWidth() + 2 * margin;
 
     int x = symb_len + linewidth + 3;
     int y = halfSize + linewidth + 3;

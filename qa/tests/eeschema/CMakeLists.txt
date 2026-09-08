@@ -215,6 +215,10 @@ set( QA_EESCHEMA_SRCS
     test_sch_sheet_path.cpp
     test_sch_sheet_list.cpp
     test_sch_symbol.cpp
+    test_symbol_api_semantics.cpp
+    test_schematic_formatting.cpp
+    test_schematic_initialization.cpp
+    test_schematic_symbol_library_identity.cpp
     test_sch_table.cpp
     test_sch_textbox.cpp
     test_schematic.cpp
@@ -330,3 +334,26 @@ target_compile_definitions( qa_eeschema
 kicad_add_boost_test( qa_eeschema qa_eeschema )
 
 setup_qa_env( qa_eeschema )
+
+# Focused native save/load acceptance without rebuilding every eeschema test.
+add_executable( qa_symbol_graphic_identity
+    ${CMAKE_SOURCE_DIR}/qa/mocks/kicad/common_mocks.cpp
+    test_module.cpp
+    test_symbol_graphic_identity.cpp
+    test_symbol_api_semantics.cpp
+    test_schematic_formatting.cpp
+    test_schematic_initialization.cpp
+    test_sch_text_presentation.cpp
+    test_drawing_sheet_context.cpp
+    ../common/test_settings_snapshot.cpp
+    ../libs/kinng/test_publisher.cpp
+)
+target_link_libraries( qa_symbol_graphic_identity PRIVATE
+    eeschema_kiface_objects common kicommon pads_common kimath qa_utils kinng ${NNG_LIBRARY}
+    qa_schematic_utils markdown_lib ${GDI_PLUS_LIBRARIES}
+    Boost::headers Boost::unit_test_framework
+)
+target_compile_definitions( qa_symbol_graphic_identity PUBLIC EESCHEMA )
+target_include_directories( qa_symbol_graphic_identity PRIVATE ${NNG_INCLUDE_DIR} )
+kicad_add_boost_test( qa_symbol_graphic_identity qa_symbol_graphic_identity )
+setup_qa_env( qa_symbol_graphic_identity )

@@ -1,0 +1,110 @@
+using System.Runtime.InteropServices;
+
+namespace KiCad.Automation.Native;
+
+public interface INativeTransport
+{
+    Task<byte[]> ExchangeAsync(string endpoint, byte[] request, TimeSpan timeout,
+                               CancellationToken cancellationToken = default);
+}
+
+/// <summary>Native NNG REQ/REP transport. No shell, HTTP service or Python bridge.</summary>
+public sealed class NngTransport : INativeTransport
+{
+    public Task<byte[]> ExchangeAsync(string endpoint, byte[] request, TimeSpan timeout,
+                                      CancellationToken cancellationToken = default)
+    {
+        ValidateEndpoint(endpoint);
+        if (timeout <= TimeSpan.Zero || timeout.TotalMilliseconds > int.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+        return Task.Run(() => Exchange(endpoint, request, (int)Math.Ceiling(timeout.TotalMilliseconds),
+                                       cancellationToken), cancellationToken);
+    }
+
+    public static void ValidateEndpoint(string endpoint)
+    {
+        // SA-02: execution and KiCad are co-located. Never silently use TCP.
+        if (!endpoint.StartsWith("ipc:///", StringComparison.Ordinal) || endpoint.IndexOf('\0') >= 0)
+            throw new ArgumentException("An explicit absolute ipc:/// endpoint is required.", nameof(endpoint));
+    }
+
+    private static byte[] Exchange(string endpoint, byte[] request, int timeoutMs,
+                                   CancellationToken cancellationToken)
+    {
+        Nng.Check(Nng.nng_req0_open(out Nng.Socket socket));
+        using var handle = new SocketLifetime(socket);
+        using CancellationTokenRegistration registration = cancellationToken.Register(handle.Dispose);
+        try
+        {
+            Nng.Check(Nng.nng_setopt_ms(socket, "send-timeout", timeoutMs));
+            Nng.Check(Nng.nng_setopt_ms(socket, "recv-timeout", timeoutMs));
+            // Nonblocking connection lets the timeout/cancellation cover an unavailable peer.
+            Nng.Check(Nng.nng_dial(socket, endpoint, IntPtr.Zero, 2));
+            cancellationToken.ThrowIfCancellationRequested();
+            Nng.Check(Nng.nng_send(socket, request, (nuint)request.Length, 0));
+            nuint length = 0;
+            Nng.Check(Nng.nng_recv(socket, out IntPtr data, ref length, 1));
+            try
+            {
+                byte[] result = new byte[checked((int)length)];
+                Marshal.Copy(data, result, 0, result.Length);
+                cancellationToken.ThrowIfCancellationRequested();
+                return result;
+            }
+            finally { Nng.nng_free(data, length); }
+        }
+        catch (NngException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+    }
+
+    private sealed class SocketLifetime(Nng.Socket socket) : IDisposable
+    {
+        private int disposed;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+                _ = Nng.nng_close(socket);
+        }
+    }
+}
+
+public sealed class NngException(int errorCode, string message) : IOException(message)
+{
+    public int ErrorCode { get; } = errorCode;
+}
+
+internal static class Nng
+{
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Socket { public uint Id; }
+
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int nng_req0_open(out Socket socket);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int nng_sub0_open(out Socket socket);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int nng_setopt(Socket socket, [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
+                                        IntPtr value, nuint size);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int nng_close(Socket socket);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int nng_setopt_ms(Socket socket, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, int value);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int nng_dial(Socket socket, [MarshalAs(UnmanagedType.LPUTF8Str)] string address, IntPtr dialer, int flags);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int nng_send(Socket socket, byte[] data, nuint size, int flags);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int nng_recv(Socket socket, out IntPtr data, ref nuint size, int flags);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void nng_free(IntPtr data, nuint size);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr nng_strerror(int error);
+
+    internal static void Check(int result)
+    {
+        if (result != 0)
+            throw new NngException(result, Marshal.PtrToStringUTF8(nng_strerror(result)) ?? $"NNG error {result}");
+    }
+}

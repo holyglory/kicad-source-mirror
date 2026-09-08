@@ -746,9 +746,24 @@ BOX2I EDA_TEXT::GetTextBox( const RENDER_SETTINGS* aSettings, int aLine ) const
             return cache_it->second.m_bbox;
     }
 
+    BOX2I bbox = GetTextBoxForText( aSettings, GetShownText( true ), aLine );
+
+    {
+        std::lock_guard<std::mutex> bboxLock( m_bbox_cacheMutex );
+        m_bbox_cache[aLine] = { drawPos, bbox };
+    }
+
+    return bbox;
+}
+
+
+BOX2I EDA_TEXT::GetTextBoxForText( const RENDER_SETTINGS* aSettings, const wxString& aShownText,
+                                int aLine ) const
+{
+    const VECTOR2I drawPos = GetDrawPos();
     BOX2I         bbox;
     wxArrayString strings;
-    wxString      text = GetShownText( true );
+    wxString      text = aShownText;
     int           thickness = GetEffectiveTextPenWidth();
 
     if( IsMultilineAllowed() )
@@ -860,12 +875,6 @@ BOX2I EDA_TEXT::GetTextBox( const RENDER_SETTINGS* aSettings, int aLine ) const
     }
 
     bbox.Normalize(); // Make h and v sizes always >= 0
-
-    {
-        std::lock_guard<std::mutex> bboxLock( m_bbox_cacheMutex );
-        m_bbox_cache[aLine] = { drawPos, bbox };
-    }
-
     return bbox;
 }
 

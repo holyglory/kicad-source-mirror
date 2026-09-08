@@ -116,6 +116,7 @@ void DS_DATA_MODEL::ClearList()
 
 void DS_DATA_MODEL::Append( DS_DATA_ITEM* aItem )
 {
+    aItem->SetDataModel( this );
     m_list.push_back( aItem );
 }
 
@@ -134,4 +135,3 @@ DS_DATA_ITEM* DS_DATA_MODEL::GetItem( unsigned aIdx ) const
     else
         return nullptr;
 }
-

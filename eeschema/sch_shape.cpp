@@ -78,6 +78,12 @@ bool SCH_SHAPE::Deserialize( const google::protobuf::Any& aContainer )
     if( !aContainer.UnpackTo( &msg ) )
         return false;
 
+    // Native schematic line segments are SCH_LINE (SLT_GRAPHIC), not
+    // SCH_SHAPE::SEGMENT. The schematic writer cannot save the latter.
+    // Reject before changing identity or properties, including update calls.
+    if( msg.shape().has_segment() )
+        return false;
+
     const_cast<KIID&>( m_Uuid ) = KIID( msg.id().value() );
     SetLocked( msg.locked() == types::LockedState::LS_LOCKED );
     kiapi::common::UnpackCustomProperties( msg.custom_properties(), *this );

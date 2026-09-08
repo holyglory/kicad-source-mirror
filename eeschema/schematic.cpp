@@ -33,6 +33,9 @@
 #include <font/outline_font.h>
 #include <netlist_exporter_spice.h>
 #include <pgm_base.h>
+#include <api/api_server.h>
+#include <api/api_utils.h>
+#include <api/common/commands/automation_commands.pb.h>
 #include <progress_reporter.h>
 #include <project.h>
 #include <project/net_settings.h>
@@ -170,6 +173,7 @@ SCHEMATIC::~SCHEMATIC()
 
 void SCHEMATIC::Reset()
 {
+    m_changeJournal.Reset( KIID().AsStdString() );
     delete m_rootSheet;
 
     m_rootSheet = nullptr;
@@ -1319,7 +1323,7 @@ void SCHEMATIC::SetSheetNumberAndCount()
 }
 
 
-void SCHEMATIC::RecomputeIntersheetRefs()
+void SCHEMATIC::RecomputeIntersheetRefs( bool aUpdateFields )
 {
     std::map<wxString, std::set<int>>& pageRefsMap = GetPageRefsMap();
 
@@ -1335,6 +1339,8 @@ void SCHEMATIC::RecomputeIntersheetRefs()
             pageRefsMap[resolvedLabel].insert( sheet.GetVirtualPageNumber() );
         }
     }
+
+    if( !aUpdateFields ) return;
 
     bool show = Settings().m_IntersheetRefsShow;
 
@@ -1481,6 +1487,40 @@ void SCHEMATIC::OnItemsRemoved( std::vector<SCH_ITEM*>& aRemovedItems )
 void SCHEMATIC::OnItemsChanged( std::vector<SCH_ITEM*>& aItems )
 {
     InvokeListeners( &SCHEMATIC_LISTENER::OnSchItemsChanged, *this, aItems );
+}
+
+void SCHEMATIC::RecordCommittedChange( DOCUMENT_CHANGE_JOURNAL::KIND aKind,
+                                     const std::string& aDescription,
+                                     const std::string& aOriginId, const std::string& aOperationId )
+{
+    m_changeJournal.Append( aKind, aDescription, aOriginId, aOperationId );
+    auto* server = Pgm().ApiServerOrNull();
+    if( !server || !server->IsAutomation() || !m_rootSheet || !m_project || m_hierarchy.empty() )
+        return;
+
+    kiapi::automation::v1::SchematicCommitNotification notification;
+    auto* document = notification.mutable_document();
+    document->set_type( kiapi::common::types::DocumentType::DOCTYPE_SCHEMATIC );
+    kiapi::common::PackProject( *document->mutable_project(), Project() );
+    // Root() is a virtual nil-UUID container. Use a real loaded path, as
+    // document discovery does; the journal itself spans the whole schematic.
+    kiapi::common::PackSheetPath( *document->mutable_sheet_path(), m_hierarchy.at( 0 ).Path() );
+    notification.mutable_revision()->set_epoch( m_changeJournal.Epoch() );
+    notification.mutable_revision()->set_sequence( m_changeJournal.Sequence() );
+    notification.set_tracking_complete( false );
+    auto* change = notification.mutable_change();
+    change->set_sequence( m_changeJournal.Sequence() );
+    change->set_description( aDescription );
+    change->set_origin_id( aOriginId );
+    change->set_operation_id( aOperationId );
+    using CHANGE = kiapi::automation::v1::SchematicChange;
+    switch( aKind )
+    {
+    case DOCUMENT_CHANGE_JOURNAL::KIND::COMMIT: change->set_kind( CHANGE::COMMIT ); break;
+    case DOCUMENT_CHANGE_JOURNAL::KIND::UNDO: change->set_kind( CHANGE::UNDO ); break;
+    case DOCUMENT_CHANGE_JOURNAL::KIND::REDO: change->set_kind( CHANGE::REDO ); break;
+    }
+    server->PublishSchematicCommit( notification );
 }
 
 
@@ -2196,7 +2236,7 @@ void SCHEMATIC::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FLAGS a
 }
 
 
-void SCHEMATIC::CreateDefaultScreens()
+void SCHEMATIC::CreateDefaultScreens( const KIID& aRootId )
 {
     Reset();
 
@@ -2205,6 +2245,9 @@ void SCHEMATIC::CreateDefaultScreens()
     // Create the actual first top-level sheet
     SCH_SHEET*  rootSheet = new SCH_SHEET( this );
     SCH_SCREEN* rootScreen = new SCH_SCREEN( this );
+
+    if( aRootId != niluuid )
+        rootScreen->SetUuid( aRootId );
 
     rootSheet->SetScreen( rootScreen );
     rootSheet->SyncUuidToScreen();
@@ -2457,8 +2500,21 @@ void SCHEMATIC::SetCurrentVariant( const wxString& aVariantName )
 }
 
 
-void SCHEMATIC::AddVariant( const wxString& aVariantName )
+void SCHEMATIC::RestoreVariantRegistry( const std::set<wxString>& aNames,
+                                      const std::map<wxString, wxString>& aDescriptions )
 {
+    m_variantNames = aNames;
+    Settings().m_VariantDescriptions = aDescriptions;
+    if( m_textVarAdapter )
+        m_textVarAdapter->Tracker().InvalidateVariantScoped();
+}
+
+void SCHEMATIC::AddVariant( const wxString& aVariantName, SCH_COMMIT* aCommit )
+{
+    if( m_variantNames.contains( aVariantName ) && Settings().m_VariantDescriptions.contains( aVariantName ) )
+        return;
+    if( aCommit )
+        aCommit->StageVariantRegistry();
     m_variantNames.emplace( aVariantName );
 
     // Ensure the variant is registered in the project file
@@ -2472,6 +2528,11 @@ void SCHEMATIC::AddVariant( const wxString& aVariantName )
 void SCHEMATIC::DeleteVariant( const wxString& aVariantName, SCH_COMMIT* aCommit )
 {
     wxCHECK( m_rootSheet, /* void */ );
+
+    if( !m_variantNames.contains( aVariantName ) )
+        return;
+    if( aCommit )
+        aCommit->StageVariantRegistry();
 
     SCH_SCREENS allScreens( m_rootSheet );
 
@@ -2488,6 +2549,11 @@ void SCHEMATIC::RenameVariant( const wxString& aOldName, const wxString& aNewNam
     wxCHECK( m_rootSheet, /* void */ );
     wxCHECK( !aOldName.IsEmpty() && !aNewName.IsEmpty(), /* void */ );
     wxCHECK( m_variantNames.contains( aOldName ), /* void */ );
+
+    if( aOldName == aNewName )
+        return;
+    if( aCommit )
+        aCommit->StageVariantRegistry();
 
     m_variantNames.erase( aOldName );
     m_variantNames.insert( aNewName );
@@ -2518,7 +2584,7 @@ void SCHEMATIC::CopyVariant( const wxString& aSourceVariant, const wxString& aNe
     wxCHECK( m_variantNames.contains( aSourceVariant ), /* void */ );
     wxCHECK( !m_variantNames.contains( aNewVariant ), /* void */ );
 
-    AddVariant( aNewVariant );
+    AddVariant( aNewVariant, aCommit );
 
     auto& descriptions = Settings().m_VariantDescriptions;
 
@@ -2546,7 +2612,9 @@ void SCHEMATIC::SetVariantDescription( const wxString& aVariantName, const wxStr
 {
     auto& descriptions = Settings().m_VariantDescriptions;
 
-    if( aDescription.IsEmpty() )
+    // A registered variant with no overrides still needs its project entry.
+    // Clearing its description must not delete the variant on the next load.
+    if( aDescription.IsEmpty() && !m_variantNames.contains( aVariantName ) )
         descriptions.erase( aVariantName );
     else
         descriptions[aVariantName] = aDescription;
@@ -2555,24 +2623,16 @@ void SCHEMATIC::SetVariantDescription( const wxString& aVariantName, const wxStr
 
 void SCHEMATIC::LoadVariants()
 {
+    m_variantNames.clear();
     if( m_rootSheet && m_rootSheet->GetScreen() )
     {
         SCH_SCREENS        screens( m_rootSheet );
         std::set<wxString> variantNames = screens.GetVariantNames();
         m_variantNames.insert( variantNames.begin(), variantNames.end() );
 
-        // Register any unknown variants to the project file with empty descriptions
-        auto& descriptions = Settings().m_VariantDescriptions;
-
-        for( const wxString& name : variantNames )
-        {
-            if( descriptions.find( name ) == descriptions.end() )
-                descriptions[name] = wxEmptyString;
-        }
-
         // Also include variants from the project file that may not have any diffs yet.
-        // This ensures newly created variants with no symbol changes are preserved.
-        for( const auto& [name, description] : descriptions )
+        // Rebuilding the UI cache must not mutate that persisted registry.
+        for( const auto& [name, description] : Settings().m_VariantDescriptions )
             m_variantNames.insert( name );
     }
 }

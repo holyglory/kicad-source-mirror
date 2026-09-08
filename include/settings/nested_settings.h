@@ -56,6 +56,8 @@ public:
         return m_parent;
     }
 
+    const std::string& GetPath() const { return m_path; }
+
 protected:
 
     /// A pointer to the parent object to load and store from

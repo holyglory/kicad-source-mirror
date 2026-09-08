@@ -540,9 +540,9 @@ const BOX2I DS_DRAW_ITEM_PAGE::GetBoundingBox() const
 // ====================== DS_DRAW_ITEM_LIST ==============================
 
 void DS_DRAW_ITEM_LIST::BuildDrawItemsList( const PAGE_INFO& aPageInfo,
-                                            const TITLE_BLOCK& aTitleBlock )
+                                            const TITLE_BLOCK& aTitleBlock, DS_DATA_MODEL* aModel )
 {
-    DS_DATA_MODEL& model = DS_DATA_MODEL::GetTheInstance();
+    DS_DATA_MODEL& model = aModel ? *aModel : DS_DATA_MODEL::GetTheInstance();
 
     m_titleBlock = &aTitleBlock;
     m_paperFormat = aPageInfo.GetTypeAsString();
@@ -555,6 +555,7 @@ void DS_DRAW_ITEM_LIST::BuildDrawItemsList( const PAGE_INFO& aPageInfo,
 
     for( DS_DATA_ITEM* wsItem : model.GetItems() )
     {
+        wsItem->SetDataModel( &model );
         // Generate it only if the page option allows this
         if( wsItem->GetPage1Option() == FIRST_PAGE_ONLY && !m_isFirstPage )
             continue;
@@ -581,5 +582,4 @@ void DS_DRAW_ITEM_LIST::Print( const RENDER_SETTINGS* aSettings )
     for( DS_DRAW_ITEM_BASE* item : second_items )
         item->PrintWsItem( aSettings );
 }
-
 

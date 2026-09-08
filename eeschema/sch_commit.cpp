@@ -29,6 +29,12 @@
 
 #include <view/view.h>
 #include <sch_commit.h>
+#include <sch_library_cache_undo.h>
+#include <api/api_sch_symbol_definition.h>
+#include <google/protobuf/util/message_differencer.h>
+#include <sch_embedded_files_undo.h>
+#include <sch_page_settings_undo.h>
+#include <drawing_sheet/ds_data_model.h>
 #include <connection_graph.h>
 
 #include <functional>
@@ -64,10 +70,310 @@ SCH_COMMIT::~SCH_COMMIT()
 }
 
 
+bool SCH_COMMIT::Empty() const
+{
+    return COMMIT::Empty() && !m_embeddedFilesUndo && !m_pageSettingsUndo && !m_libraryCacheChanged;
+}
+
+
+void SCH_COMMIT::CaptureLibraryCache( SCH_SCREEN& aScreen )
+{
+    if( !m_libraryCacheUndo.count( &aScreen ) )
+    {
+        m_libraryCacheUndo.emplace( &aScreen, std::make_unique<SCH_LIBRARY_CACHE_UNDO_ITEM>( aScreen ) );
+        m_libraryCacheScopes.emplace( &aScreen, std::make_unique<SCH_SYMBOL_CACHE_EDIT_SCOPE>( aScreen ) );
+    }
+}
+
+
+void SCH_COMMIT::ReplaceLibraryCache( SCH_SCREEN& aScreen, SCH_SYMBOL_CACHE_STATE& aCandidate )
+{
+    CaptureLibraryCache( aScreen );
+    aScreen.SwapLibSymbolCache( aCandidate );
+    aScreen.SetContentModified();
+    m_libraryCacheChanged = true;
+}
+
+
+bool SCH_COMMIT::ValidateLibraryCaches( wxString& aFailure )
+{
+    for( const auto& [screen, undo] : m_libraryCacheUndo )
+    {
+        wxString difference;
+        auto validate = [&]( SCH_SYMBOL* symbol )
+        {
+            difference.clear();
+            const auto& definitions = screen->GetLibSymbols();
+            auto found = definitions.find( symbol->GetSchSymbolLibraryName() );
+            if( found == definitions.end() || !symbol->GetLibSymbolRef() )
+                return false;
+            // Ordinary Append sorts both definitions before native comparison.
+            // Explicit cache transactions suppress Append's cache maintenance,
+            // so compare private copies in that same native order instead.
+            LIB_SYMBOL cachedDefinition( *found->second );
+            LIB_SYMBOL placedDefinition( *symbol->GetLibSymbolRef() );
+            cachedDefinition.GetDrawItems().sort();
+            placedDefinition.GetDrawItems().sort();
+            kiapi::schematic::types::SchematicCachedSymbol cached, placed;
+            if( !PackCachedSymbol( cached, found->first, cachedDefinition )
+                    || !PackCachedSymbol( placed, found->first, placedDefinition ) )
+                return false;
+
+            google::protobuf::util::MessageDifferencer comparer;
+            std::string details;
+            comparer.ReportDifferencesToString( &details );
+            bool equal = comparer.Compare( cached, placed );
+            if( !equal )
+                difference = wxString::FromUTF8( details ).Left( 1024 );
+            return equal;
+        };
+        for( SCH_ITEM* item : screen->Items() )
+        {
+            if( auto* symbol = dynamic_cast<SCH_SYMBOL*>( item ); symbol
+                    && ( GetStatus( symbol, screen ) & CHT_TYPE ) != CHT_REMOVE && !validate( symbol ) )
+            {
+                aFailure = wxT( "Cache definition disagrees with a remaining placed symbol: " )
+                           + symbol->m_Uuid.AsString();
+                if( !difference.IsEmpty() )
+                    aFailure += wxT( "\n" ) + difference;
+                return false;
+            }
+        }
+        for( const COMMIT_LINE& entry : m_entries )
+        {
+            if( entry.m_screen != screen || ( entry.m_type & CHT_TYPE ) != CHT_ADD )
+                continue;
+            if( auto* symbol = dynamic_cast<SCH_SYMBOL*>( entry.m_item ); symbol && !validate( symbol ) )
+            {
+                aFailure = wxT( "Cache definition disagrees with a newly placed symbol: " )
+                           + symbol->m_Uuid.AsString();
+                if( !difference.IsEmpty() )
+                    aFailure += wxT( "\n" ) + difference;
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+
+void SCH_COMMIT::ReplaceEmbeddedFiles( EMBEDDED_FILES& aCandidate )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && !m_isLibEditor, "Embedded-file changes require a schematic editor" );
+    EMBEDDED_FILES* files = frame->Schematic().GetEmbeddedFiles();
+    if( !m_embeddedFilesUndo )
+        m_embeddedFilesUndo = std::make_unique<SCH_EMBEDDED_FILES_UNDO_ITEM>( *files );
+    files->SwapData( aCandidate );
+}
+
+
+void SCH_COMMIT::SetPageSettings( SCH_SCREEN* aScreen, const PAGE_INFO& aPage,
+                                  const wxString& aDrawingSheet, const wxString& aPreparedLayout )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && aScreen && !m_isLibEditor, "Page changes require a schematic editor" );
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    DS_DATA_MODEL::GetTheInstance().SetPageLayout( aPreparedLayout.ToUTF8() );
+    aScreen->SetPageSettings( aPage );
+    BASE_SCREEN::m_DrawingSheetFileName = aDrawingSheet;
+    frame->Schematic().Settings().m_SchDrawingSheetFileName = aDrawingSheet;
+    aScreen->SetContentModified();
+}
+
+
+void SCH_COMMIT::SetTitleBlock( SCH_SCREEN* aScreen, const TITLE_BLOCK& aTitle )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && aScreen && !m_isLibEditor, "Title changes require a schematic editor" );
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    aScreen->SetTitleBlock( aTitle );
+    aScreen->SetContentModified();
+}
+
+
+void SCH_COMMIT::SetBusAliases( const std::vector<std::shared_ptr<BUS_ALIAS>>& aAliases )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && !m_isLibEditor, "Bus aliases require a schematic editor" );
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    m_pageSettingsUndo->IncludeBusAliases();
+    frame->Schematic().SetBusAliases( aAliases );
+    m_connectivitySettingsChanged = true;
+}
+
+void SCH_COMMIT::SetTextVariables( const std::map<wxString, wxString>& aVariables )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && !m_isLibEditor, "Text variables require a schematic editor" );
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    m_pageSettingsUndo->IncludeTextVariables();
+    SCH_PAGE_SETTINGS_UNDO_ITEM::ApplyTextVariables( frame, aVariables );
+    m_connectivitySettingsChanged = true;
+}
+
+void SCH_COMMIT::StageVariantRegistry()
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && !m_isLibEditor, "Variant registry changes require a schematic editor" );
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    m_pageSettingsUndo->IncludeVariantRegistry();
+}
+
+void SCH_COMMIT::SetVariantRegistry( const std::map<wxString, wxString>& aDescriptions )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && !m_isLibEditor, "Variant registry changes require a schematic editor" );
+    if( frame->Schematic().Settings().m_VariantDescriptions == aDescriptions )
+        return;
+    StageVariantRegistry();
+    const wxString current = frame->Schematic().GetCurrentVariant();
+    SCH_PAGE_SETTINGS_UNDO_ITEM::ApplyVariantDescriptions( frame, aDescriptions );
+    frame->Schematic().LoadVariants();
+    frame->UpdateVariantSelectionCtrl( frame->Schematic().GetVariantNamesForUI() );
+    frame->SetCurrentVariant( current );
+}
+
+void SCH_COMMIT::SetDrawingRatios( const std::array<double, 5>& aRatios )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && !m_isLibEditor, "Drawing ratios require a schematic editor" );
+    if( frame->Schematic().Settings().DrawingRatios() == aRatios ) return;
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    m_pageSettingsUndo->IncludeDrawingRatios();
+    SCH_PAGE_SETTINGS_UNDO_ITEM::ApplyDrawingRatios( frame, aRatios );
+}
+
+void SCH_COMMIT::SetFormatting( const kiapi::schematic::types::SchematicFormattingSettings& aFormatting )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && !m_isLibEditor, "Formatting requires a schematic editor" );
+    if( SCH_FORMATTING::Capture( frame->Schematic().Settings() ).SerializeAsString()
+            == aFormatting.SerializeAsString() ) return;
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    m_pageSettingsUndo->IncludeFormatting();
+    const bool updateFields = frame->Schematic().Settings().m_IntersheetRefsShow
+                             != aFormatting.show_intersheet_references();
+    if( updateFields )
+    {
+        // Native reference visibility may also autoplace a label field. Keep
+        // those object edits in the same commit as the project setting.
+        auto* screen = frame->GetScreen();
+        for( SCH_ITEM* item : screen->Items().OfType( SCH_GLOBAL_LABEL_T ) )
+            Modify( item, screen );
+    }
+    SCH_PAGE_SETTINGS_UNDO_ITEM::ApplyFormatting( frame, aFormatting );
+    if( updateFields ) frame->RecomputeIntersheetRefs();
+}
+
+void SCH_COMMIT::SetVariantDescription( const wxString& aName, const wxString& aDescription )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && !m_isLibEditor && frame->Schematic().GetVariantNames().contains( aName ),
+                 "Variant descriptions require an existing schematic variant" );
+    if( frame->Schematic().GetVariantDescription( aName ) == aDescription )
+        return;
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    m_pageSettingsUndo->IncludeVariantDescriptions();
+    auto descriptions = frame->Schematic().Settings().m_VariantDescriptions;
+    descriptions[aName] = aDescription;
+    SCH_PAGE_SETTINGS_UNDO_ITEM::ApplyVariantDescriptions( frame, descriptions );
+}
+
+void SCH_COMMIT::SetNetChainDefinitions( const std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION>& aDefinitions )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && !m_isLibEditor, "Net chain changes require a schematic editor" );
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    m_pageSettingsUndo->IncludeNetChains();
+    m_connectivitySettingsChanged = true;
+    frame->Schematic().ConnectionGraph()->SetNetChainDefinitions( aDefinitions );
+}
+
+void SCH_COMMIT::SetRootInstance( SCH_SHEET* aSheet, const std::optional<wxString>& aPageNumber )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    wxCHECK_RET( frame && aSheet && !m_isLibEditor, "Root page changes require a schematic editor" );
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    SCH_SHEET_INSTANCE record;
+    if( aSheet->HasRootInstance() )
+        record = aSheet->GetRootInstance();
+    aSheet->RemoveInstance( KIID_PATH{} );
+    if( aPageNumber )
+    {
+        record.m_PageNumber = *aPageNumber;
+        aSheet->AddInstance( record );
+    }
+    if( aSheet->GetScreen() )
+        aSheet->GetScreen()->SetContentModified();
+}
+
+
 COMMIT& SCH_COMMIT::Stage( EDA_ITEM *aItem, CHANGE_TYPE aChangeType, BASE_SCREEN *aScreen,
                            RECURSE_MODE aRecurse )
 {
     wxCHECK( aItem, *this );
+
+    // A deferred removal supersedes earlier modifications to this object.
+    // Restore its pre-commit value before COMMIT::Stage discards the modify
+    // entry, so both cancellation and the deletion's undo retain that value.
+    // Already-applied removals and child-to-parent undo remapping have different
+    // ownership semantics and must not update an absent screen item here.
+    if( !m_isLibEditor && aChangeType == CHT_REMOVE && undoLevelItem( aItem ) == aItem )
+    {
+        COMMIT_LINE* previous = findEntry( aItem, aScreen );
+
+        if( previous && ( previous->m_type & CHT_TYPE ) == CHT_MODIFY && previous->m_copy )
+        {
+            auto item = static_cast<SCH_ITEM*>( aItem );
+            item->SwapItemData( static_cast<SCH_ITEM*>( previous->m_copy ) );
+
+            if( auto screen = dynamic_cast<SCH_SCREEN*>( aScreen ) )
+                screen->Update( item );
+
+            Unmodify( aItem, aScreen );
+        }
+    }
 
     if( aRecurse == RECURSE_MODE::RECURSE )
     {
@@ -161,16 +467,21 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
     SCH_GROUP*          enteredGroup = selTool ? selTool->GetEnteredGroup() : nullptr;
     bool                itemsDeselected = false;
     bool                selectedModified = false;
-    bool                dirtyConnectivity = false;
+    bool                dirtyConnectivity = m_connectivitySettingsChanged;
     bool                refreshHierarchy = false;
-    SCH_CLEANUP_FLAGS   connectivityCleanUp = NO_CLEANUP;
+    SCH_CLEANUP_FLAGS   connectivityCleanUp = m_connectivitySettingsChanged ? GLOBAL_CLEANUP : NO_CLEANUP;
 
     if( Empty() )
         return;
 
     undoList.SetDescription( aMessage );
+    // Graphical/hierarchy entries undo first, then page records resolve their
+    // exact sheet identities in the restored hierarchy.
+    if( m_pageSettingsUndo && frame && !( aCommitFlags & SKIP_UNDO ) )
+        undoList.PushItem( ITEM_PICKER( currentScreen, m_pageSettingsUndo.get(), UNDO_REDO::PAGESETTINGS ) );
 
-    SCHEMATIC*             schematic = nullptr;
+    SCHEMATIC*             schematic = ( m_embeddedFilesUndo || m_pageSettingsUndo || !m_libraryCacheUndo.empty() ) && frame
+                                              ? &frame->Schematic() : nullptr;
     std::vector<SCH_ITEM*> bulkAddedItems;
     std::vector<SCH_ITEM*> bulkRemovedItems;
     std::vector<SCH_ITEM*> itemsChanged;
@@ -229,7 +540,12 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
     }
 
     for( const auto& [group, screen] : removedItemGroups )
-        Modify( group->AsEdaItem(), screen );
+    {
+        // A parent removed by this same commit needs no membership update.
+        // Modify would replace its remove entry and resurrect an empty group.
+        if( ( GetStatus( group->AsEdaItem(), screen ) & CHT_TYPE ) != CHT_REMOVE )
+            Modify( group->AsEdaItem(), screen );
+    }
 
     for( COMMIT_LINE& entry : m_entries )
     {
@@ -322,6 +638,16 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
             if( EDA_GROUP* group = schItem->GetParentGroup() )
                 group->RemoveItem( schItem );
 
+            if( schItem->Type() == SCH_GROUP_T )
+            {
+                auto* group = static_cast<SCH_GROUP*>( schItem );
+                // A later operation may already have reparented a surviving
+                // member. Preserve that new owner while retiring this group.
+                for( EDA_ITEM* member : group->GetItems() )
+                    if( member->GetParentGroup() == group ) member->SetParentGroup( nullptr );
+                group->GetItems().clear();
+            }
+
             if( !( changeFlags & CHT_DONE ) )
             {
                 screen->Remove( schItem );
@@ -350,7 +676,8 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
             if( frame )
                 currentSheet = frame->GetCurrentSheet();
 
-            if( itemCopy->HasConnectivityChanges( schItem, &currentSheet )
+            if( schItem->IsConnectivityDirty()
+                || itemCopy->HasConnectivityChanges( schItem, &currentSheet )
                 || ( itemCopy->Type() == SCH_RULE_AREA_T ) )
             {
                 updateConnectivityFlag( schItem );
@@ -450,8 +777,35 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
         }
     }
 
+    if( m_embeddedFilesUndo && frame && !( aCommitFlags & SKIP_UNDO ) )
+    {
+        undoList.PushItem( ITEM_PICKER( currentScreen, m_embeddedFilesUndo.get(), UNDO_REDO::EMBEDDED_FILES ) );
+    }
+    if( frame && !( aCommitFlags & SKIP_UNDO ) )
+    {
+        for( const auto& [screen, undo] : m_libraryCacheUndo )
+            undoList.PushItem( ITEM_PICKER( screen, undo.get(), UNDO_REDO::LIBRARY_CACHE ) );
+    }
+    if( m_pageSettingsUndo && frame )
+    {
+        schematic->RefreshHierarchy();
+        frame->UpdateHierarchyNavigator();
+        // Page/title/layout changes are outside the item update list. Invalidate
+        // their cached drawing content just as the standalone settings command
+        // does, before any subsequent observation requests a render.
+        frame->GetCanvas()->GetView()->MarkDirty();
+        frame->GetCanvas()->GetView()->UpdateAllItems( KIGFX::REPAINT );
+    }
+
     if( !( aCommitFlags & SKIP_UNDO ) && frame && undoList.GetCount() > 0 )
+    {
         frame->SaveCopyInUndoList( undoList, UNDO_REDO::UNSPECIFIED, false );
+        // Retain rollback ownership until the native undo entry was saved.
+        m_embeddedFilesUndo.release();
+        m_pageSettingsUndo.release();
+        for( auto& [screen, undo] : m_libraryCacheUndo )
+            undo.release();
+    }
 
     if( dirtyConnectivity )
     {
@@ -472,13 +826,21 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
 
     if( selectedModified )
         m_toolMgr->ProcessEvent( EVENTS::SelectedItemsModified );
+
+    if( schematic )
+        schematic->RecordCommittedChange( DOCUMENT_CHANGE_JOURNAL::KIND::COMMIT,
+                                           aMessage.ToStdString(), m_originId, m_operationId );
 }
 
 
 void SCH_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
 {
     if( Empty() )
+    {
+        m_libraryCacheScopes.clear();
+        m_libraryCacheUndo.clear();
         return;
+    }
 
     if( m_isLibEditor )
         pushLibEdit( aMessage, aCommitFlags );
@@ -494,6 +856,14 @@ void SCH_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
             frame->GetCanvas()->Refresh();
     }
 
+    m_embeddedFilesUndo.reset();
+    m_pageSettingsUndo.reset();
+    m_libraryCacheScopes.clear();
+    m_libraryCacheUndo.clear();
+    m_libraryCacheChanged = false;
+    m_connectivitySettingsChanged = false;
+    m_originId.clear();
+    m_operationId.clear();
     clear();
 }
 
@@ -573,13 +943,19 @@ void SCH_COMMIT::Revert()
     SCH_SELECTION_TOOL* selTool = m_toolMgr->GetTool<SCH_SELECTION_TOOL>();
     SCH_SHEET_LIST      sheets;
 
-    if( m_entries.empty() )
+    if( Empty() && m_libraryCacheUndo.empty() )
         return;
 
     if( m_isLibEditor )
     {
         revertLibEdit();
         return;
+    }
+
+    if( m_embeddedFilesUndo && frame )
+    {
+        m_embeddedFilesUndo->Swap( *frame->Schematic().GetEmbeddedFiles() );
+        m_embeddedFilesUndo.reset();
     }
 
     SCHEMATIC*             schematic = nullptr;
@@ -597,6 +973,8 @@ void SCH_COMMIT::Revert()
 
         wxCHECK2( item && screen, continue );
 
+        KIGFX::VIEW* itemView = ( !frame || screen == frame->GetScreen() ) ? view : nullptr;
+
         if( !schematic )
             schematic = item->Schematic();
 
@@ -606,8 +984,8 @@ void SCH_COMMIT::Revert()
             if( !( changeFlags & CHT_DONE ) )
                 break;
 
-            if( view )
-                view->Remove( item );
+            if( itemView )
+                itemView->Remove( item );
 
             screen->Remove( item );
             bulkRemovedItems.push_back( item );
@@ -617,10 +995,20 @@ void SCH_COMMIT::Revert()
             item->SetConnectivityDirty();
 
             if( !( changeFlags & CHT_DONE ) )
+            {
+                // API group removal releases ownership before commit so a
+                // batch can reparent survivors. Cancellation restores it.
+                if( item->Type() == SCH_GROUP_T )
+                {
+                    auto* group = static_cast<SCH_GROUP*>( item );
+                    const auto members = group->GetItems();
+                    for( EDA_ITEM* member : members ) group->AddItem( member );
+                }
                 break;
+            }
 
-            if( view )
-                view->Add( item );
+            if( itemView )
+                itemView->Add( item );
 
             screen->Append( item );
             bulkAddedItems.push_back( item );
@@ -630,8 +1018,8 @@ void SCH_COMMIT::Revert()
         {
             wxCHECK2( copy, break );
 
-            if( view )
-                view->Remove( item );
+            if( itemView )
+                itemView->Remove( item );
 
             bool unselect = !item->IsSelected();
 
@@ -685,8 +1073,8 @@ void SCH_COMMIT::Revert()
 
             item->SetConnectivityDirty();
 
-            if( view )
-                view->Add( item );
+            if( itemView )
+                itemView->Add( item );
 
             delete copy;
             break;
@@ -710,12 +1098,28 @@ void SCH_COMMIT::Revert()
             schematic->OnItemsChanged( itemsChanged );
     }
 
+    for( auto& [screen, undo] : m_libraryCacheUndo )
+        undo->RestoreForRollback();
+    m_libraryCacheScopes.clear();
+    m_libraryCacheUndo.clear();
+    m_libraryCacheChanged = false;
+
     if( selTool )
         selTool->RebuildSelection();
 
-    if( frame )
-        frame->RecalculateConnections( nullptr, NO_CLEANUP );
+    if( m_pageSettingsUndo && frame )
+    {
+        m_pageSettingsUndo->RestoreAll( frame, true );
+        m_pageSettingsUndo.reset();
+        frame->GetCanvas()->GetView()->MarkDirty();
+        frame->GetCanvas()->GetView()->UpdateAllItems( KIGFX::REPAINT );
+    }
 
+    if( frame )
+        frame->RecalculateConnections( nullptr, m_connectivitySettingsChanged ? GLOBAL_CLEANUP : NO_CLEANUP );
+
+    m_connectivitySettingsChanged = false;
+    m_originId.clear();
+    m_operationId.clear();
     clear();
 }
-

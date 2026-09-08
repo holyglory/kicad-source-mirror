@@ -21,6 +21,7 @@
 #define KICAD_SCHEMATIC_H
 
 #include <eda_item.h>
+#include <api/document_change_journal.h>
 #include <embedded_files.h>
 #include <properties/property_mgr.h>
 #include <schematic_holder.h>
@@ -383,7 +384,9 @@ public:
      * Update the schematic's page reference map for all global labels, and refresh the labels
      * so that they are redrawn with up-to-date references.
      */
-    void RecomputeIntersheetRefs();
+    // Refresh the computed page map without rewriting fields during undo or
+    // observation. Ordinary editor callers retain visibility/autoplace behavior.
+    void RecomputeIntersheetRefs( bool aUpdateFields = true );
 
     void SyncLibSymbolPinMaps( const wxString& aSchLibSymbolName, const LIB_SYMBOL& aSource, SCH_COMMIT* aCommit );
 
@@ -442,6 +445,14 @@ public:
       * been modified in some way.
       */
     void OnItemsChanged( std::vector<SCH_ITEM*>& aItems );
+
+    const DOCUMENT_CHANGE_JOURNAL& ChangeJournal() const { return m_changeJournal; }
+
+    // Call only after the corresponding native operation and connectivity
+    // cleanup finish, not from item notifications or a reverted commit.
+    void RecordCommittedChange( DOCUMENT_CHANGE_JOURNAL::KIND aKind,
+                                const std::string& aDescription,
+                                const std::string& aOriginId = {}, const std::string& aOperationId = {} );
 
     /**
       * Notify the schematic and its listeners that the current sheet has been changed.
@@ -543,7 +554,8 @@ public:
      */
     bool Contains( const SCH_REFERENCE& aRef ) const;
 
-    void CreateDefaultScreens();
+    /// Initialize a new root, preserving a declared identity when supplied.
+    void CreateDefaultScreens( const KIID& aRootId = niluuid );
 
     /**
      * Return an array of variant names for using in wxWidgets UI controls.
@@ -573,7 +585,14 @@ public:
      */
     void DeleteVariant( const wxString& aVariantName, SCH_COMMIT* aCommit = nullptr );
 
-    void AddVariant( const wxString& aVariantName );
+    void AddVariant( const wxString& aVariantName, SCH_COMMIT* aCommit = nullptr );
+
+    // A symbol/sheet declaration makes a name available in the editor without
+    // creating a distinct persisted project registry entry.
+    void RegisterInferredVariant( const wxString& aName ) { m_variantNames.insert( aName ); }
+
+    void RestoreVariantRegistry( const std::set<wxString>& aNames,
+                                 const std::map<wxString, wxString>& aDescriptions );
 
     /**
      * Rename a variant from @a aOldName to @a aNewName.
@@ -659,6 +678,8 @@ public:
 
 private:
     friend class SCH_EDIT_FRAME;
+
+    DOCUMENT_CHANGE_JOURNAL m_changeJournal;
 
     template <typename Func, typename... Args>
     void InvokeListeners( Func&& aFunc, Args&&... args )

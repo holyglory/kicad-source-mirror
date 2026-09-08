@@ -423,6 +423,27 @@ bool JSON_SETTINGS::Store()
 }
 
 
+nlohmann::json JSON_SETTINGS::CaptureCurrentState() const
+{
+    JSON_SETTINGS scratch( m_filename, SETTINGS_LOC::NONE, m_schemaVersion, false, false, false );
+    scratch.m_internals->CloneFrom( *m_internals );
+    scratch.m_resetParamsIfMissing = m_resetParamsIfMissing;
+
+    // Nested stores can retain old copies of paths owned by their parent (for
+    // example schematic.drawing.field_names). Overlay the parent's live
+    // parameters last so those stale copies cannot mask a real change.
+    for( const NESTED_SETTINGS* nested : m_nested_settings )
+        ( *scratch.m_internals )[nested->GetPath()] = nested->CaptureCurrentState();
+
+    for( const PARAM_BASE* param : m_params )
+    {
+        param->StoreStrict( &scratch );
+    }
+
+    return static_cast<const nlohmann::json&>( *scratch.m_internals );
+}
+
+
 void JSON_SETTINGS::ResetToDefaults()
 {
     for( PARAM_BASE* param : m_params )

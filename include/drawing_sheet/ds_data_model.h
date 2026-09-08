@@ -24,6 +24,7 @@
 #include <math/vector2d.h>
 #include <eda_text.h>
 #include <bitmap_base.h>
+#include <memory>
 
 class DS_DATA_ITEM;
 class PAGE_INFO;
@@ -106,6 +107,10 @@ public:
      * @param aOutputString is a wxString to store the S expr string
      */
     void SaveInString( wxString* aOutputString );
+
+    // Strictly copy the persisted layout into an isolated rendering model.
+    // Native parse failures propagate instead of returning a partial frame.
+    std::unique_ptr<DS_DATA_MODEL> CloneForRendering();
 
     /**
      * Fill the given string with an S-expr serialization of the WS_DATA_ITEMs.

@@ -960,6 +960,21 @@ public:
     /** Return user-created (committed) net chains (legacy accessor retained under net-chain API). */
     const std::vector<std::unique_ptr<SCH_NETCHAIN>>& GetCommittedNetChains() const { return m_committedNetChains; }
 
+    struct NET_CHAIN_DEFINITION
+    {
+        CHAIN_TERMINAL_REFS terminals;
+        wxString netClass;
+        COLOR4D color = COLOR4D::UNSPECIFIED;
+        std::set<wxString> memberNets;
+        bool committed = false;
+    };
+
+    // Shared by persistence and structured observation. Retain pending intent;
+    // runtime-only synthetic member keys are not part of the saved definition.
+    std::map<wxString, NET_CHAIN_DEFINITION> GetNetChainDefinitions() const;
+    // Replace validated declarations; runtime chain membership is recomputed.
+    void SetNetChainDefinitions( const std::map<wxString, NET_CHAIN_DEFINITION>& aDefinitions );
+
     /**
      * Mirror each committed net chain's netclass override into the project NET_SETTINGS as a
      * chain-derived pattern assignment, so SCH_ITEM::GetEffectiveNetClass() resolves the chain's

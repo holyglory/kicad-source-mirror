@@ -516,7 +516,18 @@ EDA_ANGLE SCH_FIELD::GetDrawRotation() const
 
 const BOX2I SCH_FIELD::GetBoundingBox() const
 {
-    BOX2I bbox = GetTextBox( nullptr );
+    return transformTextBox( GetTextBox( nullptr ) );
+}
+
+
+BOX2I SCH_FIELD::GetBoundingBox( const SCH_SHEET_PATH* aPath, const wxString& aVariant ) const
+{
+    return transformTextBox( GetTextBoxForText( nullptr, GetShownText( aPath, true, 0, aVariant ) ) );
+}
+
+
+BOX2I SCH_FIELD::transformTextBox( BOX2I bbox ) const
+{
 
     // Calculate the bounding box position relative to the parent:
     VECTOR2I origin = GetParentPosition();

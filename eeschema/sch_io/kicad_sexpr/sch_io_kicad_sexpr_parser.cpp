@@ -340,7 +340,8 @@ LIB_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMa
 }
 
 
-LIB_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLibMap )
+LIB_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLibMap,
+                                                    wxString* aCacheKey )
 {
     wxCHECK_MSG( CurTok() == T_symbol, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a symbol." ) );
@@ -389,6 +390,9 @@ LIB_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLi
     symbol->SetName( m_symbolName );
     symbol->SetLibId( id );
 
+    if( aCacheKey ) *aCacheKey = id.Format().wx_str();
+    bool hasDefinitionId = false;
+
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
     {
         if( token != T_LEFT )
@@ -398,6 +402,20 @@ LIB_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLi
 
         switch( token )
         {
+        case T_lib_id:
+        {
+            if( !aCacheKey || hasDefinitionId || m_requiredVersion < 20260907 )
+                Expecting( "one definition lib_id in a current schematic cache" );
+            NeedSYMBOL();
+            LIB_ID definitionId;
+            if( definitionId.Parse( FromUTF8() ) >= 0 || definitionId.GetLibItemName().empty() )
+                Expecting( "valid definition library identifier" );
+            symbol->SetName( definitionId.GetLibItemName().wx_str() );
+            symbol->SetLibId( definitionId );
+            hasDefinitionId = true;
+            NeedRIGHT();
+            break;
+        }
         case T_power:
             symbol->SetGlobalPower();
             token = NextTok();
@@ -489,6 +507,11 @@ LIB_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLi
 
         case T_extends:
         {
+            if( aCacheKey )
+            {
+                THROW_PARSE_ERROR( _( "Schematic cache symbols cannot declare a parent symbol" ),
+                                   CurSource(), CurLine(), CurLineNumber(), CurOffset() );
+            }
             token = NextTok();
 
             if( !IsSymbol( token ) )
@@ -1714,7 +1737,13 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolArc()
             break;
         }
 
-        default: Expecting( "start, mid, end, radius, stroke, fill, start_shape, or end_shape" );
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( arc->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
+            break;
+
+        default: Expecting( "start, mid, end, radius, stroke, fill, start_shape, end_shape, or uuid" );
         }
     }
 
@@ -1886,7 +1915,13 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolBezier()
             break;
         }
 
-        default: Expecting( "pts, stroke, fill, start_shape, or end_shape" );
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( bezier->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
+            break;
+
+        default: Expecting( "pts, stroke, fill, start_shape, end_shape, or uuid" );
         }
     }
 
@@ -1948,6 +1983,12 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolCircle()
             parseFill( fill );
             circle->SetFillMode( fill.m_FillType );
             circle->SetFillColor( fill.m_Color );
+            break;
+
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( circle->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
             break;
 
         default:
@@ -2225,8 +2266,14 @@ SCH_PIN* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolPin()
             parseCustomProperty( pin.get() );
             break;
 
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( pin->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
+            break;
+
         default:
-            Expecting( "at, name, number, hide, length, or alternate" );
+            Expecting( "at, name, number, hide, length, alternate, or uuid" );
         }
     }
 
@@ -2309,7 +2356,13 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolPolyLine()
             break;
         }
 
-        default: Expecting( "pts, stroke, fill, start_shape, or end_shape" );
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( poly->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
+            break;
+
+        default: Expecting( "pts, stroke, fill, start_shape, end_shape, or uuid" );
         }
     }
 
@@ -2383,6 +2436,12 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolRectangle()
             rectangle->SetFillColor( fill.m_Color );
             break;
 
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( rectangle->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
+            break;
+
         default:
             Expecting( "start, end, stroke, or fill" );
         }
@@ -2441,6 +2500,12 @@ SCH_ITEM* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolText()
 
         case T_custom_property:
             parseCustomProperty( text.get() );
+            break;
+
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( text->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
             break;
 
         default:
@@ -2554,6 +2619,12 @@ SCH_TEXTBOX* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolTextBox()
 
         case T_custom_property:
             parseCustomProperty( textBox.get() );
+            break;
+
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( textBox->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
             break;
 
         default:
@@ -3342,9 +3413,12 @@ void SCH_IO_KICAD_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopya
                 switch( token )
                 {
                 case T_symbol:
-                    symbol = parseLibSymbol( symbolLibMap );
-                    screen->AddLibSymbol( symbol );
+                {
+                    wxString cacheKey;
+                    symbol = parseLibSymbol( symbolLibMap, &cacheKey );
+                    screen->AddLibSymbol( cacheKey, std::unique_ptr<LIB_SYMBOL>( symbol ) );
                     break;
+                }
 
                 default:
                     Expecting( "symbol" );
@@ -5413,8 +5487,6 @@ void SCH_IO_KICAD_SEXPR_PARSER::parseEllipseBody( SCH_SHAPE* aShape, bool aIsArc
             break;
 
         case T_uuid:
-            if( !aIsSchematic )
-                Expecting( "uuid only valid in schematic context" );
             NeedSYMBOL();
             const_cast<KIID&>( aShape->m_Uuid ) = KIID( FromUTF8() );
             NeedRIGHT();
@@ -6093,10 +6165,9 @@ void SCH_IO_KICAD_SEXPR_PARSER::parseSchNetChain()
         }
     }
 
-    if( !fromRef.IsEmpty() && !toRef.IsEmpty() )
-    {
-        m_netChainTerminalRefs[name] = { { fromRef, fromPin }, { toRef, toPin } };
-    }
+    // Even a partial or name-only declaration carries user intent. Keep it
+    // pending until the connectivity graph can resolve its terminals.
+    m_netChainTerminalRefs[name] = { { fromRef, fromPin }, { toRef, toPin } };
 
     if( !netClass.IsEmpty() )
         m_netChainNetClasses[name] = netClass;

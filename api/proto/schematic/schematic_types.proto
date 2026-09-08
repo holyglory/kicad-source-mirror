@@ -24,12 +24,154 @@ package kiapi.schematic.types;
 
 import "google/protobuf/any.proto";
 import "common/types/base_types.proto";
+import "common/types/embedded_files.proto";
+
+// One native screen's top-level objects and settings collected in one handler.
+// Nested fields/pins/cells remain inside their owning objects. This is not a
+// complete multi-file design until metadata and unsupported-item gaps are empty.
+message SchematicScreenData
+{
+  SchematicMetadata metadata = 1;
+  repeated google.protobuf.Any items = 2;
+  repeated SchematicUnrepresentedItem unrepresented_items = 3;
+  // Native cache ownership is separate from placed symbol instances.
+  repeated SchematicCachedSymbol cached_symbols = 4;
+}
+
+// All loaded sheet instances captured in one native dispatch. Repeated sheets
+// have separate instance records but share metadata.screen_id and child IDs.
+// Unsupported items/settings remain explicit; this is not full-fidelity proof.
+message SchematicHierarchyData
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+  repeated SchematicScreenData instances = 2;
+}
+
+message SchematicUnrepresentedItem
+{
+  kiapi.common.types.KIID id = 1;
+  int32 native_type = 2;
+  string reason = 3;
+}
+
+message SchematicBusAlias
+{
+  string name = 1;
+  repeated string members = 2;
+}
+
+message SchematicNetChainTerminal
+{
+  string reference = 1;
+  string pin = 2;
+}
+
+// Named electrical path state. Terminal references/member names match the
+// persisted schematic format; per-run synthetic net keys are excluded.
+message SchematicNetChainDefinition
+{
+  string name = 1;
+  SchematicNetChainTerminal from = 2;
+  SchematicNetChainTerminal to = 3;
+  string net_class = 4;
+  kiapi.common.types.Color color = 5;
+  repeated string member_nets = 6;
+  // Observation only: membership in the native committed-chain collection,
+  // not a connectivity-verification result. False retains a pending declaration.
+  bool committed = 7;
+}
+
+// Typed non-item state. This is not yet the complete document snapshot.
+message SchematicMetadata
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+  kiapi.common.types.KIID screen_id = 2;
+  kiapi.common.types.PageSettings page = 3;
+  kiapi.common.types.TitleBlockInfo title_block = 4;
+  map<string, string> text_variables = 5;
+  repeated SchematicBusAlias bus_aliases = 6;
+  bool embedded_fonts = 7;
+  kiapi.common.types.EmbeddedFiles embedded_files = 8;
+  // Never interpret an empty value set as proof that omitted state is absent.
+  repeated string unrepresented_state = 9;
+  SchematicRootInstance root_instance = 10;
+  // Provenance, not mutable page settings. Zero loaded version means unknown
+  // (for example a new unsaved screen); writer version comes from this build.
+  uint32 loaded_native_format_version = 11;
+  uint32 writer_native_format_version = 12;
+  repeated SchematicNetChainDefinition net_chains = 13;
+  // Persisted project registry, including entries without symbol overrides or
+  // descriptions. Inferred names belong to symbol/instance declarations;
+  // the selected editor variant and UI registry cache are transient view state.
+  map<string, string> variant_descriptions = 14;
+  SchematicDrawingRatios drawing_ratios = 15;
+  SchematicFormattingSettings formatting = 16;
+}
+
+// Persisted project formatting, independent of object positions and of the
+// application-wide defaults used when creating a new project. Distances must
+// be exactly representable on the native schematic's 100 nm unit grid.
+message SchematicFormattingSettings
+{
+  int64 default_line_width_nm = 1;
+  int64 default_text_size_nm = 2;
+  int64 pin_symbol_size_nm = 3;
+  int64 connection_grid_nm = 4;
+  uint32 junction_size_choice = 5;
+  uint32 hop_over_size_choice = 6;
+  bool show_dnp_markers = 7;
+  bool show_intersheet_references = 8;
+  bool list_own_page = 9;
+  bool short_reference_format = 10;
+  string reference_prefix = 11;
+  string reference_suffix = 12;
+  // Required for a complete formatting replacement; absence is not defaults.
+  SchematicOperatingPointFormatting operating_point = 13;
+  SchematicUnitReferenceFormatting unit_reference = 14;
+}
+
+// Exact persisted project character codes, not component identities. Separator
+// zero omits the separator; native ranges are 0..126 and '1'..'z'.
+message SchematicUnitReferenceFormatting
+{
+  uint32 separator_ascii = 1;
+  uint32 first_id_ascii = 2;
+}
+
+// Persisted display preferences, not measured or simulated electrical values.
+message SchematicOperatingPointFormatting
+{
+  uint32 voltage_precision = 1;
+  string voltage_range = 2;
+  uint32 current_precision = 3;
+  string current_range = 4;
+}
+
+// Dimensionless project-level presentation settings from SCHEMATIC_SETTINGS.
+// These are not coordinates or electrical constraints.
+message SchematicDrawingRatios
+{
+  double dash_length_ratio = 1;
+  double gap_length_ratio = 2;
+  double text_offset_ratio = 3;
+  double label_size_ratio = 4;
+  double overbar_height_ratio = 5;
+}
+
+// The native file's own root-page record, not a placement in a parent sheet.
+// Absent page_number means that no root record is stored in this file.
+message SchematicRootInstance
+{
+  optional string page_number = 1;
+}
 
 message SchematicField
 {
   // Fields do not currently track a unique ID; but may in the future
   //kiapi.common.types.KIID id = 1;
   string name = 2;
+  // Native field files restore multiline-capable mode, including fields with
+  // single-line content. Explicit fields must set text.attributes.multiline.
   kiapi.common.types.Text text = 3;
   bool visible = 4;
   bool show_name = 5;
@@ -237,6 +379,8 @@ message Group
   kiapi.common.types.LockedState locked = 4;
 
   repeated kiapi.common.types.CustomProperty custom_properties = 5;
+  // Native schematic (group ... (lib_id ...)) design-block provenance.
+  string design_block_library_id = 6;
 }
 
 message SchematicRuleArea
@@ -306,6 +450,32 @@ message SheetSymbol
 
   // The variants carried by this instance.
   SheetVariants variants = 19;
+
+  // All persisted placements of this sheet symbol. Absent on update preserves
+  // existing records; present replaces them before applying the target above.
+  SheetPlacementRecords instance_records = 20;
+
+  // Identity of the referenced native screen (its persisted root UUID), not
+  // this sheet symbol's identity. Repeated sheets share this ID. When supplied
+  // on mutation it must match the referenced screen; a newly created empty
+  // screen adopts it. Absence is supported only for legacy native requests.
+  kiapi.common.types.KIID child_screen_id = 21;
+}
+
+message SheetPlacementRecord
+{
+  // Native parent-sheet path; the sheet symbol's own UUID is not appended.
+  // Empty denotes a root-page record (page_number only).
+  repeated kiapi.common.types.KIID path = 1;
+  string project_name = 2;
+  string page_number = 3;
+  // Complete local variants. Global descriptions belong to project settings.
+  SheetVariants variants = 4;
+}
+
+message SheetPlacementRecords
+{
+  repeated SheetPlacementRecord records = 1;
 }
 
 enum SchematicSymbolType
@@ -358,6 +528,10 @@ message SchematicPinAlternate
 message SchematicPin
 {
   kiapi.common.types.KIID id = 1;
+  // A placed pin retains its own id and points to its definition pin here.
+  // Absent on library-owned pins and legacy messages; never infer this link
+  // from a pin number, position, or display name.
+  kiapi.common.types.KIID library_pin_id = 15;
 
   string name = 2;
   string number = 3;
@@ -427,6 +601,15 @@ message SchematicSymbolVariant
   // The fields this variant overrides, keyed by field name.  Fields left out resolve to the
   // symbol's own value.
   map<string, string> fields = 4;
+
+  // Optional on updates: absent preserves the existing override; a present
+  // empty identifier clears it. Snapshots include a present empty identifier
+  // when there is no substitution, so replay cannot retain stale data.
+  kiapi.common.types.LibraryIdentifier symbol_override = 5;
+
+  // Optional on updates: absent preserves the existing pin mapping. Snapshots
+  // always include this record, including the library-default mode.
+  PinMapInstanceOverride pin_map_override = 6;
 }
 
 // All variants for a symbol
@@ -565,6 +748,18 @@ message SchematicSymbol
   bool units_locked = 16;
   repeated SchematicUnitDisplayName unit_display_names = 17;
   bool embedded_fonts = 18;
+
+  // Definition pins use symbol-local coordinates when true. Legacy instance
+  // messages used sheet-space pin positions; false preserves that input form.
+  // Local coordinates let position/transform edits preserve pin geometry.
+  bool pins_use_local_coordinates = 19;
+
+  // Files owned by this library definition, not the schematic document.
+  // Present and empty explicitly clears them; native snapshots always include it.
+  kiapi.common.types.EmbeddedFiles embedded_files = 20;
+  // Native De Morgan semantics are distinct from custom styles with the same
+  // display names. True requires the Standard/Alternate pair, in that order.
+  bool demorgan_body_styles = 21;
 }
 
 message SchematicSymbolTransform
@@ -572,6 +767,37 @@ message SchematicSymbolTransform
   SchematicSymbolOrientation orientation = 1;
   bool mirror_x = 2;
   bool mirror_y = 3;
+}
+
+// A native schematic cache owns self-contained library definitions, including
+// definitions with no placed instance. External-library inheritance is not a
+// schematic cache feature. cache_key is the exact native lib_symbols map key.
+message SchematicCachedSymbol
+{
+  string cache_key = 1;
+  SchematicSymbol definition = 2;
+  bool show_pin_names = 3;
+  bool show_pin_numbers = 4;
+  kiapi.common.types.Distance pin_name_offset = 5;
+}
+
+// Persisted placements of one shared symbol, including placements belonging to
+// other projects that share its schematic file. Paths are exact native UUID
+// sequences, not the currently displayed/human-readable sheet path.
+message SymbolSheetRecord
+{
+  repeated kiapi.common.types.KIID path = 1;
+  string project_name = 2;
+  string reference = 3;
+  int32 unit = 4;
+  // Complete local variant records; global variant descriptions are not owned
+  // by these records and must be captured with schematic project settings.
+  SchematicSymbolVariants variants = 5;
+}
+
+message SymbolSheetRecords
+{
+  repeated SymbolSheetRecord records = 1;
 }
 
 // An instance of a symbol placed on a schematic sheet.
@@ -615,7 +841,7 @@ message SchematicSymbolInstance
   PinMapInstanceOverride pin_map_override = 20;
   bool fields_autoplaced = 21;
 
-  // Symbol library name override; empty means use the definition lib id
+  // Screen cache alias; empty means use library_id, or definition.id in legacy messages.
   string lib_name = 22;
 
   SchematicPassthroughMode passthrough = 23;
@@ -624,6 +850,21 @@ message SchematicSymbolInstance
 
   // The variants carried by this instance.
   SchematicSymbolVariants variants = 25;
+
+  // A snapshot includes all persisted placements, not only `path`. On update,
+  // absence preserves existing placements; presence replaces the complete set.
+  // The targeted placement's reference/unit/variants above are then applied.
+  SymbolSheetRecords instance_records = 26;
+  // In this form, a pin without library_pin_id is an owned definition pin
+  // with no persisted placement identity (for example an inactive body style).
+  // Activating it allocates a new placement UUID. False preserves legacy input.
+  bool separate_pin_identities = 27;
+  // Original library link owned by the placement. The cached definition can
+  // carry a different id after local edits. Legacy absence means definition.id.
+  kiapi.common.types.LibraryIdentifier library_id = 28;
+  // Owned LIB_SYMBOL spacing, independent of the placement's SYMBOL base
+  // offset above. Legacy absence retains the decoder's library default.
+  kiapi.common.types.Distance definition_pin_name_offset = 29;
 }
 
 message SheetInstance

@@ -36,6 +36,8 @@
 #include <api/api_enums.h>
 #include <api/api_utils.h>
 #include <api/schematic/schematic_types.pb.h>
+#include <memory>
+#include <set>
 
 SCH_TABLE::SCH_TABLE( int aLineWidth ) :
         SCH_ITEM( nullptr, SCH_TABLE_T ),
@@ -124,11 +126,65 @@ bool SCH_TABLE::Deserialize( const google::protobuf::Any& aContainer )
     if( !aContainer.UnpackTo( &table ) )
         return false;
 
-    kiapi::common::UnpackCustomProperties( table.custom_properties(), *this );
-
-    if( table.column_count() < 1 )
+    if( table.column_count() < 1
+        || table.cells_size() % table.column_count() != 0
+        || table.column_widths_size() != table.column_count()
+        || table.row_heights_size() != table.cells_size() / table.column_count() )
         return false;
 
+    // Decode every cell before replacing live state. Skipping an invalid cell
+    // changes row/column ownership and silently loses persisted schematic data.
+    std::vector<std::unique_ptr<SCH_TABLECELL>> cells;
+    const int rowCount = table.cells_size() / table.column_count();
+    std::set<KIID> identities;
+    auto acceptIdentity = [&]( const std::string& value )
+    {
+        if( !KIID::SniffTest( wxString::FromUTF8( value ) ) )
+            return false;
+        KIID id( value );
+        return id != niluuid && id.AsStdString() == value && identities.insert( id ).second;
+    };
+    if( !acceptIdentity( table.id().value() ) )
+        return false;
+
+    // Each grid slot must belong to exactly one visible cell, including the
+    // anchor itself. Covered slots may carry text but must not paint over it.
+    std::vector<bool> covered( table.cells_size(), false );
+
+    for( int i = 0; i < table.cells_size(); ++i )
+    {
+        const auto& protoCell = table.cells( i );
+        if( !acceptIdentity( protoCell.text_box().id().value() ) )
+            return false;
+        if( protoCell.column_span() < 0 || protoCell.row_span() < 0
+            || protoCell.column_span() > table.column_count() - i % table.column_count()
+            || protoCell.row_span() > rowCount - i / table.column_count() )
+            return false;
+
+        if( protoCell.column_span() > 0 && protoCell.row_span() > 0 )
+        {
+            for( int row = 0; row < protoCell.row_span(); ++row )
+            {
+                for( int col = 0; col < protoCell.column_span(); ++col )
+                {
+                    int slot = i + row * table.column_count() + col;
+                    if( covered[slot] )
+                        return false;
+                    covered[slot] = true;
+                }
+            }
+        }
+
+        auto cell = std::make_unique<SCH_TABLECELL>();
+        if( !cell->Deserialize( protoCell ) )
+            return false;
+        cells.push_back( std::move( cell ) );
+    }
+
+    if( std::find( covered.begin(), covered.end(), false ) != covered.end() )
+        return false;
+
+    kiapi::common::UnpackCustomProperties( table.custom_properties(), *this );
     const_cast<KIID&>( m_Uuid ) = KIID( table.id().value() );
     SetLocked( table.locked() == kiapi::common::types::LockedState::LS_LOCKED );
 
@@ -138,25 +194,13 @@ bool SCH_TABLE::Deserialize( const google::protobuf::Any& aContainer )
 
     SetColCount( table.column_count() );
 
-    for( int i = 0; i < table.column_widths_size() && i < table.column_count(); ++i )
+    for( int i = 0; i < table.column_widths_size(); ++i )
         SetColWidth( i, kiapi::common::UnpackDistance( table.column_widths( i ), schIUScale ) );
 
-    for( const SchematicTableCell& protoCell : table.cells() )
-    {
-        SCH_TABLECELL* cell = new SCH_TABLECELL();
+    for( auto& cell : cells )
+        AddCell( cell.release() );
 
-        if( !cell->Deserialize( protoCell ) )
-        {
-            delete cell;
-            continue;
-        }
-
-        AddCell( cell );
-    }
-
-    int rowCount = m_colCount > 0 ? static_cast<int>( m_cells.size() ) / m_colCount : 0;
-
-    for( int i = 0; i < table.row_heights_size() && i < rowCount; ++i )
+    for( int i = 0; i < table.row_heights_size(); ++i )
         SetRowHeight( i, kiapi::common::UnpackDistance( table.row_heights( i ), schIUScale ) );
 
     m_strokeExternal = table.external_border() == TableStrokeMode::TSM_ENABLED;

@@ -3187,8 +3187,9 @@ void SCH_EDIT_FRAME::EditVariantDescription()
 
     wxString newDesc = descCtrl->GetValue().Trim().Trim( false );
 
-    Schematic().SetVariantDescription( variantName, newDesc );
-    OnModify();
+    SCH_COMMIT commit( this );
+    commit.SetVariantDescription( variantName, newDesc );
+    commit.Push( _( "Edit Variant Description" ) );
     GetCanvas()->Refresh();
 }
 

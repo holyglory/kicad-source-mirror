@@ -25,6 +25,7 @@
 #include <line_ending.h>
 #include <geometry/shape_poly_set.h>
 #include <eda_item.h>
+#include <embedded_files.h>
 #include <kiid.h>
 #include <project.h>
 #include <stroke_params.h>
@@ -108,6 +109,73 @@ KICOMMON_API std::optional<KICAD_T> TypeNameFromAny( const google::protobuf::Any
     wxLogTrace( traceApi, wxString::Format( wxS( "Any message type %s is not known" ),
                                             aMessage.type_url() ) );
 
+    return std::nullopt;
+}
+
+
+void PackEmbeddedFiles( types::EmbeddedFiles& aOutput, const EMBEDDED_FILES& aInput )
+{
+    aOutput.Clear();
+
+    for( const auto& [name, file] : aInput.EmbeddedFileMap() )
+    {
+        auto* packed = aOutput.add_files();
+        packed->set_name( name.ToUTF8() );
+        packed->set_data( file->compressedEncodedData );
+        packed->set_data_hash( file->data_hash );
+        using FileType = EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE;
+
+        switch( file->type )
+        {
+        case FileType::FONT:      packed->set_type( types::EFT_FONT ); break;
+        case FileType::MODEL:     packed->set_type( types::EFT_MODEL ); break;
+        case FileType::WORKSHEET: packed->set_type( types::EFT_WORKSHEET ); break;
+        case FileType::DATASHEET: packed->set_type( types::EFT_DATASHEET ); break;
+        case FileType::OTHER:     packed->set_type( types::EFT_OTHER ); break;
+        }
+    }
+}
+
+
+std::optional<wxString> UnpackEmbeddedFiles( const types::EmbeddedFiles& aInput,
+                                           EMBEDDED_FILES& aOutput )
+{
+    EMBEDDED_FILES candidate;
+    candidate.SetAreFontsEmbedded( aOutput.GetAreFontsEmbedded() );
+
+    for( const auto& packed : aInput.files() )
+    {
+        auto file = std::make_shared<EMBEDDED_FILES::EMBEDDED_FILE>();
+        file->name = wxString::FromUTF8( packed.name() );
+
+        if( packed.name().empty() || packed.name().find( '\0' ) != std::string::npos
+                || file->name == "." || file->name == ".."
+                || file->name.Find( '/' ) != wxNOT_FOUND || file->name.Find( '\\' ) != wxNOT_FOUND
+                || candidate.HasFile( file->name ) )
+            return wxS( "Asset names must be unique nonempty file names" );
+
+        using FileType = EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE;
+
+        switch( packed.type() )
+        {
+        case types::EFT_FONT:      file->type = FileType::FONT; break;
+        case types::EFT_MODEL:     file->type = FileType::MODEL; break;
+        case types::EFT_WORKSHEET: file->type = FileType::WORKSHEET; break;
+        case types::EFT_DATASHEET: file->type = FileType::DATASHEET; break;
+        case types::EFT_OTHER:     file->type = FileType::OTHER; break;
+        default: return wxS( "Unsupported embedded asset type" );
+        }
+
+        file->compressedEncodedData = packed.data();
+        file->data_hash = packed.data_hash();
+
+        if( EMBEDDED_FILES::DecompressAndDecode( *file ) != EMBEDDED_FILES::RETURN_CODE::OK )
+            return wxS( "Embedded asset decoding or checksum validation failed" );
+
+        candidate.AddFile( file );
+    }
+
+    aOutput.SwapData( candidate );
     return std::nullopt;
 }
 

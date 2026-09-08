@@ -29,6 +29,7 @@
 #include "widgets/bitmap_button.h"
 
 #include <advanced_config.h>
+#include <api/api_server.h>
 #include <background_jobs_monitor.h>
 #include <bitmaps.h>
 #include <build_version.h>
@@ -540,8 +541,7 @@ KICAD_SETTINGS* KICAD_MANAGER_FRAME::kicadSettings() const
 
 void KICAD_MANAGER_FRAME::PreloadAllLibraries()
 {
-    CallAfter(
-            [&]()
+    auto preload = [this]()
             {
                 KIFACE *schface = Kiway().KiFACE( KIWAY::FACE_SCH );
                 schface->PreloadLibraries( &Kiway() );
@@ -550,7 +550,15 @@ void KICAD_MANAGER_FRAME::PreloadAllLibraries()
                 pcbface->PreloadLibraries( &Kiway() );
 
                 Pgm().PreloadDesignBlockLibraries( &Kiway() );
-            } );
+            };
+
+    // Automation must discover missing kifaces before advertising readiness.
+    // Let its startup error handler report the failure, not a deferred GUI
+    // exception dialog. Interactive startup retains its deferred behavior.
+    if( Pgm().GetApiServer().IsAutomation() )
+        preload();
+    else
+        CallAfter( preload );
 }
 
 
@@ -933,6 +941,12 @@ bool KICAD_MANAGER_FRAME::LoadProject( const wxFileName& aProjectFileName )
                     lockFile.GetUsername(),
                     lockFile.GetHostname() );
 
+        if( Pgm().GetApiServer().IsAutomation() )
+        {
+            wxLogError( "%s", msg );
+            return false;
+        }
+
         if( !AskOverrideLock( this, msg ) )
             return false;  // User clicked Cancel - abort project loading entirely
 
@@ -955,7 +969,8 @@ bool KICAD_MANAGER_FRAME::LoadProject( const wxFileName& aProjectFileName )
     // current extension. Be very careful with aProjectFileName vs. Prj().GetProjectPath()
     // from here on out.
 
-    Pgm().GetSettingsManager().LoadProject( fullPath );
+    if( !Pgm().GetSettingsManager().LoadProject( fullPath ) )
+        return false;
 
     // Propagate lock override decision to the loaded project
     if( lockOverrideGranted )
@@ -969,6 +984,12 @@ bool KICAD_MANAGER_FRAME::LoadProject( const wxFileName& aProjectFileName )
     if( Pgm().GetCommonSettings()->AutosaveUsesLocalHistory()
             && Kiway().LocalHistory().HeadNewerThanLastSave( Prj().GetProjectPath() ) )
     {
+        if( Pgm().GetApiServer().IsAutomation() )
+        {
+            wxLogError( "Project has unsaved local history; recover it interactively before automation" );
+            return false;
+        }
+
         wxString head = Kiway().LocalHistory().GetHeadHash( Prj().GetProjectPath() );
 
         KICAD_MESSAGE_DIALOG dlg( this, _( "KiCad found unsaved changes from your last session that are newer than "

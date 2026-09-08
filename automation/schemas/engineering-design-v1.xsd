@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:kicad:automation:engineering-design:1"
+           xmlns="urn:kicad:automation:engineering-design:1" elementFormDefault="qualified"
+           xmlns:c="urn:kicad:automation:circuit:1" xmlns:s="urn:kicad:automation:structure:1"
+           xmlns:k="urn:kicad:automation:knowledge:1">
+  <!-- Imports are resolved from embedded schemas only, not repository/network locations. -->
+  <xs:import namespace="urn:kicad:automation:circuit:1"/>
+  <xs:import namespace="urn:kicad:automation:structure:1"/>
+  <xs:import namespace="urn:kicad:automation:knowledge:1"/>
+  <xs:element name="engineering-design"><xs:complexType><xs:sequence>
+    <xs:element ref="c:circuit"/><xs:element ref="s:structure"/>
+    <xs:element name="knowledge-libraries"><xs:complexType><xs:sequence>
+      <xs:element name="library" minOccurs="0" maxOccurs="unbounded"><xs:complexType>
+        <xs:attribute name="id" type="c:identity" use="required"/>
+        <xs:attribute name="path" type="xs:string" use="required"/>
+        <xs:attribute name="revision" type="xs:string" use="required"/>
+      </xs:complexType></xs:element>
+    </xs:sequence></xs:complexType></xs:element>
+    <xs:element name="component-bindings"><xs:complexType><xs:sequence>
+      <xs:element ref="k:component-binding" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence></xs:complexType></xs:element>
+  </xs:sequence><xs:attribute name="version" type="xs:positiveInteger" use="required" fixed="1"/>
+  </xs:complexType></xs:element>
+</xs:schema>

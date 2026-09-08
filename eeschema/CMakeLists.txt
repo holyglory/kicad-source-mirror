@@ -502,7 +502,9 @@ set( EESCHEMA_SRCS
 
     api/api_sch_enums.cpp
     api/api_sch_utils.cpp
+    api/api_sch_symbol_definition.cpp
     api/api_handler_sch.cpp
+    api/api_handler_sch_render.cpp
     api/headless_sch_context.cpp
     api/sch_api_save.cpp
     api/sch_context.cpp

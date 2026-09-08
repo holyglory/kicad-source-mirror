@@ -52,6 +52,7 @@ protected:
     TITLE_BLOCK m_titleBlock;
     PAGE_INFO   m_pageInfo;
     wxString    m_layoutSerialization;
+    wxString    m_drawingSheetFileName;
     int         m_selectedDataItem;
     int         m_selectedDrawItem;
 };

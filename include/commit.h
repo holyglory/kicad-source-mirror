@@ -131,7 +131,7 @@ public:
     /// Revert the commit by restoring the modified items state.
     virtual void Revert() = 0;
 
-    bool Empty() const
+    virtual bool Empty() const
     {
         return m_entries.empty();
     }
@@ -182,4 +182,3 @@ protected:
     std::set<std::pair<EDA_ITEM*, BASE_SCREEN*>> m_deletedItems;
     std::vector<COMMIT_LINE>                     m_entries;
 };
-

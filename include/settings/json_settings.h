@@ -135,6 +135,11 @@ public:
      */
     virtual bool Store();
 
+    /** Capture registered live values and nested settings without changing stores, dirty
+     * flags, parent objects or files. Unlike Store(), serialization errors propagate.
+     */
+    nlohmann::json CaptureCurrentState() const;
+
     /**
      * Loads the backing file from disk and then calls Load()
      * @param aDirectory is the path to the file

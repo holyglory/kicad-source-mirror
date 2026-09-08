@@ -212,6 +212,9 @@ public:
 
     const BOX2I GetBoundingBox() const override;
 
+    /** Measure a specific sheet instance, without using the displayed-instance text cache. */
+    BOX2I GetBoundingBox( const SCH_SHEET_PATH* aPath, const wxString& aVariant ) const;
+
     /**
      * Return whether the field will be rendered with the horizontal justification
      * inverted due to rotation or mirroring of the parent.
@@ -361,6 +364,8 @@ protected:
                                const wxString& aVariantName = wxEmptyString ) const;
 
 private:
+    BOX2I transformTextBox( BOX2I aBox ) const;
+
     FIELD_T  m_id;               ///< Field id, @see enum FIELD_T
     int      m_ordinal;          ///< Sort order for non-mandatory fields
     wxString m_name;

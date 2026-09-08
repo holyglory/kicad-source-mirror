@@ -33,6 +33,7 @@
 #include <vector>
 
 class DS_DATA_ITEM;
+class DS_DATA_MODEL;
 class TITLE_BLOCK;
 class PAGE_INFO;
 class EDA_ITEM;
@@ -552,7 +553,8 @@ public:
      * @param aColor The color for drawing.
      * @param aAltColor The color for items which need to be "highlighted".
      */
-    void BuildDrawItemsList( const PAGE_INFO& aPageInfo, const TITLE_BLOCK& aTitleBlock );
+    void BuildDrawItemsList( const PAGE_INFO& aPageInfo, const TITLE_BLOCK& aTitleBlock,
+                            DS_DATA_MODEL* aModel = nullptr );
 
     static void GetTextVars( wxArrayString* aVars );
 

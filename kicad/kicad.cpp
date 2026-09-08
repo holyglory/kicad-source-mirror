@@ -32,6 +32,7 @@
 #include <wx/cmdline.h>
 
 #include <api/api_server.h>
+#include <api/common/commands/editor_commands.pb.h>
 #include <common.h>
 #include <env_vars.h>
 #include <file_history.h>
@@ -118,6 +119,12 @@ bool PGM_KICAD::OnPgmInit()
         { wxCMD_LINE_OPTION, "f", "frame", "Frame to load", wxCMD_LINE_VAL_STRING, 0 },
         { wxCMD_LINE_SWITCH, "n", "new", "New instance of KiCad, does not attempt to load previously open files",
           wxCMD_LINE_VAL_NONE, 0 },
+        { wxCMD_LINE_OPTION, nullptr, "automation", "Automation instance UUID (requires an explicit project and API socket)",
+          wxCMD_LINE_VAL_STRING, 0 },
+        { wxCMD_LINE_OPTION, nullptr, "api-socket", "Explicit native automation IPC socket path",
+          wxCMD_LINE_VAL_STRING, 0 },
+        { wxCMD_LINE_OPTION, nullptr, "automation-log", "Native automation diagnostic log",
+          wxCMD_LINE_VAL_STRING, 0 },
         { wxCMD_LINE_SWITCH, nullptr, "mergetool",
           "Launch the 3-way merge tool. Expects four positional args: "
           "ANCESTOR OURS THEIRS MERGED. Intended as a `git mergetool` driver.",
@@ -134,6 +141,50 @@ bool PGM_KICAD::OnPgmInit()
     wxCmdLineParser parser( App().argc, App().argv );
     parser.SetDesc( desc );
     parser.Parse( false );
+
+    wxString automationId;
+    wxString automationSocket;
+    wxString automationLog;
+    wxString automationProject;
+    const bool automationMode = parser.Found( "automation", &automationId );
+
+    if( automationMode )
+    {
+        if( automationId.IsEmpty() || !parser.Found( "api-socket", &automationSocket )
+                || automationSocket.IsEmpty() || parser.GetParamCount() != 1
+                || parser.FoundSwitch( "mergetool" ) || parser.Found( "frame" ) )
+        {
+            wxFprintf( stderr, "Automation requires an instance ID, API socket and one .kicad_pro project\n" );
+            return false;
+        }
+
+        wxFileName project( parser.GetParam( 0 ) );
+        project.MakeAbsolute();
+
+        if( !project.FileExists() || project.GetExt() != FILEEXT::ProjectFileExtension
+                || !wxFileName( automationSocket ).IsAbsolute() )
+        {
+            wxFprintf( stderr, "Automation requires an existing .kicad_pro and an absolute socket path\n" );
+            return false;
+        }
+
+        automationProject = project.GetFullPath();
+
+        if( parser.Found( "automation-log", &automationLog ) )
+        {
+            // Keep diagnostic descriptors owned by KiCad rather than the MCP
+            // process, so disconnecting MCP never breaks a dirty editor's IO.
+            if( !wxFreopen( automationLog, "a", stdout ) || !wxFreopen( automationLog, "a", stderr ) )
+                return false;
+        }
+
+        delete wxLog::SetActiveTarget( new wxLogStderr() );
+    }
+    else if( parser.Found( "api-socket" ) || parser.Found( "automation-log" ) )
+    {
+        wxFprintf( stderr, "--api-socket and --automation-log require --automation\n" );
+        return false;
+    }
 
     bool mergetoolMode = parser.FoundSwitch( "mergetool" ) == wxCMD_SWITCH_ON;
 
@@ -275,7 +326,18 @@ bool PGM_KICAD::OnPgmInit()
     // contending for the singleton IPC socket.
     if( appType != FRAME_MERGETOOL )
     {
-        m_api_server = std::make_unique<KICAD_API_SERVER>();
+        m_api_server = std::make_unique<KICAD_API_SERVER>( !automationMode );
+
+        if( automationMode )
+        {
+            m_api_server->ConfigureAutomation( automationId.ToStdString(), automationProject.ToStdString() );
+            m_api_server->SetSocketPath( automationSocket );
+            m_api_server->Start();
+
+            if( !m_api_server->Running() )
+                return false;
+        }
+
         m_api_common_handler = std::make_unique<API_HANDLER_COMMON>();
         m_api_server->RegisterHandler( m_api_common_handler.get() );
     }
@@ -293,8 +355,11 @@ bool PGM_KICAD::OnPgmInit()
                                                 wxWindow::FromDIP( wxSize( 775, -1 ), NULL ) );
         frame = managerFrame;
 
-        STARTWIZARD startWizard;
-        startWizard.CheckAndRun( frame );
+        if( !automationMode )
+        {
+            STARTWIZARD startWizard;
+            startWizard.CheckAndRun( frame );
+        }
     }
     else
     {
@@ -424,8 +489,27 @@ bool PGM_KICAD::OnPgmInit()
                 fn.MakeAbsolute();
 
                 if( appType == KICAD_MAIN_FRAME_T )
-                    loaded = managerFrame->LoadProject( fn );
+                {
+                    try
+                    {
+                        loaded = managerFrame->LoadProject( fn );
+                    }
+                    catch( const IO_ERROR& error )
+                    {
+                        if( !automationMode )
+                            throw;
+
+                        wxLogError( "Automation startup failed: %s", error.What() );
+                        return false;
+                    }
+                }
             }
+        }
+
+        if( !loaded && automationMode )
+        {
+            wxLogError( "Automation project could not be loaded: %s", automationProject );
+            return false;
         }
 
         if( !loaded && appType == KICAD_MAIN_FRAME_T )
@@ -466,7 +550,104 @@ bool PGM_KICAD::OnPgmInit()
     }
 
     if( m_api_server )
+    {
+        if( automationMode && managerFrame )
+        {
+            m_api_common_handler->SetOpenDocumentHandler(
+                    [this, managerFrame]( const kiapi::common::commands::OpenDocument& request )
+                            -> HANDLER_RESULT<kiapi::common::commands::OpenDocumentResponse>
+                    {
+                        using namespace kiapi::common;
+                        auto fail = []( ApiStatusCode code, const std::string& message )
+                                -> HANDLER_RESULT<commands::OpenDocumentResponse>
+                        {
+                            ApiResponseStatus status;
+                            status.set_status( code );
+                            status.set_error_message( message );
+                            return tl::unexpected( status );
+                        };
+
+                        if( request.type() != types::DOCTYPE_SCHEMATIC )
+                            return fail( AS_UNIMPLEMENTED, "This graphical open operation currently supports schematic documents" );
+
+                        wxFileName requested( wxString::FromUTF8( request.path() ) );
+                        wxFileName expected( managerFrame->SchFileName() );
+                        requested.Normalize( wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE );
+                        expected.Normalize( wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE );
+
+                        // The current editor loader switches projects for other
+                        // basenames. Refuse that path until explicit multi-root
+                        // project ownership is integrated, never switch silently.
+                        if( !wxFileName( wxString::FromUTF8( request.path() ) ).IsAbsolute()
+                                || requested != expected
+                                || ( !requested.FileExists() && !request.create_if_missing() ) )
+                            return fail( AS_BAD_REQUEST, "An absolute root schematic path for this project is required; missing files require explicit creation" );
+
+                        KIWAY_PLAYER* player = Kiway.Player( FRAME_SCH, false );
+
+                        if( player && player->IsModal() )
+                            return fail( AS_BUSY, "The schematic editor has an active modal operation" );
+
+                        if( player && player->GetCurrentFileName().IsEmpty() )
+                            return fail( AS_BUSY, "Close the untitled schematic explicitly before opening another" );
+
+                        if( player && !player->GetCurrentFileName().IsEmpty()
+                                && wxFileName( player->GetCurrentFileName() ) != requested )
+                            return fail( AS_BUSY, "Close the existing document explicitly before opening another" );
+
+                        bool created = player == nullptr;
+
+                        try
+                        {
+                            if( !player )
+                                player = Kiway.Player( FRAME_SCH, true );
+
+                            if( !player )
+                                return fail( AS_NOT_READY, "The schematic editor could not be created" );
+
+                            int controls = KICTL_KICAD_ONLY;
+                            if( request.create_if_missing() )
+                                controls |= KICTL_CREATE;
+
+                            if( created && !player->OpenProjectFiles( { requested.GetFullPath() }, controls ) )
+                            {
+                                player->Destroy();
+                                return fail( AS_BAD_REQUEST, "Schematic load failed; inspect native diagnostics" );
+                            }
+
+                            player->Show( true );
+                            player->Raise();
+                        }
+                        catch( const IO_ERROR& error )
+                        {
+                            if( created && player )
+                                player->Destroy();
+
+                            return fail( AS_BAD_REQUEST, error.What().ToStdString() );
+                        }
+
+                        commands::GetOpenDocuments query;
+                        query.set_type( types::DOCTYPE_SCHEMATIC );
+                        ApiRequest envelope;
+                        envelope.mutable_message()->PackFrom( query );
+                        API_RESULT result = m_api_server->DispatchToHandlers( envelope );
+
+                        if( !result )
+                            return tl::unexpected( result.error() );
+
+                        commands::GetOpenDocumentsResponse documents;
+
+                        if( !result->message().UnpackTo( &documents ) || documents.documents_size() != 1 )
+                            return fail( AS_NOT_READY, "The editor did not identify the opened schematic" );
+
+                        commands::OpenDocumentResponse response;
+                        response.mutable_document()->CopyFrom( documents.documents( 0 ) );
+                        return response;
+                    } );
+        }
+
         m_api_server->SetReadyToReply();
+    }
 
     return true;
 }

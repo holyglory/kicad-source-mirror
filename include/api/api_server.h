@@ -22,6 +22,7 @@
 #define KICAD_API_SERVER_H
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <set>
 #include <string>
@@ -30,10 +31,13 @@
 #include <wx/filename.h>
 
 #include <kicommon.h>
+#include <api/api_handler.h>
 
 class API_HANDLER;
 class KINNG_REQUEST_SERVER;
+class KINNG_PUBLISHER;
 class wxEvtHandler;
+namespace kiapi::automation::v1 { class SchematicCommitNotification; }
 
 
 wxDECLARE_EVENT( API_REQUEST_EVENT, wxCommandEvent );
@@ -66,6 +70,11 @@ public:
 
     void DeregisterHandler( API_HANDLER* aHandler );
 
+    // UI-thread-only dispatch for native operations that need a typed editor
+    // result after creating its window. Does not send an IPC reply or bypass
+    // handler document validation.
+    API_RESULT DispatchToHandlers( ApiRequest& aRequest );
+
     void SetReadyToReply( bool aReady = true )
     {
         m_readyToReply.store( aReady, std::memory_order_release );
@@ -79,6 +88,17 @@ public:
     std::string SocketPath() const;
 
     const std::string& Token() const { return m_token; }
+
+    void ConfigureAutomation( const std::string& aInstanceId, const std::string& aProjectPath )
+    {
+        m_automationInstanceId = aInstanceId;
+        m_automationProjectPath = aProjectPath;
+    }
+
+    bool IsAutomation() const { return !m_automationInstanceId.empty(); }
+
+    // Editor-thread only, after the native journal has accepted the commit.
+    void PublishSchematicCommit( const kiapi::automation::v1::SchematicCommitNotification& aCommit );
 
     /**
      * Return the default API socket path (without the ipc:// scheme).
@@ -112,10 +132,16 @@ private:
     void log( const std::string& aOutput );
 
     std::unique_ptr<KINNG_REQUEST_SERVER> m_server;
+    std::unique_ptr<KINNG_PUBLISHER> m_eventPublisher;
+    std::string m_eventEndpoint;
+    std::string m_eventEpoch;
+    uint64_t m_eventSequence = 0;
 
     std::set<API_HANDLER*> m_handlers;
 
     std::string m_token;
+    std::string m_automationInstanceId;
+    std::string m_automationProjectPath;
 
     std::atomic<bool> m_readyToReply;
 

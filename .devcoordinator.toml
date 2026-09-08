@@ -1,0 +1,251 @@
+schema = 2
+
+[test]
+default = "automation"
+
+# Explicit dependency-lock maintenance, not verification/readiness evidence.
+[test.package-lock-refresh]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.package-lock-refresh.check]]
+name = "runtime-locks"
+tier = "development"
+command = ["dotnet", "restore", "automation/KiCad.Automation.slnx", "--force-evaluate"]
+
+[test.download-service]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.download-service.check]]
+name = "restore"
+tier = "development"
+role = "preflight"
+invalidates = ["build", "http"]
+command = ["dotnet", "restore", "automation/KiCad.Automation.slnx", "--locked-mode"]
+
+[[test.download-service.check]]
+name = "build"
+tier = "development"
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.download-service.check]]
+name = "http"
+tier = "development"
+requires = ["build"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~DownloadServerTests|FullyQualifiedName~LinuxPackageTests", "--logger", "trx", "--results-directory", "automation/artifacts/download-tests"]
+retained_artifacts = [{ name = "download-tests", path = "automation/artifacts/download-tests", max_bytes = 16777216 }]
+
+# Delivery recovery: stage the complete native application and self-contained
+# MCP in a private install root. This graph does not publish or qualify updates.
+[test.linux-package-stage]
+timeout_seconds = 14400
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.linux-package-stage.check]]
+name = "managed-build"
+tier = "development"
+role = "preflight"
+invalidates = ["package-contracts", "managed-publish", "native-runtime", "stage"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.linux-package-stage.check]]
+name = "package-contracts"
+tier = "development"
+role = "preflight"
+invalidates = ["managed-publish", "native-runtime", "stage"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~LinuxStagingTests|FullyQualifiedName~LinuxPackageTests|FullyQualifiedName~ValidationEvidenceTests", "--logger", "trx", "--results-directory", "automation/artifacts/package-tests"]
+retained_artifacts = [{ name = "package-tests", path = "automation/artifacts/package-tests", max_bytes = 16777216 }]
+
+[[test.linux-package-stage.check]]
+name = "managed-publish"
+tier = "development"
+command = ["dotnet", "publish", "automation/src/KiCad.Automation.Mcp/KiCad.Automation.Mcp.csproj", "--configuration", "Debug", "--runtime", "linux-x64", "--self-contained", "true", "-p:RestoreLockedMode=true", "--output", "automation/artifacts/linux-x64-mcp"]
+
+[[test.linux-package-stage.check]]
+name = "native-runtime"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "kicad-cli", "eeschema", "pcbnew", "gerbview", "pl_editor", "pcb_calculator", "bitmap2component", "cvpcb_kiface", "s3d_plugin_idf", "s3d_plugin_oce", "s3d_plugin_vrml", "dxf2idf", "idf2vrml", "idfcyl", "idfrect", "api_schema_build_copy", "bitmap_archive_build"]
+
+[[test.linux-package-stage.check]]
+name = "stage"
+tier = "development"
+requires = ["managed-publish", "native-runtime"]
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-linux", "--build", "/home/holyglory/kicad/automation/artifacts/native", "--managed", "/home/holyglory/kicad/automation/artifacts/linux-x64-mcp", "--nng", "/usr/lib/x86_64-linux-gnu/libnng.so", "--output", "/home/holyglory/kicad/automation/artifacts/distribution"]
+
+[[test.linux-package-stage.check]]
+name = "installed-journey"
+tier = "development"
+requires = ["stage"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativePackage", "--logger", "trx", "--results-directory", "automation/artifacts/package-native-tests"]
+retained_artifacts = [{ name = "package-native-tests", path = "automation/artifacts/package-native-tests", max_bytes = 16777216 }, { name = "package-native-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
+
+[[test.linux-package-stage.check]]
+name = "archives"
+tier = "pre-merge"
+requires = ["installed-journey"]
+command = ["bash", "-lc", 'kicad_package_commit=$(git rev-parse HEAD); kicad_package_stamp=$(date -u +%Y%m%dT%H%M%SZ); exec dotnet automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll package-linux --staging /home/holyglory/kicad/automation/artifacts/distribution/current-staging.json --repository /home/holyglory/kicad --commit "$kicad_package_commit" --version "preview-$kicad_package_stamp-${kicad_package_commit:0:12}" --output "/mnt/build-storage/codex/kicad/public-candidates/$kicad_package_stamp-${kicad_package_commit:0:12}"']
+
+# Focused managed/event contract checks, including the compiled STDIO server.
+# No native editor proof is claimed by this graph.
+[test.event-contract]
+timeout_seconds = 300
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.event-contract.check]]
+name = "restore"
+tier = "development"
+role = "preflight"
+invalidates = ["build", "contracts"]
+command = ["dotnet", "restore", "automation/KiCad.Automation.slnx", "--locked-mode"]
+
+[[test.event-contract.check]]
+name = "build"
+tier = "development"
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.event-contract.check]]
+name = "contracts"
+tier = "development"
+requires = ["build"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NativeEventCursorTests|FullyQualifiedName~NativeEventToolContractTests|FullyQualifiedName~McpProcessTests|FullyQualifiedName~DesignFileSubscriptionTests", "--logger", "trx", "--results-directory", "automation/artifacts/event-contract-results"]
+retained_artifacts = [{ name = "event-contract-results", path = "automation/artifacts/event-contract-results", max_bytes = 16777216 }]
+
+# Focused engineering model persistence and cross-reference contracts.
+[test.engineering-model]
+timeout_seconds = 3600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.engineering-model.check]]
+name = "restore"
+tier = "development"
+role = "preflight"
+invalidates = ["build", "contracts"]
+command = ["dotnet", "restore", "automation/KiCad.Automation.slnx", "--locked-mode"]
+
+[[test.engineering-model.check]]
+name = "build"
+tier = "development"
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.engineering-model.check]]
+name = "contracts"
+tier = "development"
+requires = ["build"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~SchematicHierarchyMergeTests|FullyQualifiedName~SchematicHierarchyDeltaTests|FullyQualifiedName~SchematicItemMergeTests|FullyQualifiedName~DesignRecoveryInspectorTests|FullyQualifiedName~DesignRecoveryStoreTests|FullyQualifiedName~DesignRecoveryFileObserverTests|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~SchematicSyncStoreTests|FullyQualifiedName~SchematicPlacementPlanTests|FullyQualifiedName~SchematicModelProjectionTests|FullyQualifiedName~SchematicDesignTests|FullyQualifiedName~SchematicHierarchyTopologyTests|FullyQualifiedName~EngineeringDesignXmlTests|FullyQualifiedName~StructuralDiagram|FullyQualifiedName~CircuitXmlTests|FullyQualifiedName~ComponentGuidanceTests|FullyQualifiedName~HardwareRepositoryXmlTests|FullyQualifiedName~EngineeringDesignToolTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/engineering-model-results"]
+retained_artifacts = [{ name = "engineering-model-results", path = "automation/artifacts/engineering-model-results", max_bytes = 16777216 }]
+
+[test.automation]
+timeout_seconds = 1200
+env = { DOTNET_CLI_TELEMETRY_OPTOUT = "1", DOTNET_NOLOGO = "1", TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.automation.check]]
+name = "restore"
+tier = "development"
+role = "preflight"
+invalidates = ["build", "unit"]
+cwd = "automation"
+command = ["dotnet", "restore", "KiCad.Automation.slnx", "--locked-mode"]
+
+[[test.automation.check]]
+name = "build"
+tier = "development"
+cwd = "automation"
+command = ["dotnet", "build", "KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.automation.check]]
+name = "unit"
+tier = "development"
+cwd = "automation"
+command = ["dotnet", "test", "KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory!=NativeSession&TestCategory!=NativeDocuments", "--logger", "trx", "--results-directory", "artifacts/tests"]
+requires = ["build"]
+retained_artifacts = [{ name = "dotnet-test-results", path = "automation/artifacts/tests", max_bytes = 16777216 }]
+
+# Independent checks share one governed run; starting a second run in the same
+# worktree supersedes the first one.
+[[test.automation.check]]
+name = "source-documents"
+tier = "development"
+cwd = "automation"
+requires = ["build"]
+command = ["dotnet", "test", "KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeDocuments", "--logger", "trx", "--results-directory", "artifacts/source-document-tests"]
+retained_artifacts = [{ name = "source-document-results", path = "automation/artifacts/source-document-tests", max_bytes = 16777216 }]
+
+[[test.automation.check]]
+name = "native-configure"
+tier = "development"
+role = "preflight"
+invalidates = ["native-objects"]
+command = ["cmake", "-S", ".", "-B", "automation/artifacts/native", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug", "-DKICAD_USE_CMAKE_FINDPROTOBUF=ON", "-DKICAD_BUILD_QA_TESTS=ON"]
+
+[[test.automation.check]]
+name = "native-objects"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kiapi", "common/CMakeFiles/kicommon.dir/api/api_server.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad_manager_frame.cpp.o"]
+
+[test.native-foundation]
+timeout_seconds = 3600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.native-foundation.check]]
+name = "managed-build"
+tier = "development"
+role = "preflight"
+invalidates = ["native-build", "native-session"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.native-foundation.check]]
+name = "configure"
+tier = "development"
+role = "preflight"
+invalidates = ["native-build"]
+command = ["cmake", "-S", ".", "-B", "automation/artifacts/native", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug", "-DKICAD_USE_CMAKE_FINDPROTOBUF=ON", "-DKICAD_BUILD_QA_TESTS=ON"]
+
+[[test.native-foundation.check]]
+name = "event-model"
+tier = "development"
+role = "preflight"
+requires = ["managed-build"]
+invalidates = ["native-build", "native-session"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NativeEventCursorTests|FullyQualifiedName~NativeEventToolContractTests|FullyQualifiedName~McpProcessTests|FullyQualifiedName~ConnectedMoveToolTests", "--logger", "trx", "--results-directory", "automation/artifacts/event-model-results"]
+
+[[test.native-foundation.check]]
+name = "field-fidelity-model"
+tier = "development"
+role = "preflight"
+requires = ["managed-build"]
+invalidates = ["native-build", "native-session"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~SchematicHierarchyMergeTests|FullyQualifiedName~SchematicFieldTextModeTests|FullyQualifiedName~SchematicItemDeltaTests|FullyQualifiedName~SchematicLibraryIdentityTests|FullyQualifiedName~SchematicFormattingTests|FullyQualifiedName~SchematicHierarchyDeltaTests|FullyQualifiedName~SchematicItemMergeTests|FullyQualifiedName~SchematicSyncStoreTests|FullyQualifiedName~SchematicGroupGraphTests|FullyQualifiedName~SchematicDrawingRatiosTests", "--logger", "trx", "--results-directory", "automation/artifacts/field-fidelity-results"]
+
+[[test.native-foundation.check]]
+name = "recovery-model"
+tier = "development"
+role = "preflight"
+requires = ["managed-build"]
+invalidates = ["native-build", "native-session"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~DesignRecoveryInspectorTests|FullyQualifiedName~DesignRecoveryStoreTests|FullyQualifiedName~DesignRecoveryFileObserverTests|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~NativeClientTests", "--logger", "trx", "--results-directory", "automation/artifacts/recovery-model-results"]
+retained_artifacts = [{ name = "recovery-model-results", path = "automation/artifacts/recovery-model-results", max_bytes = 16777216 }]
+
+[[test.native-foundation.check]]
+name = "native-build"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "kicad-cli", "eeschema_kiface", "pcbnew_kiface", "api_schema_build_copy", "bitmap_archive_build", "qa_document_change_journal", "qa_symbol_graphic_identity"]
+
+[[test.native-foundation.check]]
+name = "native-journal"
+tier = "development"
+requires = ["native-build"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_document_change_journal$", "--output-on-failure", "--no-tests=error"]
+
+[[test.native-foundation.check]]
+name = "native-symbol-identity"
+tier = "development"
+requires = ["native-build"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_symbol_graphic_identity$", "--output-on-failure", "--no-tests=error"]
+
+[[test.native-foundation.check]]
+name = "native-session"
+tier = "development"
+requires = ["native-build"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSession&TestCategory!=NativePackage", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
+retained_artifacts = [{ name = "native-session-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]

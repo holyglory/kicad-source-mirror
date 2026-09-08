@@ -53,7 +53,8 @@ public:
     void DeleteSymbol( const wxString& aName ) override;
 
     static void SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMATTER& aFormatter,
-                            const wxString& aLibName = wxEmptyString, bool aIncludeData = true );
+                            const wxString& aLibName = wxEmptyString, bool aIncludeData = true,
+                            bool aPreserveCacheDefinitionId = false );
 
     void SetFileFormatVersionAtLoad( int aVersion ) { m_fileFormatVersionAtLoad = aVersion; }
     int GetFileFormatVersionAtLoad()  const { return m_fileFormatVersionAtLoad; }

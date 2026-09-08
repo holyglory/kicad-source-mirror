@@ -85,6 +85,10 @@ public:
      */
     int AlignToGrid( const TOOL_EVENT& aEvent );
 
+    // Apply one finite drag to an explicit selection. The caller owns the
+    // commit, rollback and restoration of the user's original selection.
+    bool DragSelectionBy( SCH_COMMIT* aCommit, const VECTOR2I& aDelta, wxString& aError );
+
 private:
     bool doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aCommit );
 
@@ -127,7 +131,12 @@ private:
                                  bool& aHasGraphicItems, bool& aHasNonGraphicItems,
                                  bool& aIsGraphicsOnly );
 
-    ///< Initialize the move/drag operation, setting up flags and connections
+    ///< Prepare connected items and their undo records without setting up the cursor.
+    void prepareMoveItems( SCH_SELECTION& aSelection, SCH_COMMIT* aCommit,
+                           std::vector<DANGLING_END_ITEM>& aInternalPoints,
+                           GRID_HELPER_GRIDS& aSnapLayer, const EE_GRID_HELPER& aGrid );
+
+    ///< Initialize the interactive move/drag operation, including its cursor state.
     void initializeMoveOperation( const TOOL_EVENT& aEvent, SCH_SELECTION& aSelection, SCH_COMMIT* aCommit,
                                   std::vector<DANGLING_END_ITEM>& aInternalPoints, GRID_HELPER_GRIDS& aSnapLayer );
 
@@ -169,7 +178,8 @@ private:
 
     ///< Finalize the move operation, updating junctions and cleaning up
     void finalizeMoveOperation( SCH_SELECTION& aSelection, SCH_COMMIT* aCommit, bool aUnselect,
-                                const std::vector<DANGLING_END_ITEM>& aInternalPoints );
+                               const std::vector<DANGLING_END_ITEM>& aInternalPoints,
+                               bool aInteractive = true );
 
 private:
     ///< Re-entrancy guard

@@ -1,0 +1,226 @@
+/* Schematic-wide page-settings undo. GPL-3.0-or-later. */
+#ifndef SCH_PAGE_SETTINGS_UNDO_H
+#define SCH_PAGE_SETTINGS_UNDO_H
+
+#include <drawing_sheet/ds_proxy_undo_item.h>
+#include <sch_edit_frame.h>
+#include <sch_screen.h>
+#include <schematic.h>
+#include <richio.h>
+#include <bus_alias.h>
+#include <kiway.h>
+#include <schematic_text_var_adapter.h>
+#include <text_var_dependency.h>
+#include <map>
+#include <optional>
+#include <connection_graph.h>
+#include <sch_painter.h>
+#include <api/api_sch_formatting.h>
+
+// A page dialog can export settings to several screens. Keep the native
+// worksheet snapshot plus each screen's exact identity and page/title state;
+// repeated sheet instances share one screen and therefore one snapshot.
+class SCH_PAGE_SETTINGS_UNDO_ITEM : public DS_PROXY_UNDO_ITEM
+{
+public:
+    explicit SCH_PAGE_SETTINGS_UNDO_ITEM( SCH_EDIT_FRAME* aFrame ) : DS_PROXY_UNDO_ITEM( aFrame )
+    {
+        m_textVariables = aFrame->Prj().GetTextVars();
+        m_variantDescriptions = aFrame->Schematic().Settings().m_VariantDescriptions;
+        m_variantNames = aFrame->Schematic().GetVariantNames();
+        m_drawingRatios = aFrame->Schematic().Settings().DrawingRatios();
+        m_formatting = SCH_FORMATTING::Capture( aFrame->Schematic().Settings() );
+        m_currentVariant = aFrame->Schematic().GetCurrentVariant();
+        m_netChains = aFrame->Schematic().ConnectionGraph()->GetNetChainDefinitions();
+        for( const auto& alias : aFrame->Schematic().GetAllBusAliases() )
+            m_busAliases.push_back( alias->Clone() );
+        for( const SCH_SHEET_PATH& path : aFrame->Schematic().Hierarchy() )
+        {
+            SCH_SCREEN* screen = path.LastScreen();
+            if( screen )
+                m_screens.emplace( screen->GetUuid(), STATE{ screen->GetPageSettings(), screen->GetTitleBlock(),
+                                                           screen->IsContentModified() } );
+            SCH_SHEET* sheet = path.Last();
+            if( sheet )
+                m_roots.emplace( sheet->m_Uuid, sheet->HasRootInstance()
+                        ? std::optional<SCH_SHEET_INSTANCE>( sheet->GetRootInstance() ) : std::nullopt );
+        }
+    }
+
+    void RestoreAll( SCH_EDIT_FRAME* aFrame, bool aRestoreDirtyState = false )
+    {
+        DS_PROXY_UNDO_ITEM::Restore( aFrame );
+        aFrame->Schematic().Settings().m_SchDrawingSheetFileName = BASE_SCREEN::m_DrawingSheetFileName;
+        if( !BusAliasesMatch( aFrame->Schematic() ) )
+            aFrame->Schematic().SetBusAliases( m_busAliases );
+        if( !TextVariablesMatch( aFrame ) )
+            ApplyTextVariables( aFrame, m_textVariables );
+        if( m_restoreVariantRegistry )
+        {
+            aFrame->Schematic().RestoreVariantRegistry( m_variantNames, m_variantDescriptions );
+            aFrame->UpdateVariantSelectionCtrl( aFrame->Schematic().GetVariantNamesForUI() );
+            aFrame->SetCurrentVariant( m_currentVariant );
+        }
+        else if( m_restoreVariantDescriptions )
+            ApplyVariantDescriptions( aFrame, m_variantDescriptions );
+        if( m_restoreNetChains )
+            aFrame->Schematic().ConnectionGraph()->SetNetChainDefinitions( m_netChains );
+        if( m_restoreDrawingRatios )
+            ApplyDrawingRatios( aFrame, m_drawingRatios );
+        if( m_restoreFormatting )
+            ApplyFormatting( aFrame, m_formatting );
+        for( const SCH_SHEET_PATH& path : aFrame->Schematic().Hierarchy() )
+        {
+            SCH_SCREEN* screen = path.LastScreen();
+            auto saved = screen ? m_screens.find( screen->GetUuid() ) : m_screens.end();
+            if( saved == m_screens.end() )
+                continue;
+
+            const STATE& state = saved->second;
+            SCH_SHEET* sheet = path.Last();
+            auto root = sheet ? m_roots.find( sheet->m_Uuid ) : m_roots.end();
+            if( root != m_roots.end()
+                    && ( sheet->HasRootInstance() != root->second.has_value()
+                         || ( root->second && sheet->HasRootInstance()
+                              && sheet->GetRootInstance().m_PageNumber != root->second->m_PageNumber ) ) )
+            {
+                sheet->RemoveInstance( KIID_PATH{} );
+                if( root->second )
+                    sheet->AddInstance( *root->second );
+                screen->SetContentModified();
+            }
+            if( Serialize( screen->GetPageSettings(), screen->GetTitleBlock() )
+                    != Serialize( state.page, state.title ) )
+            {
+                screen->SetPageSettings( state.page );
+                screen->SetTitleBlock( state.title );
+                screen->SetContentModified();
+            }
+            if( aRestoreDirtyState )
+                screen->SetContentModified( state.modified );
+        }
+    }
+
+    bool BusAliasesMatch( const SCHEMATIC& aSchematic ) const
+    {
+        if( !m_restoreBusAliases )
+            return true;
+        const auto& aliases = aSchematic.GetAllBusAliases();
+        return aliases.size() == m_busAliases.size() && std::equal( aliases.begin(), aliases.end(), m_busAliases.begin(),
+                []( const auto& a, const auto& b ) { return a->GetName() == b->GetName() && a->Members() == b->Members(); } );
+    }
+
+    void IncludeBusAliases() { m_restoreBusAliases = true; }
+    void IncludeTextVariables() { m_restoreTextVariables = true; }
+    void IncludeVariantDescriptions() { m_restoreVariantDescriptions = true; }
+    void IncludeVariantRegistry() { m_restoreVariantRegistry = true; }
+    void IncludeNetChains() { m_restoreNetChains = true; }
+    void IncludeDrawingRatios() { m_restoreDrawingRatios = true; }
+    void IncludeFormatting() { m_restoreFormatting = true; }
+    static void ApplyFormatting( SCH_EDIT_FRAME* aFrame, const SCH_FORMATTING::MESSAGE& aValue )
+    {
+        const bool operatingChanged = SCH_FORMATTING::Capture( aFrame->Schematic().Settings() )
+                                              .operating_point().SerializeAsString()
+                                      != aValue.operating_point().SerializeAsString();
+        SCH_FORMATTING::Restore( aFrame->Schematic().Settings(), aValue );
+        aFrame->Schematic().RecomputeIntersheetRefs( false );
+        aFrame->GetCanvas()->GetView()->SetLayerVisible( LAYER_INTERSHEET_REFS,
+                                                        aValue.show_intersheet_references() );
+        auto* render = aFrame->GetRenderSettings();
+        const auto& settings = aFrame->Schematic().Settings();
+        render->SetDefaultPenWidth( settings.m_DefaultLineWidth );
+        render->m_SymbolLineWidth = settings.m_DefaultLineWidth;
+        render->m_PinSymbolSize = settings.m_PinSymbolSize;
+        render->m_ShowDNPMarkers = settings.m_ShowDNPMarkers;
+        // Formatting changes affect the geometry of already placed objects.
+        // Use the same complete cache/R-tree/view invalidation as drawing ratios.
+        ApplyDrawingRatios( aFrame, aFrame->Schematic().Settings().DrawingRatios() );
+        if( operatingChanged ) aFrame->RefreshOperatingPointDisplay();
+    }
+    static void ApplyDrawingRatios( SCH_EDIT_FRAME* aFrame, const std::array<double, 5>& aValues )
+    {
+        aFrame->Schematic().Settings().SetDrawingRatios( aValues );
+        aFrame->GetRenderSettings()->SetDashLengthRatio( aValues[0] );
+        aFrame->GetRenderSettings()->SetGapLengthRatio( aValues[1] );
+        aFrame->GetRenderSettings()->m_TextOffsetRatio = aValues[2];
+        aFrame->GetRenderSettings()->m_LabelSizeRatio = aValues[3];
+        std::set<SCH_SCREEN*> seen;
+        for( const SCH_SHEET_PATH& path : aFrame->Schematic().Hierarchy() )
+        {
+            SCH_SCREEN* screen = path.LastScreen();
+            if( !screen || !seen.insert( screen ).second ) continue;
+            std::vector<SCH_ITEM*> items;
+            for( SCH_ITEM* item : screen->Items() ) items.push_back( item );
+            for( SCH_ITEM* item : items )
+            {
+                item->ClearCaches();
+                screen->Update( item );
+            }
+        }
+        aFrame->GetCanvas()->GetView()->UpdateAllItems( KIGFX::ALL );
+        aFrame->GetCanvas()->GetView()->MarkDirty();
+    }
+    bool IncludesNetChains() const { return m_restoreNetChains; }
+
+    void CopyProjectSettingsScope( const SCH_PAGE_SETTINGS_UNDO_ITEM& aOther )
+    {
+        m_restoreBusAliases = aOther.m_restoreBusAliases;
+        m_restoreTextVariables = aOther.m_restoreTextVariables;
+        m_restoreVariantDescriptions = aOther.m_restoreVariantDescriptions;
+        m_restoreVariantRegistry = aOther.m_restoreVariantRegistry;
+        m_restoreNetChains = aOther.m_restoreNetChains;
+        m_restoreDrawingRatios = aOther.m_restoreDrawingRatios;
+        m_restoreFormatting = aOther.m_restoreFormatting;
+    }
+
+    bool TextVariablesMatch( SCH_EDIT_FRAME* aFrame ) const
+    {
+        return !m_restoreTextVariables || m_textVariables == aFrame->Prj().GetTextVars();
+    }
+
+    static void ApplyTextVariables( SCH_EDIT_FRAME* aFrame, const std::map<wxString, wxString>& aVariables )
+    {
+        aFrame->Prj().GetTextVars() = aVariables;
+        aFrame->Prj().IncrementTextVarsTicker();
+        if( auto* adapter = aFrame->Schematic().GetTextVarAdapter() )
+            adapter->Tracker().InvalidateProjectScoped();
+        aFrame->Kiway().CommonSettingsChanged( TEXTVARS_CHANGED );
+    }
+
+    static void ApplyVariantDescriptions( SCH_EDIT_FRAME* aFrame, const std::map<wxString, wxString>& aDescriptions )
+    {
+        aFrame->Schematic().Settings().m_VariantDescriptions = aDescriptions;
+        if( auto* adapter = aFrame->Schematic().GetTextVarAdapter() )
+            adapter->Tracker().InvalidateVariantScoped();
+    }
+
+    static std::string Serialize( const PAGE_INFO& aPage, const TITLE_BLOCK& aTitle )
+    {
+        STRING_FORMATTER out;
+        aPage.Format( &out );
+        aTitle.Format( &out );
+        return out.GetString();
+    }
+
+private:
+    struct STATE { PAGE_INFO page; TITLE_BLOCK title; bool modified; };
+    std::map<KIID, STATE> m_screens;
+    std::vector<std::shared_ptr<BUS_ALIAS>> m_busAliases;
+    std::map<wxString, wxString> m_textVariables;
+    std::map<wxString, wxString> m_variantDescriptions;
+    bool m_restoreVariantDescriptions = false;
+    bool m_restoreVariantRegistry = false;
+    std::set<wxString> m_variantNames;
+    wxString m_currentVariant;
+    bool m_restoreBusAliases = false;
+    bool m_restoreTextVariables = false;
+    bool m_restoreNetChains = false;
+    bool m_restoreDrawingRatios = false;
+    bool m_restoreFormatting = false;
+    SCH_FORMATTING::MESSAGE m_formatting;
+    std::array<double, 5> m_drawingRatios;
+    std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION> m_netChains;
+    std::map<KIID, std::optional<SCH_SHEET_INSTANCE>> m_roots;
+};
+
+#endif

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:kicad:automation:circuit:1"
+           xmlns="urn:kicad:automation:circuit:1" elementFormDefault="qualified">
+  <!-- Electrical section only; not a claim of full native schematic coverage. -->
+  <xs:simpleType name="identity"><xs:restriction base="xs:string">
+    <xs:pattern value="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/>
+  </xs:restriction></xs:simpleType>
+  <xs:element name="circuit">
+    <xs:complexType><xs:sequence>
+      <xs:element name="parts"><xs:complexType><xs:sequence>
+        <xs:element name="part" minOccurs="0" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+          <xs:element name="pin" minOccurs="0" maxOccurs="unbounded"><xs:complexType>
+            <xs:attribute name="number" type="xs:string" use="required"/>
+            <xs:attribute name="name" type="xs:string" use="required"/>
+            <xs:attribute name="unit" type="xs:nonNegativeInteger" use="required"/>
+          </xs:complexType></xs:element>
+        </xs:sequence><xs:attribute name="id" type="identity" use="required"/>
+          <xs:attribute name="name" type="xs:string" use="required"/>
+          <xs:attribute name="units" type="xs:positiveInteger" use="required"/>
+        </xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="sheets"><xs:complexType><xs:sequence>
+        <xs:element name="sheet" minOccurs="1" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+          <xs:element name="component" minOccurs="0" maxOccurs="unbounded"><xs:complexType>
+            <xs:attribute name="id" type="identity" use="required"/>
+            <xs:attribute name="part" type="identity" use="required"/>
+            <xs:attribute name="value" type="xs:string" use="required"/>
+          </xs:complexType></xs:element>
+        </xs:sequence><xs:attribute name="id" type="identity" use="required"/>
+          <xs:attribute name="name" type="xs:string" use="required"/>
+        </xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="sheet-instances"><xs:complexType><xs:sequence>
+        <xs:element name="instance" minOccurs="1" maxOccurs="unbounded"><xs:complexType>
+          <xs:attribute name="id" type="identity" use="required"/>
+          <xs:attribute name="definition" type="identity" use="required"/>
+          <xs:attribute name="parent" type="identity"/>
+        </xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="components"><xs:complexType><xs:sequence>
+        <xs:element name="instance" minOccurs="0" maxOccurs="unbounded"><xs:complexType>
+          <xs:attribute name="id" type="identity" use="required"/>
+          <xs:attribute name="definition" type="identity" use="required"/>
+          <xs:attribute name="sheet" type="identity" use="required"/>
+          <xs:attribute name="reference" type="xs:string" use="required"/>
+        </xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="nets"><xs:complexType><xs:sequence>
+        <xs:element name="net" minOccurs="0" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+          <xs:element name="pin" minOccurs="0" maxOccurs="unbounded"><xs:complexType>
+            <xs:attribute name="component" type="identity" use="required"/>
+            <xs:attribute name="number" type="xs:string" use="required"/>
+          </xs:complexType></xs:element>
+        </xs:sequence><xs:attribute name="id" type="identity" use="required"/>
+          <xs:attribute name="name" type="xs:string" use="required"/>
+        </xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="symbols"><xs:complexType><xs:sequence>
+        <xs:element name="symbol" minOccurs="0" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+          <xs:element name="placement" minOccurs="0"><xs:complexType>
+            <xs:attribute name="x-mm" type="xs:decimal" use="required"/>
+            <xs:attribute name="y-mm" type="xs:decimal" use="required"/>
+            <xs:attribute name="rotation-deg" type="xs:int" use="required"/>
+            <xs:attribute name="mirror-x" type="xs:boolean" use="required"/>
+            <xs:attribute name="mirror-y" type="xs:boolean" use="required"/>
+            <xs:attribute name="locked" type="xs:boolean" use="required"/>
+          </xs:complexType></xs:element>
+        </xs:sequence><xs:attribute name="id" type="identity" use="required"/>
+          <xs:attribute name="component" type="identity" use="required"/>
+          <xs:attribute name="unit" type="xs:positiveInteger" use="required"/>
+        </xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+    </xs:sequence><xs:attribute name="id" type="identity" use="required"/>
+      <xs:attribute name="version" use="required" fixed="1" type="xs:positiveInteger"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

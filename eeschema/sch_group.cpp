@@ -62,6 +62,8 @@ void SCH_GROUP::Serialize( google::protobuf::Any& aContainer ) const
 
     group.mutable_id()->set_value( m_Uuid.AsStdString() );
     group.set_name( GetName().ToUTF8() );
+    if( HasDesignBlockLink() )
+        group.set_design_block_library_id( GetDesignBlockLibId().Format().c_str() );
     group.set_locked( IsLocked() ? kiapi::common::types::LockedState::LS_LOCKED
                                  : kiapi::common::types::LockedState::LS_UNLOCKED );
 
@@ -82,25 +84,45 @@ bool SCH_GROUP::Deserialize( const google::protobuf::Any& aContainer )
     if( !aContainer.UnpackTo( &group ) )
         return false;
 
-    const_cast<KIID&>( m_Uuid ) = KIID( group.id().value() );
-    SetName( wxString::FromUTF8( group.name() ) );
-    SetLocked( group.locked() == kiapi::common::types::LockedState::LS_LOCKED );
-    kiapi::common::UnpackCustomProperties( group.custom_properties(), *this );
-
-    m_items.clear();
-
+    // Resolve every member before changing this object. Silently omitting an
+    // unresolved UUID turns a malformed request into a destructive group edit.
     SCHEMATIC* schematic = Schematic();
-
     if( !schematic )
         return false;
-
+    std::unordered_set<EDA_ITEM*> members;
     for( const kiapi::common::types::KIID& memberId : group.items() )
     {
         KIID id( memberId.value() );
-
-        if( SCH_ITEM* item = schematic->ResolveItem( id, nullptr, true ) )
-            m_items.insert( item );
+        if( id.AsStdString() != memberId.value() || memberId.value() == group.id().value() )
+            return false;
+        SCH_ITEM* member = schematic->ResolveItem( id, nullptr, true );
+        if( !member || member->GetParent() != GetParent() || !members.insert( member ).second )
+            return false;
+        if( EDA_GROUP* owner = member->GetParentGroup();
+                owner && owner->AsEdaItem()->m_Uuid.AsStdString() != group.id().value() )
+            return false;
+        if( member->Type() == SCH_GROUP_T )
+        {
+            // Existing group hierarchies must not become their own descendants.
+            SCH_ITEM* existing = schematic->ResolveItem( KIID( group.id().value() ), nullptr, true );
+            if( existing && static_cast<SCH_GROUP*>( member )->ContainsItem( existing ) )
+                return false;
+        }
     }
+
+    LIB_ID libraryId;
+    if( !group.design_block_library_id().empty()
+            && ( group.design_block_library_id().find( '\0' ) != std::string::npos
+                 || libraryId.Parse( wxString::FromUTF8( group.design_block_library_id() ) ) >= 0 ) )
+        return false;
+
+    const_cast<KIID&>( m_Uuid ) = KIID( group.id().value() );
+    SetName( wxString::FromUTF8( group.name() ) );
+    SetDesignBlockLibId( libraryId );
+    SetLocked( group.locked() == kiapi::common::types::LockedState::LS_LOCKED );
+    kiapi::common::UnpackCustomProperties( group.custom_properties(), *this );
+
+    m_items = std::move( members );
 
     return true;
 }
@@ -242,15 +264,14 @@ void SCH_GROUP::swapData( SCH_ITEM* aImage )
     std::swap( m_name, image->m_name );
     std::swap( m_designBlockLibId, image->m_designBlockLibId );
 
-    // A group doesn't own its children (they're owned by the schematic), so undo doesn't do a
-    // deep clone when making an image.  However, it's still safest to update the parentGroup
-    // pointers of the group's children. We must do it in the right order in case any of the
-    // children are shared (ie: image first, "this" second so that any shared children end up
-    // with "this").
+    // Undo images are not live owners. Never leave a removed child pointing at
+    // an image which the caller may immediately destroy. During multi-group
+    // rollback another restored group may already own the child; preserve it.
     image->RunOnChildren(
             [&]( SCH_ITEM* child )
             {
-                child->SetParentGroup( image );
+                if( child->GetParentGroup() == this || child->GetParentGroup() == image )
+                    child->SetParentGroup( nullptr );
             },
             RECURSE_MODE::NO_RECURSE );
 

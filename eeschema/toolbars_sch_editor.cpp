@@ -24,6 +24,7 @@
 #include <api/api_plugin_manager.h>
 #include <sch_draw_panel.h>
 #include <sch_edit_frame.h>
+#include <sch_commit.h>
 #include <kiface_base.h>
 #include <bitmaps.h>
 #include <eeschema_id.h>
@@ -451,10 +452,13 @@ bool SCH_EDIT_FRAME::ShowAddVariantDialog( wxWindow* aParent )
     }
 
     // Add variant to the schematic
-    Schematic().AddVariant( variantName );
+    SCH_COMMIT commit( this );
+    Schematic().AddVariant( variantName, &commit );
 
     if( !variantDesc.IsEmpty() )
         Schematic().SetVariantDescription( variantName, variantDesc );
+
+    commit.Push( _( "Add Design Variant" ) );
 
     // Update the variant selector and select the new variant
     UpdateVariantSelectionCtrl( Schematic().GetVariantNamesForUI() );

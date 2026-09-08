@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:h="urn:kicad:automation:hardware:1"
+ targetNamespace="urn:kicad:automation:hardware:1" elementFormDefault="qualified">
+ <xs:simpleType name="id"><xs:restriction base="xs:string"><xs:pattern value="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/></xs:restriction></xs:simpleType>
+ <xs:element name="hardware"><xs:complexType><xs:sequence>
+  <xs:element name="designs"><xs:complexType><xs:sequence>
+   <xs:element name="design" minOccurs="0" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+    <xs:element name="port" minOccurs="0" maxOccurs="unbounded"><xs:complexType><xs:sequence><xs:element name="description" type="xs:string"/></xs:sequence>
+     <xs:attribute name="id" type="h:id" use="required"/><xs:attribute name="name" type="xs:string" use="required"/>
+    </xs:complexType></xs:element>
+   </xs:sequence><xs:attribute name="id" type="h:id" use="required"/><xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="project" type="xs:string" use="required"/><xs:attribute name="model" type="xs:string" use="required"/>
+   </xs:complexType></xs:element>
+  </xs:sequence></xs:complexType></xs:element>
+  <xs:element name="documents"><xs:complexType><xs:sequence>
+   <xs:element name="document" minOccurs="0" maxOccurs="unbounded"><xs:complexType><xs:sequence><xs:element name="purpose" type="xs:string"/></xs:sequence>
+    <xs:attribute name="id" type="h:id" use="required"/><xs:attribute name="path" type="xs:string" use="required"/><xs:attribute name="revision" type="xs:string" use="required"/>
+   </xs:complexType></xs:element>
+  </xs:sequence></xs:complexType></xs:element>
+  <xs:element name="libraries"><xs:complexType><xs:sequence>
+   <xs:element name="library" minOccurs="0" maxOccurs="unbounded"><xs:complexType>
+    <xs:attribute name="id" type="h:id" use="required"/><xs:attribute name="path" type="xs:string" use="required"/><xs:attribute name="revision" type="xs:string" use="required"/>
+   </xs:complexType></xs:element>
+  </xs:sequence></xs:complexType></xs:element>
+  <xs:element name="interfaces"><xs:complexType><xs:sequence>
+   <xs:element name="interface" minOccurs="0" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+    <xs:element name="description" type="xs:string"/>
+    <xs:element name="endpoint" minOccurs="2" maxOccurs="unbounded"><xs:complexType>
+     <xs:attribute name="design" type="h:id" use="required"/><xs:attribute name="port" type="h:id" use="required"/>
+    </xs:complexType></xs:element>
+   </xs:sequence><xs:attribute name="id" type="h:id" use="required"/><xs:attribute name="name" type="xs:string" use="required"/></xs:complexType></xs:element>
+  </xs:sequence></xs:complexType></xs:element>
+ </xs:sequence><xs:attribute name="id" type="h:id" use="required"/><xs:attribute name="name" type="xs:string" use="required"/>
+ <xs:attribute name="version" type="xs:positiveInteger" use="required" fixed="1"/>
+ </xs:complexType></xs:element>
+</xs:schema>

@@ -7,9 +7,6 @@ using KiCad.Automation.Distribution;
 
 namespace KiCad.Automation.Mcp;
 
-public sealed record UpdatePreparationConfiguration(int SchemaVersion, string Origin, string PublisherKeySpki,
-    string InstalledEnvelope, string StateDirectory, string StagingDirectory, string Channel, string Platform, string Format);
-
 /// <summary>Finite native-helper mode in the same compiled executable as MCP.
 /// This does not listen for editor control, install files into a live version,
 /// or authorize restarting an editor.</summary>

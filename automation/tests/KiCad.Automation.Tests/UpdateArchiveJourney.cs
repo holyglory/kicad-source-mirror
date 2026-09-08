@@ -179,8 +179,77 @@ public sealed partial class NativeSessionTests
                 manifestSha256 = manifestDigest, syntheticPublisher = true,
                 publicFeed = false, activatedInstallation = false, qualifyingDelivery = false
             }, Evidence.JsonOptions), deadline.Token);
-            await VerifyInstalledNative(Path.Combine(staged, "runtime"), evidence,
-                Path.Combine(staged, "kicad-codex"), Path.Combine(staged, "kicad-mcp"));
+            string downloadedArchive = Directory.GetFiles(temporary, "package.tar.gz", SearchOption.AllDirectories).Single();
+            string installedRoot = Path.Combine(temporary, "verified installation Énergie");
+            // Cancel exactly at publication: authenticated/native-checked work
+            // must not appear as an installed root until the directory commit.
+            using (var stop = new CancellationTokenSource())
+            {
+                await Assert.ThrowsAsync<OperationCanceledException>(() => LinuxVerifiedInstallation.InstallAsync(
+                    installedRoot, downloadedArchive, published, publisher.ExportSubjectPublicKeyInfo(),
+                    new Uri(address + "/"), "preview", stop.Cancel, stop.Token));
+                Assert.IsFalse(Directory.Exists(installedRoot));
+                Assert.IsEmpty(Directory.GetDirectories(temporary, ".kicad-install-*"));
+            }
+            string conflictRoot = Path.Combine(temporary, "competing-installation");
+            await Assert.ThrowsAsync<IOException>(() => LinuxVerifiedInstallation.InstallAsync(
+                conflictRoot, downloadedArchive, published, publisher.ExportSubjectPublicKeyInfo(), new Uri(address + "/"), "preview",
+                () =>
+                {
+                    Directory.CreateDirectory(conflictRoot);
+                    File.WriteAllText(Path.Combine(conflictRoot, "existing.txt"), "Competing fixture must survive.");
+                }, deadline.Token));
+            Assert.AreEqual("Competing fixture must survive.", await File.ReadAllTextAsync(Path.Combine(conflictRoot, "existing.txt")));
+            Assert.IsEmpty(Directory.GetDirectories(temporary, ".kicad-install-*"));
+
+            string bootstrapKey = Path.Combine(temporary, "trusted-fixture-publisher.spki");
+            string bootstrapEnvelope = Path.Combine(temporary, "bootstrap-envelope.json");
+            string bootstrapRequest = Path.Combine(temporary, "bootstrap-request.json");
+            await File.WriteAllBytesAsync(bootstrapKey, publisher.ExportSubjectPublicKeyInfo(), deadline.Token);
+            await File.WriteAllBytesAsync(bootstrapEnvelope, published, deadline.Token);
+            await File.WriteAllTextAsync(bootstrapRequest, JsonSerializer.Serialize(new LinuxInstallRequest(1,
+                installedRoot, downloadedArchive, bootstrapEnvelope, address + "/", "preview"),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)), deadline.Token);
+            var bootstrapStart = UpdateCommandTests.StartInfo();
+            foreach (string arg in new[] { "--install-package", "--configuration", bootstrapRequest, "--publisher-key", bootstrapKey })
+                bootstrapStart.ArgumentList.Add(arg);
+            InstalledLinuxUpdate firstInstall;
+            using (var bootstrap = Process.Start(bootstrapStart)!)
+            {
+                Task<string> bootstrapOutput = bootstrap.StandardOutput.ReadToEndAsync(deadline.Token);
+                Task<string> bootstrapErrors = bootstrap.StandardError.ReadToEndAsync(deadline.Token);
+                try
+                {
+                    await bootstrap.WaitForExitAsync(deadline.Token);
+                    string lines = await bootstrapOutput;
+                    await File.WriteAllTextAsync(Path.Combine(evidence, "bootstrap.stdout.jsonl"), lines, deadline.Token);
+                    await File.WriteAllTextAsync(Path.Combine(evidence, "bootstrap.stderr.log"), await bootstrapErrors, deadline.Token);
+                    Assert.AreEqual(0, bootstrap.ExitCode, "Inspect retained bootstrap output.");
+                    using var result = JsonDocument.Parse(lines.Split('\n', StringSplitOptions.RemoveEmptyEntries).Last());
+                    Assert.AreEqual("installed", result.RootElement.GetProperty("status").GetString());
+                    Assert.IsFalse(result.RootElement.GetProperty("automaticUpdatingQualified").GetBoolean());
+                    firstInstall = result.RootElement.GetProperty("result").Deserialize<InstalledLinuxUpdate>(
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                }
+                finally
+                {
+                    if (!bootstrap.HasExited) bootstrap.Kill(entireProcessTree: true);
+                    await bootstrap.WaitForExitAsync();
+                    await Task.WhenAll(bootstrapOutput, bootstrapErrors);
+                }
+            }
+            var provisioned = JsonSerializer.Deserialize<UpdatePreparationConfiguration>(
+                await File.ReadAllBytesAsync(firstInstall.ConfigurationPath, deadline.Token), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            Assert.IsTrue(File.Exists(provisioned.InstalledEnvelope));
+            Assert.IsTrue(Directory.Exists(provisioned.StateDirectory));
+            Assert.IsTrue(Directory.Exists(provisioned.StagingDirectory));
+            Assert.AreEqual(manifestDigest, UpdateManifestCodec.Verify(await File.ReadAllBytesAsync(provisioned.InstalledEnvelope, deadline.Token),
+                publisher.ExportSubjectPublicKeyInfo(), "preview").PayloadSha256);
+            Assert.IsTrue(File.Exists(Path.Combine(firstInstall.ManagerDirectory, "current", "kicad-codex")));
+            File.Copy(Path.Combine(installedRoot, "installed.json"), Path.Combine(evidence, "verified-installation.json"));
+            await VerifyInstalledNative(Path.Combine(firstInstall.VersionDirectory, "runtime"), evidence,
+                Path.Combine(firstInstall.ManagerDirectory, "current", "kicad-codex"),
+                Path.Combine(firstInstall.ManagerDirectory, "current", "kicad-mcp"));
         }
         finally
         {

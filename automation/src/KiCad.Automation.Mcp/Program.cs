@@ -4,12 +4,17 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-if (args.FirstOrDefault() is "--prepare-update" or "--check-update")
+if (args.FirstOrDefault() is "--prepare-update" or "--check-update" or "--install-package")
 {
     using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(15));
     ConsoleCancelEventHandler cancel = (_, e) => { e.Cancel = true; cancellation.Cancel(); };
     Console.CancelKeyPress += cancel;
-    try { Environment.ExitCode = await UpdatePreparationCommand.RunAsync(args, Console.Out, cancellation.Token); }
+    try
+    {
+        Environment.ExitCode = args[0] == "--install-package"
+            ? await LinuxInstallCommand.RunAsync(args, Console.Out, cancellation.Token)
+            : await UpdatePreparationCommand.RunAsync(args, Console.Out, cancellation.Token);
+    }
     finally { Console.CancelKeyPress -= cancel; }
     return;
 }

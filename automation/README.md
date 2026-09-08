@@ -1030,6 +1030,38 @@ restart the application, qualify power-loss recovery, provision the first
 installed receipt or implement Mac activation. No native Update button uses it
 yet; the complete automatic-update workflow remains open.
 
+### Verified initial Linux installation (preliminary)
+
+The compiled bootstrap mode is available from the updated source build:
+
+```sh
+kicad-mcp --install-package --configuration /absolute/install-request.json \
+  --publisher-key /absolute/trusted/publisher.spki
+```
+
+The request contains `schemaVersion: 1`, `installationRoot`, `archivePath`,
+`envelopePath`, `origin` and `channel`. All three paths must be absolute; the
+installation parent must exist, and the new installation root must not exist.
+The publisher key is a DER SubjectPublicKeyInfo public key provided separately
+by the operator's trusted bootstrap. The request cannot supply its own key.
+The unsigned public download catalogue is not an installation envelope.
+
+The installer authenticates the envelope and archive, extracts into new sibling
+staging, verifies the native compiled commit, writes the installed signed
+receipt and version-specific updater configuration, and creates the relative
+manager/current selection. Only then does it publish the new installation root.
+Cancellation or a conflicting destination before publication leaves existing
+work untouched. No system package, desktop registration or running editor is
+changed. Installation paths support spaces and Unicode.
+
+Governed run `t20260908T173618Z-2e1fe7` used the real frozen Linux archive with an
+ephemeral test publisher to exercise rejected inputs, cancellation at the
+publication boundary, a competing destination, the actual bootstrap subprocess,
+and native/MCP create/render/reconnect/save from the installed selection. It is
+not native-Mac evidence, a production signing setup, power-loss qualification,
+or the complete automatic updater. The public a5666e707777 preview predates
+this bootstrap command; do not assume its embedded MCP executable provides it.
+
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).

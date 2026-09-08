@@ -40,10 +40,12 @@ public sealed class UpdateCommandTests
     }
 
     [TestMethod]
-    public async Task RealHelperProcessExitsInsteadOfStartingMcpForMalformedInvocation()
+    [DataRow("--prepare-update")]
+    [DataRow("--install-package")]
+    public async Task RealHelperProcessExitsInsteadOfStartingMcpForMalformedInvocation(string mode)
     {
         var start = StartInfo();
-        start.ArgumentList.Add("--prepare-update");
+        start.ArgumentList.Add(mode);
         using var process = Process.Start(start)!;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         Task<string> stdout = process.StandardOutput.ReadToEndAsync(deadline.Token);
@@ -54,7 +56,7 @@ public sealed class UpdateCommandTests
             Assert.AreEqual(1, process.ExitCode, await stderr);
             using var result = JsonDocument.Parse(await stdout);
             Assert.AreEqual("failed", result.RootElement.GetProperty("status").GetString());
-            Assert.IsFalse(result.RootElement.GetProperty("installationReady").GetBoolean());
+            Assert.IsFalse(result.RootElement.GetProperty(mode == "--install-package" ? "automaticUpdatingQualified" : "installationReady").GetBoolean());
             Assert.IsFalse(result.RootElement.TryGetProperty("jsonrpc", out _));
         }
         finally
@@ -63,6 +65,35 @@ public sealed class UpdateCommandTests
             await process.WaitForExitAsync();
             await Task.WhenAll(stdout, stderr);
         }
+    }
+
+    [TestMethod]
+    public async Task BootstrapRejectsEmbeddedTrustKeysAndMalformedRequests()
+    {
+        string root = Directory.CreateTempSubdirectory("kicad-bootstrap-input-").FullName;
+        try
+        {
+            string request = Path.Combine(root, "request.json");
+            string key = Path.Combine(root, "operator-key.spki");
+            foreach (string json in new[] { "broken", "{}", "{\"schemaVersion\":1,\"schemaVersion\":2}",
+                "{\"schemaVersion\":1,\"publisherKeySpki\":\"untrusted-request-key\"}" })
+            {
+                await File.WriteAllTextAsync(request, json);
+                using var output = new StringWriter();
+                Assert.AreEqual(1, await LinuxInstallCommand.RunAsync(
+                    ["--install-package", "--configuration", request, "--publisher-key", key], output, CancellationToken.None));
+                using var result = JsonDocument.Parse(output.ToString());
+                Assert.AreEqual("failed", result.RootElement.GetProperty("status").GetString());
+                Assert.IsFalse(result.RootElement.GetProperty("automaticUpdatingQualified").GetBoolean());
+                Assert.IsEmpty(Directory.GetDirectories(root));
+            }
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+            using var cancelled = new StringWriter();
+            Assert.AreEqual(2, await LinuxInstallCommand.RunAsync(
+                ["--install-package", "--configuration", request, "--publisher-key", key], cancelled, cancellation.Token));
+        }
+        finally { Directory.Delete(root, true); }
     }
 
     internal static ProcessStartInfo StartInfo()

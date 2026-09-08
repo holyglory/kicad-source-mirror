@@ -1244,29 +1244,30 @@ remained open. Instance identities and saved schematic bytes were preserved;
 both replacements received new process epochs. Evidence tree:
 `77fb1dfeee2dd5da730b289d167938ae5b4b8603057f2e91fb54e8d126793db4`.
 
-This remains Linux qualification using an ephemeral test publisher. Production
-publisher/feed/bootstrap trust, no-project updates, full recovery/termination
-and power-loss coverage, native-Mac execution and the full engineering workflow
-remain open. The preserved 38b65981e64b preview does not contain these later
+That run used an ephemeral test publisher. The real public-channel qualification
+below now covers the persistent publisher and rendered Linux upgrade. No-project
+updates, full recovery/termination and power-loss coverage, native-Mac execution
+and the full engineering workflow remain open. The preserved 38b65981e64b preview does not contain these later
 repairs; older running instances of that preview may require manual restart
 after another instance changes the shared installation selection.
 
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).
-It now serves the frozen 8e6938a6006c Debian 13 x64 application archive and
-matching source, alongside the preserved 38b65981e64b and a5666e707777 archives
-and older Debian installer. Public GET/hash, HEAD, range, private/control path
-rejection and upload rejection for all seven files passed in
-`t20260908T222815Z-7f1b8c`.
+It serves the frozen 6a9de7fdd073 Debian 13 x64 application archive and matching
+source, alongside the preserved 8e6938a6006c, 38b65981e64b and a5666e707777
+archives and older Debian installer. Public GET/hash, HEAD, range, private/control
+path rejection and upload rejection for all nine files passed in
+`t20260908T231824Z-f479c8`.
 No engineering repository, native control, credentials or private evidence is
 served there. Native-Mac packages are not yet available.
 
 Extract the newer Linux archive and run `./kicad-codex` for the native application
 or `./kicad-mcp` for STDIO tools. Its caption-update flow requires a verified
 managed installation with an explicitly trusted publisher; that installation
-now discovers its update configuration automatically. There is no enabled
-production update feed yet. The Debian installer below is the older preview,
+now discovers its update configuration automatically. The
+[preview update feed](https://kicad.vr.ae/updates/preview.json) is signed with the
+authorized persistent publisher. The Debian installer below is the older preview,
 not an installer for the new caption-enabled archive.
 
 On Debian 13, after downloading the `.deb` to the current directory:
@@ -1281,6 +1282,48 @@ The matching STDIO service is
 The package preserves other KiCad installations. These downloads are preliminary:
 automatic updating, both native-Mac targets and the full engineering workflow
 remain unfinished. Public availability is not a qualifying-delivery reset.
+
+### Persistent publisher and public-channel Linux update
+
+Preview `preview-20260908T231132Z-6a9de7fdd073` is available as an
+[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260908T231132Z-6a9de7fdd073-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260908T231132Z-6a9de7fdd073-source.tar.gz).
+The application archive SHA-256 is
+`ecdf3e3522ee2c6b1f5d8949039c2d8503017750246d6a99c7ae68754fe50ff2`.
+
+Obtain `automation/distribution/preview-publisher.spki` from the trusted fork
+checkout (present from commit `6a9de7fdd0731378712f9cdbfda3c322f93cd89a`).
+Its SHA-256 is
+`6b9f8e9dd462321076c3da20c4a71dbad7bfe745ab475983d952f1e99be0aafb`.
+The download server neither supplies a replacement trust identity nor possesses
+the private signing file in its download directory or configuration.
+
+For a managed installation, save the signed feed beside the matching downloaded
+archive. Use the compiled `--install-package` command described above, with
+`origin` set to `https://kicad.vr.ae/`, `channel` set to `preview`, an absolute
+`envelopePath` to that saved feed, an absolute `archivePath` to its exact archive,
+and a new absolute `installationRoot`. Pass the trusted public key separately.
+A feed naming a newer archive will correctly reject an older downloaded archive;
+fetch the matching pair again instead of substituting unsigned metadata.
+
+Launch `<installationRoot>/manager/current/kicad-codex`; the managed launcher
+selects the installed updater configuration. When a newer compatible update has
+downloaded and verified, an open project's caption offers **Update**. Choosing it
+uses KiCad's normal save/cancel behavior before restart. Do not assume the unpacked
+archive or older Debian package has already been bootstrapped this way.
+
+Run `t20260908T231824Z-f479c8`, acceptance source
+`911b15635ae4838b255fe15b67e15ab79b7e98d1`, proved an actual 8e6938a6006c-to-6a9de7fdd073
+upgrade through the public signed HTTPS channel. The native helper downloaded and
+registered the candidate itself. Real caption clicks rejected changed candidate
+bytes before closing, cancelled a dirty save prompt without losing work, then
+saved and restarted with preserved schematic bytes and a new process epoch.
+A second live project updated independently while the first replacement remained
+open. The same pass retained the isolated-publisher regression journeys.
+
+This proves that Linux journey, not all update recovery cases or either native-Mac
+target. No-project updating, broader restart/failure/power-loss recovery, Mac
+packaging and the complete engineering outcome remain unfinished.
 
 ### Source PDF inspection (preliminary)
 

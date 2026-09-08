@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.ComponentModel;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -78,11 +79,14 @@ public static class UpdatePreparationCommand
                 configuration.StagingDirectory, progress, token);
             await Emit(new { schemaVersion = 1, status = "staging", installationReady = false });
             var staged = await LinuxUpdateStager.StageAsync(result.Manifest, download, configuration.StagingDirectory, token);
+            await Emit(new { schemaVersion = 1, status = "checking_native_identity", installationReady = false });
+            var native = await LinuxUpdateRuntime.CheckAsync(result.Manifest, staged, configuration.StagingDirectory, token);
             await Emit(new
             {
                 schemaVersion = 1, status = "archive_staged", installationReady = false,
                 directory = staged.Directory, manifestSha256 = staged.ManifestSha256,
-                version = result.Manifest.Release.Version, commit = result.Manifest.Release.Commit
+                version = result.Manifest.Release.Version, commit = result.Manifest.Release.Commit,
+                nativeIdentityVerified = true, nativeCommit = native.Commit
             });
             return 0;
         }
@@ -92,7 +96,8 @@ public static class UpdatePreparationCommand
             return 2;
         }
         catch (Exception error) when (error is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException
-            or JsonException or FormatException or CryptographicException or HttpRequestException or PlatformNotSupportedException)
+            or JsonException or FormatException or CryptographicException or HttpRequestException or PlatformNotSupportedException
+            or Win32Exception)
         {
             await Emit(new { schemaVersion = 1, status = "failed", installationReady = false,
                 error = new { kind = error.GetType().Name, message = error.Message } });

@@ -14,11 +14,11 @@ finite_services = ["probe"]
 build = true
 timeout_seconds = 900
 
-# Proposed download-only route; activation waits for the hostname decision.
+# User-selected public download-only route: https://kicad.vr.ae.
 # Immutable checkout generations keep development builds away from the server.
 [deployment.downloads]
 source = ["checkout"]
-domain = "kicad-downloads"
+domain = "kicad"
 components = ["files"]
 public = true
 build = ["dotnet", "publish", "automation/tools/KiCad.Automation.Downloads/KiCad.Automation.Downloads.csproj", "--configuration", "Release", "-p:RestoreLockedMode=true", "--output", "automation/artifacts/download-host"]
@@ -48,7 +48,7 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.update-contracts.check]]
 name = "contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~UpdateManifestTests|FullyQualifiedName~UpdateDownloaderTests|FullyQualifiedName~UpdateCheckerTests|FullyQualifiedName~LinuxUpdateStagerTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/update-contract-tests"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~UpdateManifestTests|FullyQualifiedName~UpdateDownloaderTests|FullyQualifiedName~UpdateCheckerTests|FullyQualifiedName~LinuxUpdateStagerTests|FullyQualifiedName~LinuxUpdateRuntimeTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/update-contract-tests"]
 retained_artifacts = [{ name = "update-contract-tests", path = "automation/artifacts/update-contract-tests", max_bytes = 16777216 }]
 
 [test.update-archive]
@@ -67,7 +67,7 @@ name = "contracts"
 tier = "development"
 role = "preflight"
 invalidates = ["native-journey"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~UpdateManifestTests|FullyQualifiedName~UpdateDownloaderTests|FullyQualifiedName~UpdateCheckerTests|FullyQualifiedName~LinuxUpdateStagerTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/update-contract-tests"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~UpdateManifestTests|FullyQualifiedName~UpdateDownloaderTests|FullyQualifiedName~UpdateCheckerTests|FullyQualifiedName~LinuxUpdateStagerTests|FullyQualifiedName~LinuxUpdateRuntimeTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/update-contract-tests"]
 retained_artifacts = [{ name = "update-contract-tests", path = "automation/artifacts/update-contract-tests", max_bytes = 16777216 }]
 
 [[test.update-archive.check]]

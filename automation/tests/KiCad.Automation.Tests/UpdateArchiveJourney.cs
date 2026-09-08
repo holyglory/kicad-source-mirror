@@ -168,6 +168,8 @@ public sealed partial class NativeSessionTests
             using var terminal = JsonDocument.Parse(standardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries).Last());
             Assert.AreEqual("archive_staged", terminal.RootElement.GetProperty("status").GetString());
             Assert.IsFalse(terminal.RootElement.GetProperty("installationReady").GetBoolean());
+            Assert.IsTrue(terminal.RootElement.GetProperty("nativeIdentityVerified").GetBoolean());
+            Assert.AreEqual(package.Commit, terminal.RootElement.GetProperty("nativeCommit").GetString());
             string staged = terminal.RootElement.GetProperty("directory").GetString()!;
             string manifestDigest = terminal.RootElement.GetProperty("manifestSha256").GetString()!;
             File.Copy(Path.Combine(Path.GetDirectoryName(staged)!, "staging.json"), Path.Combine(evidence, "update-staging.json"));

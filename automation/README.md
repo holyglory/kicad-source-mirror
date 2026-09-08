@@ -1008,6 +1008,13 @@ complete the native rendered journey. The disposable child used an ephemeral
 test CA file without changing host trust or disabling production TLS checks.
 This mode is not yet wired to a native startup/hourly worker or Update button.
 
+Before returning a prepared Linux candidate, the helper also runs its native
+CLI with isolated configuration/cache paths and checks the compiled commit
+against the signed release. Startup failure, wrong commit, excessive output and
+cancellation cannot produce a native-identity success. This check does not
+replace rendering or full release qualification. Governed run
+`t20260908T160325Z-3d07a9` covered those failures and the real package journey.
+
 ### Source PDF inspection (preliminary)
 
 The `kicad_source_pdf_page` tool reads a PDF declared under `documents` in the

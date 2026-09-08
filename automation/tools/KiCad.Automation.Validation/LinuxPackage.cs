@@ -153,6 +153,7 @@ public static class LinuxPackage
 
     private static bool IsPrivateContext(string path) =>
         path.StartsWith(".serena/", StringComparison.Ordinal)
+        || path.StartsWith("automation/.serena/", StringComparison.Ordinal)
         || path.StartsWith("UserIssueLedgers/", StringComparison.Ordinal)
         || path.StartsWith("automation/reports/", StringComparison.Ordinal)
         || path == "security-assumptions.md";

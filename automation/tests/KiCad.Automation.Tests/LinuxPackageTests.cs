@@ -31,6 +31,8 @@ public sealed class LinuxPackageTests
             await LinuxPackage.RequireSourceAsync(root, commit, CancellationToken.None);
             Directory.CreateDirectory(Path.Combine(root, "automation/reports"));
             await File.WriteAllTextAsync(Path.Combine(root, "automation/reports/private.txt"), "Private fixture.");
+            Directory.CreateDirectory(Path.Combine(root, "automation/.serena"));
+            await File.WriteAllTextAsync(Path.Combine(root, "automation/.serena/project.yml"), "Private navigation fixture.");
             await LinuxPackage.RequireSourceAsync(root, commit, CancellationToken.None);
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
                 LinuxPackage.RequireSourceAsync(root, new string('0', 40), CancellationToken.None));
@@ -43,9 +45,14 @@ public sealed class LinuxPackageTests
                 LinuxPackage.RequireSourceAsync(root, commit, CancellationToken.None));
             await File.WriteAllTextAsync(Path.Combine(root, "source.txt"), "Synthetic source fixture.");
             await LinuxPackage.RequireSourceAsync(root, commit, CancellationToken.None);
-            await Git("add", "automation/reports/private.txt");
+            await Git("add", "automation/.serena/project.yml");
             await Commit();
             string privateCommit = (await Git("rev-parse", "HEAD")).Trim();
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
+                LinuxPackage.RequireSourceAsync(root, privateCommit, CancellationToken.None));
+            await Git("add", "automation/reports/private.txt");
+            await Commit();
+            privateCommit = (await Git("rev-parse", "HEAD")).Trim();
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
                 LinuxPackage.RequireSourceAsync(root, privateCommit, CancellationToken.None));
         }

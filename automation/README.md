@@ -940,6 +940,50 @@ deployment was removed after evidence retention. This proves the stated Debian
 journey only: public HTTPS downloads, automatic updates, both native-Mac targets,
 simulation and the complete engineering workflow remain unqualified.
 
+### Authenticated update preparation (internal, preliminary)
+
+The compiled distribution module verifies signed release metadata with the
+publisher public key supplied by the installed application. It selects an exact
+platform/package pair, downloads over HTTPS with signed byte-count and SHA-256
+checks, and retains authenticated metadata across restarts. Repeated unchanged
+checks do not rewrite the saved metadata. Invalid metadata, concurrent checks,
+cancellation and persistence failures do not authorize installation.
+
+The first installed-version envelope is an installer receipt, written after
+the package has been verified. It is not the latest online feed or a manifest
+embedded inside the archive whose own final hash it describes. Packaging and
+first-install receipt provisioning still need integration.
+
+The update feed (`updates/preview.json` or `updates/stable.json`) is separate
+from the unsigned read-only public download catalogue. Payloads are fetched
+only from its publisher's `artifacts/` path. There is no production signing key,
+enabled public update feed, native Update button, periodic background worker,
+archive installation, restart or rollback yet. A `download_verified` receipt
+explicitly has `installationReady: false`; it does not prove native signing,
+Mac notarization or a working automatic updater.
+
+Linux tar-archive staging now verifies the downloaded bytes again, rejects
+escaping/duplicate paths and special files, bounds expansion, preserves
+ordinary executable permissions and internal library-file links, and checks
+package identity before returning a new isolated directory. It never switches
+the active installation. Unsupported archive layouts fail instead of being
+partially installed; Mac archive preparation remains separate work.
+
+Run focused signature, HTTPS transfer and persistence checks with:
+
+```sh
+devcoordinator2 test start /home/holyglory/kicad --test update-contracts --tier development --client codex
+```
+
+The focused contracts use synthetic release payloads and ephemeral test keys.
+The `update-archive` graph additionally exercises the real frozen a5666e707777
+Linux package through a test-only signed HTTPS feed, staged extraction and
+rendered native/MCP create/render/reconnect/save. It passed in governed run
+`t20260908T152803Z-450fb4`; retained native evidence tree:
+`1a159879861fef8f91bae2e732436d9b8e5d9c47e93b99e9ea5eebe8e1fb38d5`.
+This is not a public feed, installation activation, qualifying desktop delivery
+or native-Mac execution.
+
 ### Source PDF inspection (preliminary)
 
 The `kicad_source_pdf_page` tool reads a PDF declared under `documents` in the

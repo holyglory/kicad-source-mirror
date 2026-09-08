@@ -1209,8 +1209,8 @@ after reopening. Retained evidence tree:
 `d13693092cb8beac2eeceb886baf448686cd4dc070240db263d74dc3bb263805`.
 
 This test uses a new signed metadata sequence for the same matching build and
-an ephemeral test publisher. The public downloads remain the older frozen
-preview; this is not a production signing/feed or different-build upgrade proof.
+an ephemeral test publisher. The matching archive is now published beside the
+older preview; this is not a production signing/feed or different-build upgrade proof.
 No Mac caption implementation is qualified, and updating without an open
 project is not supported by this control. Different-build and concurrent-instance
 update journeys, production signing and remaining platform checks stay open.
@@ -1218,11 +1218,18 @@ update journeys, production signing and remaining platform checks stay open.
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).
-It serves the frozen a5666e707777 Debian 13 x64 application archive, matching
-source, and the Debian installer. Public GET/hash, HEAD, range, private/control
-path rejection and upload rejection passed in `t20260908T162709Z-a0e4b9`.
+It now serves the frozen 38b65981e64b Debian 13 x64 application archive and
+matching source, alongside the preserved a5666e707777 archives and older Debian
+installer. Public GET/hash, HEAD, range, private/control path rejection and
+upload rejection for all five files passed in `t20260908T212657Z-88d65b`.
 No engineering repository, native control, credentials or private evidence is
 served there. Native-Mac packages are not yet available.
+
+Extract the newer Linux archive and run `./kicad-codex` for the native application
+or `./kicad-mcp` for STDIO tools. Its caption-update flow requires a verified
+managed installation with an explicitly trusted publisher; there is no enabled
+production update feed yet. The Debian installer below is the older preview,
+not an installer for the new caption-enabled archive.
 
 On Debian 13, after downloading the `.deb` to the current directory:
 

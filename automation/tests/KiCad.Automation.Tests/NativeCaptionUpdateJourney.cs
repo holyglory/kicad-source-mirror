@@ -26,52 +26,89 @@ public sealed partial class NativeSessionTests
     [TestCategory("NativeCaptionUpdate")]
     [DataRow(false)]
     [DataRow(true)]
-    public async Task InstalledCaptionUpdateRejectsDriftCancelsAndRestartsAfterSave(bool automaticContext)
+    public Task InstalledCaptionUpdateRejectsDriftCancelsAndRestartsAfterSave(bool automaticContext)
+        => RunCaptionUpdateJourney(automaticContext, publicChannel: false);
+
+    [TestMethod]
+    [TestCategory("PublicCaptionUpdate")]
+    [TestCategory("ExternalIntegration")]
+    public Task PublicSignedCaptionUpdateDownloadsPreservesDirtyWorkAndRestartsTwoProjects()
+        => RunCaptionUpdateJourney(automaticContext: true, publicChannel: true);
+
+    private async Task RunCaptionUpdateJourney(bool automaticContext, bool publicChannel)
     {
         string cataloguePath = Environment.GetEnvironmentVariable("KICAD_CAPTION_PACKAGE_CATALOGUE")
             ?? throw new AssertFailedException("Select the frozen caption-enabled package catalogue.");
         string candidatePath = Environment.GetEnvironmentVariable("KICAD_CAPTION_CANDIDATE_CATALOGUE")
             ?? throw new AssertFailedException("Select the exact candidate package catalogue.");
-        var catalogue = await DownloadCatalogue.LoadAsync(automaticContext ? candidatePath : cataloguePath);
+        var catalogue = await DownloadCatalogue.LoadAsync(automaticContext && !publicChannel ? candidatePath : cataloguePath);
         var candidateCatalogue = await DownloadCatalogue.LoadAsync(candidatePath);
         var artifact = catalogue.Manifest.Artifacts.Single(item => item.Platform == "linux-x64" && item.FileName.EndsWith(".tar.gz", StringComparison.Ordinal));
         var candidateArtifact = candidateCatalogue.Manifest.Artifacts.Single(item => item.Platform == "linux-x64" && item.FileName.EndsWith(".tar.gz", StringComparison.Ordinal));
-        if (!automaticContext) Assert.AreNotEqual(artifact.Commit, candidateArtifact.Commit, "This case must upgrade between different source builds.");
+        if (!automaticContext || publicChannel) Assert.AreNotEqual(artifact.Commit, candidateArtifact.Commit, "This case must upgrade between different source builds.");
         string evidence = Directory.CreateDirectory(Path.Combine(CaptionUpdateEvidence.Value,
-            automaticContext ? "automatic-context" : "different-build")).FullName;
+            publicChannel ? "public-signed" : automaticContext ? "automatic-context" : "different-build")).FullName;
         string temporary = Directory.CreateTempSubdirectory("kicad-caption-ui-").FullName;
-        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(5));
-        using var publisher = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var release = new UpdateRelease(1, "kicad-codex", "preview", 1, artifact.Version, artifact.Commit,
-            [new("linux-x64", "tar.gz", artifact.FileName, artifact.Bytes, artifact.Sha256)]);
-        byte[] installedEnvelope = UpdateManifestCodec.Sign(release, publisher);
-        byte[] candidateEnvelope = UpdateManifestCodec.Sign(new(1, "kicad-codex", "preview", 2,
-            candidateArtifact.Version, candidateArtifact.Commit, [new("linux-x64", "tar.gz", candidateArtifact.FileName,
-                candidateArtifact.Bytes, candidateArtifact.Sha256)]), publisher);
-        using var tls = RSA.Create(2048);
-        var certificateRequest = new CertificateRequest("CN=localhost", tls, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        var names = new SubjectAlternativeNameBuilder();
-        names.AddIpAddress(IPAddress.Loopback);
-        certificateRequest.CertificateExtensions.Add(names.Build());
-        certificateRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
-        using var certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddHours(1));
-        var builder = WebApplication.CreateSlimBuilder();
-        builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(certificate)));
-        await using var app = builder.Build();
-        app.MapGet("/updates/preview.json", () => Results.Bytes(candidateEnvelope, "application/json"));
-        app.MapGet("/artifacts/" + candidateArtifact.FileName, () => Results.File(candidateCatalogue.Files[candidateArtifact.FileName].Path, "application/octet-stream"));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(8));
+        WebApplication? app = null;
+        X509Certificate2? certificate = null;
         var processes = new List<Process>();
         var captures = new List<Task>();
         string? displayName = null;
         string installationRoot = Path.Combine(temporary, "installation");
         try
         {
-            await app.StartAsync(deadline.Token);
-            string origin = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single() + "/";
+            byte[] installedEnvelope, candidateEnvelope, publisherKey;
+            string origin;
+            if (publicChannel)
+            {
+                origin = Environment.GetEnvironmentVariable("KICAD_PUBLIC_DOWNLOAD_URL")
+                    ?? throw new AssertFailedException("Select the real public feed.");
+                publisherKey = await File.ReadAllBytesAsync(Environment.GetEnvironmentVariable("KICAD_UPDATE_PUBLISHER_SPKI_FILE")
+                    ?? throw new AssertFailedException("Select the trusted public key."), deadline.Token);
+                installedEnvelope = await File.ReadAllBytesAsync(Environment.GetEnvironmentVariable("KICAD_CAPTION_INSTALLED_ENVELOPE")
+                    ?? throw new AssertFailedException("Select the authentic previous release envelope."), deadline.Token);
+                using var source = new UpdateDownloader(new Uri(origin));
+                candidateEnvelope = await source.FetchManifestAsync("preview", deadline.Token);
+            }
+            else
+            {
+                using var publisher = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                publisherKey = publisher.ExportSubjectPublicKeyInfo();
+                installedEnvelope = UpdateManifestCodec.Sign(new(1, "kicad-codex", "preview", 1, artifact.Version, artifact.Commit,
+                    [new("linux-x64", "tar.gz", artifact.FileName, artifact.Bytes, artifact.Sha256)]), publisher);
+                candidateEnvelope = UpdateManifestCodec.Sign(new(1, "kicad-codex", "preview", 2,
+                    candidateArtifact.Version, candidateArtifact.Commit, [new("linux-x64", "tar.gz", candidateArtifact.FileName,
+                        candidateArtifact.Bytes, candidateArtifact.Sha256)]), publisher);
+                using var tls = RSA.Create(2048);
+                var certificateRequest = new CertificateRequest("CN=localhost", tls, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                var names = new SubjectAlternativeNameBuilder();
+                names.AddIpAddress(IPAddress.Loopback);
+                certificateRequest.CertificateExtensions.Add(names.Build());
+                certificateRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+                certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddHours(1));
+                var builder = WebApplication.CreateSlimBuilder();
+                builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(certificate)));
+                app = builder.Build();
+                app.MapGet("/updates/preview.json", () => Results.Bytes(candidateEnvelope, "application/json"));
+                app.MapGet("/artifacts/" + candidateArtifact.FileName, () => Results.File(candidateCatalogue.Files[candidateArtifact.FileName].Path, "application/octet-stream"));
+                await app.StartAsync(deadline.Token);
+                origin = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single() + "/";
+            }
+            var previousManifest = UpdateManifestCodec.Verify(installedEnvelope, publisherKey, "preview");
+            var candidateManifest = UpdateManifestCodec.Verify(candidateEnvelope, publisherKey, "preview",
+                new(previousManifest.Release.Sequence, previousManifest.PayloadSha256));
+            Assert.AreEqual(artifact.Commit, previousManifest.Release.Commit);
+            Assert.AreEqual(artifact.Sha256, previousManifest.ForInstallation("linux-x64", "tar.gz")!.Sha256);
+            Assert.AreEqual(candidateArtifact.Commit, candidateManifest.Release.Commit);
+            Assert.AreEqual(candidateArtifact.Sha256, candidateManifest.ForInstallation("linux-x64", "tar.gz")!.Sha256);
+            Assert.IsGreaterThan(previousManifest.Release.Sequence, candidateManifest.Release.Sequence);
             var installed = await LinuxVerifiedInstallation.InstallAsync(installationRoot, catalogue.Files[artifact.FileName].Path,
-                installedEnvelope, publisher.ExportSubjectPublicKeyInfo(), new Uri(origin), "preview", deadline.Token);
+                installedEnvelope, publisherKey, new Uri(origin), "preview", deadline.Token);
             string initialTarget = LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory);
-            var candidate = await LinuxVerifiedInstallation.RegisterAsync(installationRoot, initialTarget,
+            string candidateDirectory = Path.Combine(installationRoot, "versions", candidateManifest.PayloadSha256, "payload");
+            if (publicChannel) Assert.IsFalse(Directory.Exists(candidateDirectory), "Public journey must download/register through the running native helper.");
+            else await LinuxVerifiedInstallation.RegisterAsync(installationRoot, initialTarget,
                 candidateCatalogue.Files[candidateArtifact.FileName].Path, candidateEnvelope, deadline.Token);
             string engineering = Directory.CreateDirectory(Path.Combine(temporary, "project")).FullName;
             string project = Path.Combine(engineering, "fixture.kicad_pro");
@@ -82,7 +119,8 @@ public sealed partial class NativeSessionTests
                 { new { uuid = Guid.NewGuid().ToString("D"), name = "fixture", filename = "fixture.kicad_sch" } } }
             }), deadline.Token);
             string certificateFile = Path.Combine(temporary, "test-ca.pem");
-            await File.WriteAllTextAsync(certificateFile, certificate.ExportCertificatePem(), deadline.Token);
+            if (certificate is not null)
+                await File.WriteAllTextAsync(certificateFile, certificate.ExportCertificatePem(), deadline.Token);
             var displayStart = new ProcessStartInfo("Xvfb") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
             foreach (string arg in new[] { "-displayfd", "1", "-screen", "0", "1280x900x24", "-nolisten", "tcp" }) displayStart.ArgumentList.Add(arg);
             Process display = Process.Start(displayStart)!;
@@ -108,8 +146,11 @@ public sealed partial class NativeSessionTests
                 start.Environment["KICAD_AUTOMATION_UPDATE_HELPER"] = Path.Combine(prefix, "lib/kicad-automation/kicad-mcp");
                 start.Environment["KICAD_AUTOMATION_UPDATE_CONFIG"] = installed.ConfigurationPath;
             }
-            start.Environment["SSL_CERT_FILE"] = certificateFile;
-            start.Environment["SSL_CERT_DIR"] = Directory.CreateDirectory(Path.Combine(temporary, "empty-certificates")).FullName;
+            if (!publicChannel)
+            {
+                start.Environment["SSL_CERT_FILE"] = certificateFile;
+                start.Environment["SSL_CERT_DIR"] = Directory.CreateDirectory(Path.Combine(temporary, "empty-certificates")).FullName;
+            }
             foreach (string arg in new[] { "--new", "--automation", instance, "--api-socket", socket, "--automation-log", nativeLog,
                 "--software-rendering", project }) start.ArgumentList.Add(arg);
             Process native = Process.Start(start)!;
@@ -128,6 +169,7 @@ public sealed partial class NativeSessionTests
             }
             await client.CreateRootSchematicAsync(schematic, deadline.Token);
             await WaitLog("\"status\":\"candidate_available\"");
+            Assert.IsTrue(Directory.Exists(candidateDirectory));
             Process? secondNative = null;
             NativeClient? secondClient = null;
             string? secondSchematic = null;
@@ -175,7 +217,7 @@ public sealed partial class NativeSessionTests
             NativeKeyboard.SchematicShortcut(displayName, native.Id, "motion", "KiCad", false, true,
                 clickFromRight: 50, clickFromTop: 100);
             await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "update-available.png"), deadline.Token);
-            string changedFile = Path.Combine(candidate.Version.VersionDirectory, "README.txt");
+            string changedFile = Path.Combine(candidateDirectory, "README.txt");
             byte[] original = await File.ReadAllBytesAsync(changedFile, deadline.Token);
             await File.AppendAllTextAsync(changedFile, "Synthetic caption preflight drift.", deadline.Token);
             ClickUpdate();
@@ -218,7 +260,7 @@ public sealed partial class NativeSessionTests
             Process replacement = Process.GetProcessById(restarted.ProcessId!.Value);
             processes.Add(replacement);
             Assert.AreEqual(restarted.ProcessIdentity, LinuxProcessIdentity.Read(replacement.Id));
-            Assert.AreEqual(Path.Combine(candidate.Version.VersionDirectory, "runtime/bin/kicad"), replacement.MainModule!.FileName);
+            Assert.AreEqual(Path.Combine(candidateDirectory, "runtime/bin/kicad"), replacement.MainModule!.FileName);
             var peer = new NativeClient(new NngTransport(), restarted.Endpoint!, restarted.NativeEpoch);
             var session = await peer.HandshakeAsync(deadline.Token);
             Assert.AreEqual(instance, session.InstanceId);
@@ -279,7 +321,9 @@ public sealed partial class NativeSessionTests
                 saveAndRestartVerified = true, nativeEpochChanged = true,
                 differentBuildUpgrade = artifact.Commit != candidateArtifact.Commit,
                 automaticManagedContext = automaticContext, secondLiveInstanceCaptionUpdate = secondNative is not null,
-                productionSigning = false, nativeMacVerified = false
+                productionSigning = publicChannel, publicDownloadAndRegistration = publicChannel,
+                publisherKeySha256 = candidateManifest.PublisherKeySha256, origin,
+                automaticUpdatingQualified = false, nativeMacVerified = false
             }), deadline.Token);
 
             void ClickUpdate() => NativeKeyboard.SchematicShortcut(displayName, native.Id, "click", "KiCad", false, true,
@@ -329,7 +373,8 @@ public sealed partial class NativeSessionTests
                 process.Dispose();
             }
             await Task.WhenAll(captures);
-            await app.StopAsync();
+            if (app is not null) { await app.StopAsync(); await app.DisposeAsync(); }
+            certificate?.Dispose();
             Directory.Delete(temporary, recursive: true);
         }
     }

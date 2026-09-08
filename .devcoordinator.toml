@@ -29,7 +29,7 @@ command = ["dotnet", "automation/artifacts/download-host/kicad-downloads.dll"]
 port = true
 route = true
 health = { path = "/healthz", timeout_seconds = 60 }
-env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000001", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
+env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000002", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
 
 [test]
 default = "automation"
@@ -55,7 +55,31 @@ env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
 [[test.preview-sign.check]]
 name = "sign"
 tier = "development"
-command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "release-sign", "--release", "/home/holyglory/kicad/automation/distribution/releases/preview-000001.json", "--artifacts", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000001", "--private", "/mnt/build-storage/codex/kicad/signing/preview-publisher.pkcs8", "--output", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000001/updates/preview.json"]
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "release-sign", "--release", "/home/holyglory/kicad/automation/distribution/releases/preview-000002.json", "--artifacts", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000002", "--private", "/mnt/build-storage/codex/kicad/signing/preview-publisher.pkcs8", "--output", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000002/updates/preview.json", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000001/updates/preview.json"]
+
+[test.public-caption-update]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_CAPTION_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260908T220652Z-8e6938a6006c", KICAD_CAPTION_CANDIDATE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260908T231132Z-6a9de7fdd073", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000002", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/home/holyglory/kicad/automation/artifacts/public-download-evidence", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki", KICAD_CAPTION_INSTALLED_ENVELOPE = "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000001/updates/preview.json" }
+
+[[test.public-caption-update.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["https", "rendered"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.public-caption-update.check]]
+name = "https"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=PublicDownloads", "--logger", "trx", "--results-directory", "automation/artifacts/public-download-tests"]
+retained_artifacts = [{ name = "public-download-tests", path = "automation/artifacts/public-download-tests", max_bytes = 16777216 }, { name = "public-download-evidence", path = "automation/artifacts/public-download-evidence", max_bytes = 16777216 }]
+
+[[test.public-caption-update.check]]
+name = "rendered"
+tier = "development"
+requires = ["https"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=PublicCaptionUpdate|TestCategory=NativeCaptionUpdate", "--logger", "trx", "--results-directory", "automation/artifacts/public-caption-tests"]
+retained_artifacts = [{ name = "public-caption-tests", path = "automation/artifacts/public-caption-tests", max_bytes = 16777216 }, { name = "public-caption-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
 
 [test.signed-update-site]
 timeout_seconds = 600
@@ -171,7 +195,7 @@ retained_artifacts = [{ name = "native-updater-tests", path = "automation/artifa
 
 [test.public-downloads]
 timeout_seconds = 600
-env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000001", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/home/holyglory/kicad/automation/artifacts/public-download-evidence", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000002", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/home/holyglory/kicad/automation/artifacts/public-download-evidence", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
 
 [[test.public-downloads.check]]
 name = "build"

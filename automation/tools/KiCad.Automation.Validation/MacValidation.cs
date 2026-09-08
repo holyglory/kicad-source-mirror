@@ -41,7 +41,7 @@ public static class MacValidation
         File.Copy(toolchain, Path.Combine(evidence, "builder-toolchain.cmake"));
         string? verified = null, builderCommit = null, builderStatus = null, failure = null;
         string status = "failed";
-        const string dotnetSelection = "TestCategory!=NativeSession";
+        const string dotnetSelection = "TestCategory!=NativeSession&TestCategory!=ExternalIntegration";
         var steps = new List<ValidationStep>();
         var binaries = new List<NativeBinaryEvidence>();
         var environment = new Dictionary<string, string>

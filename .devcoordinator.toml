@@ -29,10 +29,27 @@ command = ["dotnet", "automation/artifacts/download-host/kicad-downloads.dll"]
 port = true
 route = true
 health = { path = "/healthz", timeout_seconds = 60 }
-env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/20260908T093000Z-a5666e707777" }
+env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/20260908T162100Z-a5666e707777-debian" }
 
 [test]
 default = "automation"
+
+[test.public-downloads]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260908T162100Z-a5666e707777-debian", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/home/holyglory/kicad/automation/artifacts/public-download-evidence" }
+
+[[test.public-downloads.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["https"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.public-downloads.check]]
+name = "https"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=PublicDownloads", "--logger", "trx", "--results-directory", "automation/artifacts/public-download-tests"]
+retained_artifacts = [{ name = "public-download-tests", path = "automation/artifacts/public-download-tests", max_bytes = 16777216 }, { name = "public-download-evidence", path = "automation/artifacts/public-download-evidence", max_bytes = 16777216 }]
 
 [test.update-contracts]
 timeout_seconds = 600
@@ -314,7 +331,7 @@ command = ["dotnet", "build", "KiCad.Automation.slnx", "--no-restore", "--config
 name = "unit"
 tier = "development"
 cwd = "automation"
-command = ["dotnet", "test", "KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory!=NativeSession&TestCategory!=NativeDocuments", "--logger", "trx", "--results-directory", "artifacts/tests"]
+command = ["dotnet", "test", "KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory!=NativeSession&TestCategory!=NativeDocuments&TestCategory!=ExternalIntegration", "--logger", "trx", "--results-directory", "artifacts/tests"]
 requires = ["build"]
 retained_artifacts = [{ name = "dotnet-test-results", path = "automation/artifacts/tests", max_bytes = 16777216 }]
 

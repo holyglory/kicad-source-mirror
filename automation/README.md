@@ -1180,7 +1180,7 @@ power-loss qualification, production signing, new matching packages and both
 native-Mac targets remain open. The public preview packages are unchanged and
 predate this command.
 
-### Native caption Update control (under qualification)
+### Native caption Update control (Linux preview qualification)
 
 For explicitly configured Linux/GTK installations, the manager can show a
 compact `Update` action in its toolkit-native caption when a candidate is
@@ -1199,11 +1199,21 @@ Native client cases cover the generated restart request, cancellation and retry.
 These cases passed in `t20260908T203257Z-cad8f4` and the manager/lifecycle
 regression passed in `t20260908T203731Z-70c35a`.
 
-This does not yet prove a complete update initiated through that button on a
-matching installed build. The frozen public packages are unchanged, no Mac
-caption implementation is qualified, and updating without an open project is
-not supported by this control. Matching-build button journeys, different-build
-upgrades, production signing and all remaining platform checks remain open.
+The matching source `38b65981e64b6a9ed144573ee73ec6a37fb68b20` was built and
+packaged in `t20260908T204920Z-1b274e`. The real installed caption-button journey
+passed in `t20260908T210559Z-8ac79a`: click Update, reject a changed candidate
+without closing the editor, dismiss the error and retry, cancel the native save
+prompt, save the schematic, click Update again, and reconnect to the replacement
+with the same instance ID and a new epoch. Saved schematic bytes were unchanged
+after reopening. Retained evidence tree:
+`d13693092cb8beac2eeceb886baf448686cd4dc070240db263d74dc3bb263805`.
+
+This test uses a new signed metadata sequence for the same matching build and
+an ephemeral test publisher. The public downloads remain the older frozen
+preview; this is not a production signing/feed or different-build upgrade proof.
+No Mac caption implementation is qualified, and updating without an open
+project is not supported by this control. Different-build and concurrent-instance
+update journeys, production signing and remaining platform checks stay open.
 
 ### Public preliminary downloads
 

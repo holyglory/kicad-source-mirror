@@ -34,6 +34,23 @@ env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build
 [test]
 default = "automation"
 
+[test.caption-update]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_CAPTION_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260908T205230Z-38b65981e64b" }
+
+[[test.caption-update.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["rendered"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.caption-update.check]]
+name = "rendered"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeCaptionUpdate", "--logger", "trx", "--results-directory", "automation/artifacts/caption-update-tests"]
+retained_artifacts = [{ name = "caption-update-tests", path = "automation/artifacts/caption-update-tests", max_bytes = 16777216 }, { name = "caption-update-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
+
 [test.native-caption]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
@@ -499,5 +516,5 @@ command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex"
 name = "native-session"
 tier = "development"
 requires = ["native-build"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSession&TestCategory!=NativePackage&TestCategory!=NativePackageArchive&TestCategory!=NativeUpdateArchive&TestCategory!=NativeUpdater", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSession&TestCategory!=NativePackage&TestCategory!=NativePackageArchive&TestCategory!=NativeUpdateArchive&TestCategory!=NativeUpdater&TestCategory!=NativeCaptionUpdate", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
 retained_artifacts = [{ name = "native-session-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]

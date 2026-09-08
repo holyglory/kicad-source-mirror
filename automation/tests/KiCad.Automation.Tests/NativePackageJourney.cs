@@ -84,6 +84,8 @@ public sealed partial class NativeSessionTests
                 Assert.IsFalse(native.HasExited, "Installed manager exited; inspect retained native diagnostics.");
                 try { await registry.AttachAsync("ipc://" + socket, instanceId, deadline.Token); break; }
                 catch (NngException) { await Task.Delay(100, deadline.Token); }
+                catch (NativeApiException error) when (error.Status is 4 or 7)
+                { await Task.Delay(100, deadline.Token); }
             }
             var client = new NativeClient(new NngTransport(), "ipc://" + socket);
             await VerifyEmptyRootCreation(client, schematic, Path.Combine(temporary, "wrong.kicad_sch"),

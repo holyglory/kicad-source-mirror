@@ -1254,11 +1254,12 @@ after another instance changes the shared installation selection.
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).
-It serves the frozen 2ed9d688883f Debian 13 x64 application archive and matching
-source, alongside the preserved 3492c24706a1, 6a93cb3fd254, 6a9de7fdd073, 8e6938a6006c, 38b65981e64b and a5666e707777
+It serves the frozen 7a8d9ea241ee Debian 13 x64 application archive and matching
+source, alongside the preserved 2ed9d688883f, 3492c24706a1, 6a93cb3fd254,
+6a9de7fdd073, 8e6938a6006c, 38b65981e64b and a5666e707777
 archives and older Debian installer. Public GET/hash, HEAD, range, private/control
-path rejection and upload rejection for all fifteen files passed in
-`t20260909T014326Z-8d4e0a`.
+path rejection and upload rejection for all seventeen files passed in
+`t20260909T020550Z-17af01`.
 No engineering repository, native control, credentials or private evidence is
 served there. Native-Mac packages are not yet available.
 
@@ -1285,11 +1286,11 @@ remain unfinished. Public availability is not a qualifying-delivery reset.
 
 ### Persistent publisher and public-channel Linux update
 
-Preview `preview-20260909T013416Z-2ed9d688883f` is available as an
-[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T013416Z-2ed9d688883f-debian13-x64.tar.gz)
-and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T013416Z-2ed9d688883f-source.tar.gz).
+Preview `preview-20260909T015731Z-7a8d9ea241ee` is available as an
+[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T015731Z-7a8d9ea241ee-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T015731Z-7a8d9ea241ee-source.tar.gz).
 The application archive SHA-256 is
-`edfc01f997a445989ca93319904c8599fbafad4796917cd56ac31fa5c20170dd`.
+`f7d004b694fd50310f63845fcb77144e8f58a257c35abb947adc898c36f54cca`.
 
 Obtain `automation/distribution/preview-publisher.spki` from the trusted fork
 checkout (present from commit `6a9de7fdd0731378712f9cdbfda3c322f93cd89a`).
@@ -1366,6 +1367,19 @@ Public run `t20260909T014326Z-8d4e0a` then verified the real signed
 3492c24706a1-to-2ed9d688883f upgrade, direct Save-prompt action, two-project
 isolation and fixture-signed empty-manager restart. The live-identity-error branch
 and crash/power-loss recovery remain outside these specific proofs.
+
+The retained early-exit evidence also exposed a native cleanup crash: rejecting
+arguments before worker initialization dereferenced a null pool. Earlier checks
+that accepted any nonzero exit did not catch this. Build 7a8d9ea241ee guards
+partial/repeated cleanup in the manager and matching standalone-editor path.
+Run `t20260909T015422Z-700b72` requires normal failure exits and actionable
+diagnostics for six invalid starts, plus successful empty-manager startup/close.
+The four recovery cases passed again against this package in
+`t20260909T015852Z-ce8974`; the early-exit case now records exit 255, not the
+earlier segmentation-fault exit 139. Public `t20260909T020550Z-17af01` verifies
+the signed 2ed9d688883f-to-7a8d9ea241ee upgrade, Save-prompt action, two-project
+isolation, empty-manager restart and all seventeen downloads. Older packages
+remain available but do not acquire the newer cleanup fix.
 
 These prove the stated Linux journeys, not all update recovery cases or either
 native-Mac target. Broader restart/failure/power-loss recovery, Mac packaging

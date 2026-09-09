@@ -27,6 +27,15 @@ public static class HostedDelivery
             throw new InvalidDataException("The packaged Windows binary is not x64: " + Path.GetFileName(path));
     }
 
+    public static void ConfigureWindowsTransportCheck(IDictionary<string, string?> environment,
+        string check, string library)
+    {
+        // Source test binaries are not installed beside the packaged DLLs.
+        // The installed executable must instead prove its ordinary DLL search.
+        if (check == "managed-contracts") environment["KICAD_AUTOMATION_NNG_LIBRARY"] = library;
+        else if (check == "managed-runtime") environment.Remove("KICAD_AUTOMATION_NNG_LIBRARY");
+    }
+
     public static async Task<bool> RunAsync(HostedDeliveryRequest request, CancellationToken cancellationToken)
     {
         Evidence.RequireCommit(request.Commit);
@@ -134,9 +143,12 @@ public static class HostedDelivery
             string build = Path.Combine(output, "build");
             string install = Path.Combine(output, "install");
             string bin = Path.Combine(install, "bin");
-            string managed = Path.Combine(install, "automation");
+            string managedPublish = Path.Combine(output, "managed");
+            // One application directory gives KiCad and MCP the same native
+            // dependencies and CRT, without depending on the runner's PATH.
+            string managed = bin;
             await Run("managed-publish", "dotnet", ["publish", "automation/src/KiCad.Automation.Mcp", "--configuration", "Release",
-                "--runtime", "win-x64", "--self-contained", "true", "-p:RestoreLockedMode=true", "--output", managed]);
+                "--runtime", "win-x64", "--self-contained", "true", "-p:RestoreLockedMode=true", "--output", managedPublish]);
             await Run("native-configure", "cmake", ["-S", repository, "-B", build, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
                 "-DCMAKE_TOOLCHAIN_FILE=" + Path.Combine(vcpkg, "scripts", "buildsystems", "vcpkg.cmake"),
                 "-DVCPKG_TARGET_TRIPLET=x64-windows", "-DVCPKG_OVERLAY_TRIPLETS=" + Path.Combine(repository, "tools", "custom_vcpkg_triplets"),
@@ -155,12 +167,12 @@ public static class HostedDelivery
             string[] crt = Directory.GetDirectories(Path.Combine(redist, "x64"), "Microsoft.VC*.CRT");
             if (crt.Length != 1) throw new InvalidDataException("Select exactly one matching MSVC x64 CRT.");
             CopyDlls(crt[0], bin);
+            CopyTree(managedPublish, managed);
             // Include the dependency licenses and native KiCad license with the preview.
             CopyTree(Path.Combine(dependencies, "share"), Path.Combine(install, "dependency-notices"));
             foreach (string license in Directory.GetFiles(repository, "LICENSE*"))
                 File.Copy(license, Path.Combine(install, Path.GetFileName(license)));
             string nng = Path.Combine(bin, "nng.dll");
-            File.Copy(nng, Path.Combine(managed, "nng.dll"));
             foreach (string file in new[] { Path.Combine(bin, "kicad.exe"), Path.Combine(bin, "kicad-cli.exe"),
                 Path.Combine(managed, "kicad-mcp.exe"), Path.Combine(managed, "coreclr.dll"), nng }) RequireWindowsX64(file);
             string nativeCommit = (await Run("installed-native-commit", Path.Combine(bin, "kicad-cli.exe"),
@@ -207,8 +219,7 @@ public static class HostedDelivery
                 RedirectStandardOutput = true, RedirectStandardError = true };
             foreach (string argument in arguments) start.ArgumentList.Add(argument);
             string windowsNng = Path.Combine(output, "install", "bin", "nng.dll");
-            if (!mac && File.Exists(windowsNng))
-                start.Environment["KICAD_AUTOMATION_NNG_LIBRARY"] = windowsNng;
+            if (!mac) ConfigureWindowsTransportCheck(start.Environment, name, windowsNng);
             // The official ngspice source uses git://; use its same HTTPS origin
             // on hosted runners that do not permit the unauthenticated git port.
             start.Environment["GIT_CONFIG_COUNT"] = "1";

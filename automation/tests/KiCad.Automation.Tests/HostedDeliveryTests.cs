@@ -8,6 +8,20 @@ namespace KiCad.Automation.Tests;
 public sealed class HostedDeliveryTests
 {
     [TestMethod]
+    public void InstalledWindowsProbeCannotBorrowTheSourceTestLibraryOverride()
+    {
+        var environment = new Dictionary<string, string?>
+        { ["KICAD_AUTOMATION_NNG_LIBRARY"] = "build-only-library", ["PATH"] = "preserved-runner-path" };
+        HostedDelivery.ConfigureWindowsTransportCheck(environment, "managed-runtime", "packaged-library");
+        Assert.IsFalse(environment.ContainsKey("KICAD_AUTOMATION_NNG_LIBRARY"));
+        Assert.AreEqual("preserved-runner-path", environment["PATH"]);
+        HostedDelivery.ConfigureWindowsTransportCheck(environment, "managed-contracts", "packaged-library");
+        Assert.AreEqual("packaged-library", environment["KICAD_AUTOMATION_NNG_LIBRARY"]);
+        HostedDelivery.ConfigureWindowsTransportCheck(environment, "unrelated-check", "different-library");
+        Assert.AreEqual("packaged-library", environment["KICAD_AUTOMATION_NNG_LIBRARY"]);
+    }
+
+    [TestMethod]
     public void NativeTargetsDoNotTurnLinuxOrRosettaIntoAnotherArchitecture()
     {
         HostedDelivery.ValidateTarget("arm64", true, false, Architecture.Arm64);

@@ -850,6 +850,9 @@ Mac uses the pinned official KiCad Mac Builder and customized wxWidgets, then
 the exact-commit validation command below. Windows uses MSVC and KiCad's vcpkg
 manifest/registry pins, publishes the self-contained MCP executable, checks PE
 architecture and the installed KiCad commit, and opens real native NNG sockets.
+The Windows archive places `kicad-mcp.exe` in `bin` beside KiCad, NNG and the
+matching Microsoft C++ runtime DLLs. Its installed runtime probe does not use the
+native-library override needed by source-tree tests.
 Source archives accompany successfully built application archives.
 
 Artifacts and `receipt.json` are retained even after ordinary failures. A failed

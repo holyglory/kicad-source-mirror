@@ -11,7 +11,8 @@ public sealed partial class NativeSessionTests
 {
     private static async Task VerifyUpdateRestartHandoff(InstalledLinuxUpdate installed, InstalledLinuxUpdate candidate,
         string evidence, CancellationToken token, bool rejectCandidateStartup = false, Func<Task>? beforeHandoff = null,
-        bool rejectActivation = false, bool changeSelectionDuringClose = false, bool useInstalledHelper = false)
+        bool rejectActivation = false, bool changeSelectionDuringClose = false, bool useInstalledHelper = false,
+        bool exitBeforeIdentity = false)
     {
         string temporary = Directory.CreateTempSubdirectory("kicad-restart-").FullName;
         var processes = new List<Process>();
@@ -73,6 +74,7 @@ public sealed partial class NativeSessionTests
                 Assert.AreEqual(oldEpoch, (await client.HandshakeAsync(deadline.Token)).Epoch);
             }
             string selectedTarget = LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory);
+            var selectedBefore = await LinuxVerifiedInstallation.InspectSelectedAsync(installed.Root, selectedTarget, deadline.Token);
             string replacementSocket = Path.Combine(temporary, "new.sock");
             var request = new LinuxUpdateHandoffRequest(installed.Root, selectedTarget, candidate.ManifestSha256,
                 Guid.NewGuid(), LinuxProcessIdentity.Read(old.Id), project, Guid.Parse(instance), replacementSocket, true);
@@ -109,6 +111,9 @@ public sealed partial class NativeSessionTests
             // The handoff process normally inherits the native manager display
             // and configuration. Test-specific launch context is passed directly,
             // without mutating the test host's process environment.
+            if (rejectCandidateStartup)
+                await File.WriteAllTextAsync(Path.Combine(evidence, "handoff-helper.json"), JsonSerializer.Serialize(new
+                { schemaVersion = 1, helperKind = "source-injected-startup-failure", installedCommit = installed.Commit }), deadline.Token);
             handoff = rejectCandidateStartup ? LinuxUpdateHandoff.ExecuteAsync(request, state =>
             {
                 if (state.Status == "waiting_for_exit") waiting.TrySetResult();
@@ -119,7 +124,18 @@ public sealed partial class NativeSessionTests
                 // reply: the candidate receives an absent explicit project.
                 if (rejectCandidateStartup && label == "candidate")
                     launch.ArgumentList[^1] = Path.Combine(temporary, "absent.kicad_pro");
-            }, handoffCancellation.Token) : RunHandoffProcess();
+            }, handoffCancellation.Token, exitBeforeIdentity ? async (label, launched) =>
+            {
+                if (label == "candidate")
+                {
+                    // Let the real KiCad startup rejection finish before the
+                    // supervisor can record process identity. No fake process
+                    // result, alternative executable or production delay.
+                    await launched.WaitForExitAsync(deadline.Token);
+                    await File.WriteAllTextAsync(Path.Combine(evidence, "early-exit.json"), JsonSerializer.Serialize(new
+                    { schemaVersion = 1, launched.Id, launched.ExitCode, beforeIdentity = true }), deadline.Token);
+                }
+            } : null) : RunHandoffProcess();
             await Task.WhenAny(waiting.Task, handoff).WaitAsync(deadline.Token);
             if (handoff.IsCompleted) await handoff; // surface a rejected request immediately
             await waiting.Task.WaitAsync(deadline.Token);
@@ -150,6 +166,8 @@ public sealed partial class NativeSessionTests
             await old.WaitForExitAsync(deadline.Token);
             var result = await handoff;
             await File.WriteAllTextAsync(Path.Combine(evidence, "restart-result.json"), JsonSerializer.Serialize(result), deadline.Token);
+            string journalEvidence = Directory.CreateDirectory(Path.Combine(evidence, "journal")).FullName;
+            CopyJournal();
             if (rejectActivation) await File.WriteAllBytesAsync(candidateReadme, originalReadme, deadline.Token);
             bool expectRestored = rejectCandidateStartup || rejectActivation || changeSelectionDuringClose;
             Assert.AreEqual(expectRestored ? "restored" : "restarted", result.Status, result.Error);
@@ -163,20 +181,33 @@ public sealed partial class NativeSessionTests
                 + (expectRestored ? ".r" : ""), result.NativeEpoch);
             await replacementClient.OpenRootSchematicAsync(schematic, deadline.Token);
             CollectionAssert.AreEqual(savedSchematic, await File.ReadAllBytesAsync(schematic, deadline.Token));
+            if (expectRestored)
+                Assert.AreEqual(Path.Combine(installed.VersionDirectory, "runtime/bin/kicad"), replacement.MainModule!.FileName,
+                    "Recovery must restore this editor's version, not another project's selected version.");
+            if (rejectCandidateStartup)
+            {
+                var selectedAfter = await LinuxVerifiedInstallation.InspectSelectedAsync(installed.Root,
+                    LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory), deadline.Token);
+                Assert.AreEqual(selectedBefore.ManifestSha256, selectedAfter.ManifestSha256,
+                    "Rollback must preserve the version selected before this update.");
+            }
             if (rejectActivation || changeSelectionDuringClose)
             {
                 Assert.AreEqual(selectionToPreserve, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
                 CollectionAssert.AreEqual(acceptedBeforeClose,
                     await File.ReadAllBytesAsync(Path.Combine(installed.Root, "state", "accepted-envelope.json"), deadline.Token));
-                Assert.AreEqual(Path.Combine(installed.VersionDirectory, "runtime/bin/kicad"), replacement.MainModule!.FileName);
                 Assert.IsTrue(File.Exists(Path.Combine(result.JournalDirectory, "activation-failure.json")));
             }
             await NativeKeyboard.CaptureAsync(fixtureDisplay, Path.Combine(evidence, "replacement.png"), deadline.Token);
             NativeKeyboard.SchematicShortcut(fixtureDisplay, replacement.Id, "q", "KiCad", true, false);
             await replacement.WaitForExitAsync(deadline.Token);
-            string journalEvidence = Directory.CreateDirectory(Path.Combine(evidence, "journal")).FullName;
-            foreach (string file in Directory.GetFiles(result.JournalDirectory))
-                File.Copy(file, Path.Combine(journalEvidence, Path.GetFileName(file)));
+            CopyJournal();
+
+            void CopyJournal()
+            {
+                foreach (string file in Directory.GetFiles(result.JournalDirectory))
+                    File.Copy(file, Path.Combine(journalEvidence, Path.GetFileName(file)), overwrite: true);
+            }
 
             async Task<UpdateHandoffState> RunHandoffProcess()
             {

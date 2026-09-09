@@ -26,7 +26,8 @@ public static class LinuxUpdateHandoff
 
     internal static async Task<UpdateHandoffState> ExecuteAsync(LinuxUpdateHandoffRequest request,
         Func<UpdateHandoffState, Task> report, IReadOnlyDictionary<string, string?>? launchEnvironment,
-        Action<string, ProcessStartInfo>? beforeLaunch, CancellationToken token)
+        Action<string, ProcessStartInfo>? beforeLaunch, CancellationToken token,
+        Func<string, Process, Task>? afterLaunch = null)
     {
         Validate(request);
         token.ThrowIfCancellationRequested();
@@ -100,9 +101,7 @@ public static class LinuxUpdateHandoff
                 // been launched. Reverify its retained version, independently
                 // of a selection that another project may have changed. Do not
                 // roll back that shared selection or the accepted checkpoint.
-                var retained = await LinuxVerifiedInstallation.InspectExecutableVersionAsync(root, executable, CancellationToken.None);
-                if (retained != previousVersion)
-                    throw new InvalidDataException("The previous editor registration changed before recovery.");
+                var retained = await ReverifyPreviousEditor();
                 return await LaunchAsync(retained, state.SelectedTarget!, "restored");
             }
             catch (Exception recoveryError) when (recoveryError is IOException or InvalidDataException or ArgumentException)
@@ -126,7 +125,11 @@ public static class LinuxUpdateHandoff
             await Record(state, CancellationToken.None);
             var rollback = await LinuxVerifiedInstallation.RollbackAsync(root, activated.Activation.Target,
                 request.OperationId, Guid.NewGuid(), CancellationToken.None);
-            var recovered = await LaunchAsync(rollback.SelectedVersion, rollback.Activation.Target, "restored");
+            // Selection rollback belongs to the shared installation; the closed
+            // editor may have been running an older retained version. Restore
+            // that exact editor without substituting another project's choice.
+            var retained = await ReverifyPreviousEditor();
+            var recovered = await LaunchAsync(retained, rollback.Activation.Target, "restored");
             return recovered;
         }
         catch (Exception error) when (error is IOException or InvalidDataException or ArgumentException)
@@ -134,6 +137,14 @@ public static class LinuxUpdateHandoff
             state = new("reconciliation_required", journal, Error: error.Message);
             await Record(state, CancellationToken.None);
             return state;
+        }
+
+        async Task<InstalledLinuxUpdate> ReverifyPreviousEditor()
+        {
+            var retained = await LinuxVerifiedInstallation.InspectExecutableVersionAsync(root, executable, CancellationToken.None);
+            if (retained != previousVersion)
+                throw new InvalidDataException("The previous editor registration changed before recovery.");
+            return retained;
         }
 
         async Task<UpdateHandoffState> LaunchAsync(InstalledLinuxUpdate version, string target, string label)
@@ -173,11 +184,30 @@ public static class LinuxUpdateHandoff
             {
                 Task drainOutput = CaptureAsync(process.StandardOutput.BaseStream, Path.Combine(journal, label + ".stdout.log"));
                 Task drainError = CaptureAsync(process.StandardError.BaseStream, Path.Combine(journal, label + ".stderr.log"));
+                if (afterLaunch is not null) await afterLaunch(label, process);
                 // Persist process identity before any readiness wait. If this
                 // write fails, do not spawn a second instance or kill this one.
                 var launched = new UpdateHandoffState("awaiting_native", journal, target, process.Id,
-                    process.StartTime.ToUniversalTime().Ticks, Endpoint: "ipc://" + socket,
-                    ProcessIdentity: LinuxProcessIdentity.Read(process.Id));
+                    Endpoint: "ipc://" + socket);
+                try
+                {
+                    if (process.HasExited) return await RecordEarlyExit();
+                    launched = launched with
+                    {
+                        ProcessStartUtcTicks = process.StartTime.ToUniversalTime().Ticks,
+                        ProcessIdentity = LinuxProcessIdentity.Read(process.Id)
+                    };
+                    // Capture can race with exit even after a successful read.
+                    if (process.HasExited) return await RecordEarlyExit();
+                }
+                catch (Exception identityError) when (identityError is IOException or InvalidOperationException
+                    or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+                {
+                    if (process.HasExited) return await RecordEarlyExit();
+                    var uncertain = launched with { Status = "reconciliation_required", Error = identityError.Message };
+                    await Record(uncertain, CancellationToken.None);
+                    return uncertain;
+                }
                 await Record(launched, CancellationToken.None);
                 // Once the old editor has closed, restoring it is bounded
                 // cleanup even if the update request itself was cancelled.
@@ -220,6 +250,14 @@ public static class LinuxUpdateHandoff
                     var uncertain = launched with { Status = "reconciliation_required", Error = error.Message };
                     await Record(uncertain, CancellationToken.None);
                     return uncertain;
+                }
+
+                async Task<UpdateHandoffState> RecordEarlyExit()
+                {
+                    await Task.WhenAll(drainOutput, drainError);
+                    var failed = launched with { Status = "launch_failed", Error = "Replacement exited with code " + process.ExitCode };
+                    await Record(failed, CancellationToken.None);
+                    return failed;
                 }
             }
         }

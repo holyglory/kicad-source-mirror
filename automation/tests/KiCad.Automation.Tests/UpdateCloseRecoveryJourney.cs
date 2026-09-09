@@ -14,7 +14,20 @@ public sealed partial class NativeSessionTests
     [TestCategory("NativeUpdateCloseRecovery")]
     [DataRow(false)]
     [DataRow(true)]
-    public async Task UpdateChangingDuringSavePromptRestoresTheVerifiedPreviousEditor(bool concurrentSelection)
+    public Task UpdateChangingDuringSavePromptRestoresTheVerifiedPreviousEditor(bool concurrentSelection)
+        => VerifyCloseRecoveryFixture(concurrentSelection, rejectStartup: false);
+
+    [TestMethod]
+    [TestCategory("NativeUpdateCloseRecovery")]
+    public Task FailedStartupRestoresTheOlderEditorAfterAnotherUpdateSelectedTheCandidate()
+        => VerifyCloseRecoveryFixture(concurrentSelection: true, rejectStartup: true);
+
+    [TestMethod]
+    [TestCategory("NativeUpdateEarlyExit")]
+    public Task ReplacementExitingBeforeIdentityCaptureRestoresTheVerifiedEditor()
+        => VerifyCloseRecoveryFixture(concurrentSelection: false, rejectStartup: true, earlyExit: true);
+
+    private async Task VerifyCloseRecoveryFixture(bool concurrentSelection, bool rejectStartup, bool earlyExit = false)
     {
         string cataloguePath = Environment.GetEnvironmentVariable("KICAD_PACKAGE_CATALOGUE")
             ?? throw new AssertFailedException("Select an exact frozen native package for recovery checks.");
@@ -24,7 +37,7 @@ public sealed partial class NativeSessionTests
         var artifact = catalogue.Manifest.Artifacts.Single(item => item.Platform == "linux-x64"
             && item.FileName.EndsWith(".tar.gz", StringComparison.Ordinal));
         string evidence = Directory.CreateDirectory(Path.Combine(CloseRecoveryEvidence.Value,
-            concurrentSelection ? "selection-changed" : "candidate-changed")).FullName;
+            earlyExit ? "exit-before-identity" : rejectStartup ? "startup-after-other-selection" : concurrentSelection ? "selection-changed" : "candidate-changed")).FullName;
         string temporary = Directory.CreateTempSubdirectory("kicad-close-recovery-").FullName;
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(5));
         using var publisher = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -49,8 +62,15 @@ public sealed partial class NativeSessionTests
                 LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory), catalogue.Files[artifact.FileName].Path,
                 candidateEnvelope, deadline.Token);
             await VerifyUpdateRestartHandoff(installed, candidate.Version, evidence, deadline.Token,
-                rejectActivation: !concurrentSelection, changeSelectionDuringClose: concurrentSelection,
-                useInstalledHelper: helperMode == "1");
+                rejectCandidateStartup: rejectStartup,
+                beforeHandoff: rejectStartup && concurrentSelection ? async () =>
+                {
+                    await LinuxVerifiedInstallation.ActivateAsync(installed.Root,
+                        LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory), candidate.Version.ManifestSha256,
+                        Guid.NewGuid(), deadline.Token);
+                } : null,
+                rejectActivation: !concurrentSelection && !rejectStartup, changeSelectionDuringClose: concurrentSelection && !rejectStartup,
+                useInstalledHelper: helperMode == "1" && !rejectStartup, exitBeforeIdentity: earlyExit);
         }
         finally { Directory.Delete(temporary, recursive: true); }
     }

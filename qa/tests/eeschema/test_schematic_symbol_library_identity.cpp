@@ -36,7 +36,10 @@ BOOST_AUTO_TEST_CASE( OriginalLibraryLinkOwnedDefinitionAndCacheAliasRoundTripIn
     BOOST_REQUIRE( restored.Deserialize( encoded ) );
     BOOST_CHECK_EQUAL( restored.GetLibId().Format(), sourceId.Format() );
     BOOST_CHECK_EQUAL( restored.GetLibSymbolRef()->GetLibId().Format(), definitionId.Format() );
-    BOOST_CHECK_EQUAL( restored.GetSchSymbolLibraryName(), wxS( "ScreenCopy_3" ) );
+    // Boost's narrow diagnostic stream cannot print wchar_t arrays on libc++.
+    // Compare printable UTF-8 values while retaining the exact alias check.
+    BOOST_CHECK_EQUAL( restored.GetSchSymbolLibraryName().ToStdString( wxConvUTF8 ),
+                       "ScreenCopy_3" );
     BOOST_CHECK_EQUAL( restored.GetLibSymbolRef()->GetPinNameOffset(), 0 );
     BOOST_CHECK_EQUAL( restored.GetPinNameOffset(), 1234 );
     auto nonzero = message;
@@ -66,7 +69,8 @@ BOOST_AUTO_TEST_CASE( OriginalLibraryLinkOwnedDefinitionAndCacheAliasRoundTripIn
     encoded.PackFrom( message );
     BOOST_REQUIRE( restored.Deserialize( encoded ) );
     BOOST_CHECK( restored.UseLibIdLookup() );
-    BOOST_CHECK_EQUAL( restored.GetSchSymbolLibraryName(), sourceId.Format().wx_str() );
+    BOOST_CHECK_EQUAL( restored.GetSchSymbolLibraryName().ToStdString( wxConvUTF8 ),
+                       std::string( sourceId.Format() ) );
     google::protobuf::Any before;
     restored.Serialize( before );
     auto invalid = message;

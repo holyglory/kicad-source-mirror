@@ -757,3 +757,24 @@ name = "windows-publish"
 tier = "development"
 requires = ["contracts"]
 command = ["dotnet", "publish", "automation/src/KiCad.Automation.Mcp", "--configuration", "Debug", "--runtime", "win-x64", "--self-contained", "true", "-p:RestoreLockedMode=true", "--output", "automation/artifacts/distribution/hosted-win-runtime"]
+
+[test.native-symbol-library-identity]
+timeout_seconds = 7200
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_RUN_FROM_BUILD_DIR = "1", KICAD_CONFIG_HOME = "/mnt/build-storage/codex/kicad/t/native-library-identity-config", KICAD_CACHE_HOME = "/mnt/build-storage/codex/kicad/t/native-library-identity-cache" }
+
+[[test.native-symbol-library-identity.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["identity"]
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "qa_eeschema"]
+
+[[test.native-symbol-library-identity.check]]
+name = "identity"
+tier = "development"
+command = ["xvfb-run", "-a", "ctest", "--test-dir", "automation/artifacts/native", "--no-tests=error", "--output-on-failure", "-R", "^qa_schematic_symbol_library_identity$"]
+
+[[test.native-symbol-library-identity.check]]
+name = "managed-build"
+tier = "development"
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]

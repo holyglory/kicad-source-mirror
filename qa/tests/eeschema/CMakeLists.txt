@@ -333,6 +333,10 @@ target_compile_definitions( qa_eeschema
 
 kicad_add_boost_test( qa_eeschema qa_eeschema )
 
+add_test( NAME qa_schematic_symbol_library_identity
+    COMMAND $<TARGET_FILE:qa_eeschema> --run_test=SchematicSymbolLibraryIdentity --log_level=test_suite )
+setup_qa_env( qa_schematic_symbol_library_identity )
+
 setup_qa_env( qa_eeschema )
 
 # Focused native save/load acceptance without rebuilding every eeschema test.

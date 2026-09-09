@@ -836,7 +836,9 @@ gh run watch RUN_ID --repo holyglory/kicad-source-mirror --exit-status
 gh run download RUN_ID --repo holyglory/kicad-source-mirror --dir NEW_EVIDENCE_DIRECTORY
 ```
 
-Use `target=mac` or `target=windows` for a focused repair run. The workflow must
+Use `target=mac`, `target=mac-arm64`, `target=mac-x64` or `target=windows` for a
+focused repair run. Individual Mac selections let an unaffected sibling finish
+without starting a second build of that target. The workflow must
 be registered on the default branch; that branch contains the dispatch workflow
 without upgrading the pinned native source. The checkout and compiled runner
 come from the explicit requested commit, not the default branch.

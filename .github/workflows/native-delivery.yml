@@ -73,6 +73,7 @@ jobs:
             ${{ runner.temp }}/kicad-delivery/packages
             ${{ runner.temp }}/kicad-delivery/mac/evidence
             ${{ runner.temp }}/kicad-delivery/mac/result.json
+            ${{ runner.temp }}/kicad-delivery/mac/evidence.tar.gz
           if-no-files-found: error
           retention-days: 14
           compression-level: 1

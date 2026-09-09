@@ -13,7 +13,7 @@ on:
         required: true
         default: all
         type: choice
-        options: [all, mac, windows]
+        options: [all, mac, mac-arm64, mac-x64, windows]
 
 # SA-09: disposable public-source builds; no publisher key, engineering
 # repository, persistent runner or live editor-control endpoint.
@@ -22,15 +22,11 @@ permissions:
 
 jobs:
   mac:
-    if: inputs.target == 'all' || inputs.target == 'mac'
+    if: inputs.target == 'all' || startsWith(inputs.target, 'mac')
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: macos-15
-            architecture: arm64
-          - runner: macos-15-intel
-            architecture: x64
+        include: ${{ fromJSON(inputs.target == 'mac-arm64' && '[{"runner":"macos-15","architecture":"arm64"}]' || inputs.target == 'mac-x64' && '[{"runner":"macos-15-intel","architecture":"x64"}]' || '[{"runner":"macos-15","architecture":"arm64"},{"runner":"macos-15-intel","architecture":"x64"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 350
     env:

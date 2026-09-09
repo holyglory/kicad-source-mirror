@@ -84,9 +84,13 @@ static struct PGM_SINGLE_TOP : public PGM_BASE
 
     void OnPgmExit()
     {
-        // Abort and wait on any background jobs
-        GetKiCadThreadPool().purge();
-        GetKiCadThreadPool().wait();
+        // Initialization can fail before workers exist; repeated cleanup must
+        // not dereference or recreate a destroyed pool either.
+        if( m_singleton.m_ThreadPool )
+        {
+            m_singleton.m_ThreadPool->purge();
+            m_singleton.m_ThreadPool->wait();
+        }
 
         Kiway.OnKiwayEnd();
 

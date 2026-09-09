@@ -134,6 +134,8 @@ public sealed partial class NativeSessionTests
                     await launched.WaitForExitAsync(deadline.Token);
                     await File.WriteAllTextAsync(Path.Combine(evidence, "early-exit.json"), JsonSerializer.Serialize(new
                     { schemaVersion = 1, launched.Id, launched.ExitCode, beforeIdentity = true }), deadline.Token);
+                    Assert.IsTrue(launched.ExitCode is 1 or 255,
+                        "The early-exit fixture requires clean native startup rejection, not an unrelated crash.");
                 }
             } : null) : RunHandoffProcess();
             await Task.WhenAny(waiting.Task, handoff).WaitAsync(deadline.Token);

@@ -37,13 +37,19 @@ public sealed partial class NativeSessionTests
                 ["--new", "--update-manager", instance, "--automation", instance, "--api-socket", socket],
                 ["--new", "--update-manager", instance, "--api-socket", socket, project],
                 ["--new", "--update-manager", instance, "--api-socket", "relative.sock"],
-                ["--new", "--automation", instance, "--api-socket", socket]
+                ["--new", "--automation", instance, "--api-socket", socket],
+                ["--new", "--automation", instance, "--api-socket", socket, Path.Combine(temporary, "absent.kicad_pro")]
             ];
             for (int index = 0; index < invalid.Length; index++)
             {
                 var rejected = Launch(invalid[index], "rejected-" + index);
                 await rejected.WaitForExitAsync(deadline.Token);
-                Assert.AreNotEqual(0, rejected.ExitCode);
+                Assert.IsTrue(rejected.ExitCode is 1 or 255,
+                    "Startup rejection must be a normal failure, not a native signal/crash: " + rejected.ExitCode);
+                await Task.WhenAll(captures.TakeLast(2));
+                string diagnostic = await File.ReadAllTextAsync(Path.Combine(evidence, "rejected-" + index + ".stderr.log"), deadline.Token);
+                Assert.IsTrue(diagnostic.Contains("requires", StringComparison.Ordinal)
+                    || diagnostic.Contains("require", StringComparison.Ordinal), "Keep an actionable startup error.");
                 Assert.IsFalse(File.Exists(socket));
             }
 
@@ -79,7 +85,7 @@ public sealed partial class NativeSessionTests
             {
                 schemaVersion = 1, nativeIdentityVerified = true, projectPath = "",
                 implicitDocumentCreationRejected = true, explicitProjectAutomationPreserved = true,
-                invalidStartupCases = invalid.Length, nativeMacVerified = false,
+                invalidStartupCases = invalid.Length, normalFailureExitsVerified = true, nativeMacVerified = false,
                 captionRestartVerified = false
             }), deadline.Token);
 

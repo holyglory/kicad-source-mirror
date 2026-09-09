@@ -691,9 +691,14 @@ void PGM_KICAD::OnPgmExit()
     // setting it here the pool wait below can block for up to 120 seconds.
     m_libraryPreloadAbort.store( true );
 
-    // Abort and wait on any background jobs
-    GetKiCadThreadPool().purge();
-    GetKiCadThreadPool().wait();
+    // Invalid command-line startup can return before InitPgm creates the pool.
+    // Quiesce only an initialized pool; do not obtain a reference to null or
+    // recreate workers during cleanup. This also permits repeated teardown.
+    if( m_singleton.m_ThreadPool )
+    {
+        m_singleton.m_ThreadPool->purge();
+        m_singleton.m_ThreadPool->wait();
+    }
 
     Kiway.OnKiwayEnd();
 
@@ -707,9 +712,12 @@ void PGM_KICAD::OnPgmExit()
 
     // Destroy PGM_KICAD earlier than wxApp and static destruction would
     Destroy();
-    GetGitBackend()->Shutdown();
-    delete GetGitBackend();
-    SetGitBackend( nullptr );
+    if( GIT_BACKEND* backend = GetGitBackend() )
+    {
+        backend->Shutdown();
+        delete backend;
+        SetGitBackend( nullptr );
+    }
 }
 
 

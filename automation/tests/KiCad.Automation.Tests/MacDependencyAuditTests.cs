@@ -31,6 +31,8 @@ public sealed class MacDependencyAuditTests
             StringAssert.Contains(script, "managed_libraries");
             StringAssert.Contains(script, "libnng.1.dylib");
             StringAssert.Contains(script, "unresolved OR conflict_FILENAMES");
+            StringAssert.Contains(script, "list(REMOVE_DUPLICATES actual_paths)");
+            StringAssert.Contains(script, "${report_path}.failure.json");
             StringAssert.Contains(script, "file(REAL_PATH \"${dependency}\" actual)");
             StringAssert.Contains(script, "set(reported \"${native_bundle}/${relative}\")");
             StringAssert.Contains(script, "set(reported \"${managed_root}/${relative}\")");

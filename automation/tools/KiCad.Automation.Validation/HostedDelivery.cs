@@ -86,6 +86,10 @@ public static class HostedDelivery
         var artifacts = Directory.Exists(packages)
             ? Directory.GetFiles(packages).Order(StringComparer.Ordinal).Select(path => new EvidenceFile(
                 Path.GetFileName(path), new FileInfo(path).Length, Evidence.Hash(path))).ToArray() : [];
+        string diagnostics = Path.Combine(output, "diagnostics");
+        var diagnosticArtifacts = Directory.Exists(diagnostics)
+            ? Directory.GetFiles(diagnostics).Order(StringComparer.Ordinal).Select(path => new EvidenceFile(
+                Path.GetFileName(path), new FileInfo(path).Length, Evidence.Hash(path))).ToArray() : [];
         await File.WriteAllTextAsync(Path.Combine(output, "receipt.json"), JsonSerializer.Serialize(new
         {
             SchemaVersion = 1, SourceCommit = request.Commit, DependencyCommit = request.DependencyCommit,
@@ -95,7 +99,8 @@ public static class HostedDelivery
             RunAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
             WorkflowRef = Environment.GetEnvironmentVariable("GITHUB_WORKFLOW_REF"),
             CompletedAt = DateTimeOffset.UtcNow, Status = status, Failure = failure, Steps = steps,
-            Artifacts = artifacts, QualifyingDelivery = false, CrossPlatformReady = false,
+            Artifacts = artifacts, DiagnosticArtifacts = diagnosticArtifacts,
+            QualifyingDelivery = false, CrossPlatformReady = false,
             Limitations = new[] { "Not native Codex Desktop journey evidence", "Mac/Windows automatic updating not qualified",
                 "Mac ad-hoc signature only; not Apple notarization", "Windows preview is not Authenticode signed" }
         }, Evidence.JsonOptions), CancellationToken.None);
@@ -126,7 +131,20 @@ public static class HostedDelivery
             ValidationResult result = await MacValidation.RunAsync(new(repository, request.Commit, builder,
                 Path.Combine(builder, "toolchain", "kicad-mac-builder.cmake"), macOutput,
                 "^(qa_document_change_journal|qa_symbol_graphic_identity|qa_schematic_symbol_library_identity)$", request.Architecture), token);
-            if (result.Status != "checks_passed") throw new InvalidDataException("Native Mac validation failed; see mac/evidence and mac/result.json.");
+            if (result.Status != "checks_passed")
+            {
+                // Keep a failed installed tree separate from distributable
+                // packages so relocation/audit repairs do not lose the inputs.
+                if (!token.IsCancellationRequested && Directory.Exists(Path.Combine(macOutput, "install"))
+                    && Directory.Exists(Path.Combine(macOutput, "managed")))
+                {
+                    string diagnosticRoot = Directory.CreateDirectory(Path.Combine(output, "diagnostics")).FullName;
+                    await Run("retain-unqualified-install", "tar", ["-czf",
+                        Path.Combine(diagnosticRoot, Name("unqualified-macos-" + request.Architecture, ".tar.gz")),
+                        "-C", macOutput, "install", "managed"]);
+                }
+                throw new InvalidDataException("Native Mac validation failed; see mac/evidence and mac/result.json. Any diagnostic install archive is unqualified and must not be published.");
+            }
             Directory.CreateDirectory(packages);
             await Run("package-native", "tar", ["-czf", Path.Combine(packages, Name("macos-" + request.Architecture, ".tar.gz")),
                 "-C", macOutput, "install", "managed", "kicad-mcp"]);

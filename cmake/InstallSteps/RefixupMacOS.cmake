@@ -20,6 +20,7 @@ function( refix_kicad_bundle target )
     foreach( item ${items} )
         message( "Refixing prereqs for '${item}'" )
         refix_prereqs( ${item} )
+        refix_image_rpaths( "${item}" "${target}" )
     endforeach( )
 
     # For binaries, we need to fix the prereqs and the rpaths
@@ -28,8 +29,8 @@ function( refix_kicad_bundle target )
         file( GLOB binaries ${subdir}/Contents/MacOS/* )
         foreach( binary ${binaries} )
             message( "Refixing rpaths and prereqs for '${binary}'" )
-            #refix_rpaths( ${binary} )
             refix_prereqs( ${binary} )
+            refix_image_rpaths( "${binary}" "${target}" )
         endforeach( )
     endforeach( )
 
@@ -37,11 +38,7 @@ function( refix_kicad_bundle target )
     foreach( binary ${binaries} )
         message( "Refixing prereqs for '${binary}'" )
         refix_prereqs( ${binary} )
-        if( ${binary} MATCHES "kicad-cli" )
-            message( "Refixing rppath for '${binary}'" )
-            delete_all_rpaths( ${binary} )
-            refix_rpaths( ${binary} )
-        endif()
+        refix_image_rpaths( "${binary}" "${target}" )
     endforeach( )
 
     message( "Removing Python pyc files" )
@@ -60,11 +57,10 @@ function( delete_all_rpaths BINARY_PATH )
             COMMAND otool -l ${BINARY_PATH}
             OUTPUT_VARIABLE OTOOL_OUTPUT
             RESULT_VARIABLE OTOOL_RESULT
-            ERROR_QUIET
+            ERROR_VARIABLE OTOOL_ERROR
     )
     if(NOT "${OTOOL_RESULT}" STREQUAL "0")
-        message(WARNING "Failed to run otool on ${BINARY_PATH}. Skipping.")
-        return()
+        message(FATAL_ERROR "Failed to inspect rpaths for ${BINARY_PATH}: ${OTOOL_ERROR}")
     endif()
 
     # Parse the output to find lines containing 'path <value> (offset'
@@ -91,9 +87,28 @@ function( delete_all_rpaths BINARY_PATH )
         )
 
         if(NOT "${INT_RESULT}" STREQUAL "0")
-            message(WARNING "Error removing rpath '${RPATH_VAL}': ${INT_ERR}")
+            message(FATAL_ERROR "Error removing rpath '${RPATH_VAL}': ${INT_ERR}")
         endif()
     endforeach()
+endfunction()
+
+function( refix_image_rpaths binary bundle )
+    # A dylib/module cannot rely on a particular caller having the right rpath.
+    # Use its own installed location, including for nested editor executables.
+    # This also avoids routing through each editor's Frameworks symlink.
+    get_filename_component( loader_path "${binary}" DIRECTORY )
+    file( RELATIVE_PATH frameworks "${loader_path}" "${bundle}/Contents/Frameworks" )
+    if( frameworks STREQUAL "" )
+        set( desired "@loader_path/" )
+    else()
+        set( desired "@loader_path/${frameworks}" )
+    endif()
+    delete_all_rpaths( "${binary}" )
+    execute_process( COMMAND install_name_tool -add_rpath "${desired}" "${binary}"
+        RESULT_VARIABLE result ERROR_VARIABLE error )
+    if( NOT result EQUAL 0 )
+        message( FATAL_ERROR "Could not set installed rpath for ${binary}: ${error}" )
+    endif()
 endfunction()
 
 function( refix_rpaths binary )

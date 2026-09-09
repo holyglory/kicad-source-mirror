@@ -14,6 +14,10 @@ on:
         default: all
         type: choice
         options: [all, mac, mac-arm64, mac-x64, windows]
+      checks_only:
+        description: Run only the small native Mac dependency fixture (no KiCad package)
+        type: boolean
+        default: false
 
 # SA-09: disposable public-source builds; no publisher key, engineering
 # repository, persistent runner or live editor-control endpoint.
@@ -54,7 +58,15 @@ jobs:
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           global-json-file: automation/global.json
+      - name: Check native Mac dependency relocation and failure detection
+        working-directory: automation
+        shell: bash
+        run: |
+          dotnet test KiCad.Automation.slnx --configuration Release \
+            --filter FullyQualifiedName~MacRuntimePathTests --logger trx \
+            --results-directory "$RUNNER_TEMP/kicad-loader-preflight"
       - name: Prepare official Mac dependencies and validate the candidate
+        if: '!inputs.checks_only'
         working-directory: automation
         shell: bash
         run: |
@@ -69,8 +81,10 @@ jobs:
           name: native-macos-${{ matrix.architecture }}-${{ inputs.source_commit }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/kicad-delivery/evidence
+            ${{ runner.temp }}/kicad-loader-preflight
             ${{ runner.temp }}/kicad-delivery/receipt.json
             ${{ runner.temp }}/kicad-delivery/packages
+            ${{ runner.temp }}/kicad-delivery/diagnostics
             ${{ runner.temp }}/kicad-delivery/mac/evidence
             ${{ runner.temp }}/kicad-delivery/mac/result.json
             ${{ runner.temp }}/kicad-delivery/mac/evidence.tar.gz
@@ -79,18 +93,20 @@ jobs:
           compression-level: 1
 
   windows:
-    if: inputs.target == 'all' || inputs.target == 'windows'
+    if: (inputs.target == 'all' && !inputs.checks_only) || inputs.target == 'windows'
     runs-on: windows-2022
     timeout-minutes: 350
     env:
       SOURCE_COMMIT: ${{ inputs.source_commit }}
       VCPKG_COMMIT: 66c0373dc7fca549e5803087b9487edfe3aca0a1
+      CHECKS_ONLY: ${{ inputs.checks_only }}
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
     steps:
       - name: Check exact source input
         shell: pwsh
         run: |
+          if ($env:CHECKS_ONLY -eq 'true') { throw 'checks_only runs the native Mac loader fixture; select mac, mac-arm64 or mac-x64.' }
           if ($env:SOURCE_COMMIT -cnotmatch '^[0-9a-f]{40}$') { throw 'An exact lower-case commit is required.' }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

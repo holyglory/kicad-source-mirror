@@ -855,9 +855,17 @@ matching Microsoft C++ runtime DLLs. Its installed runtime probe does not use th
 native-library override needed by source-tree tests.
 Source archives accompany successfully built application archives.
 
+Every full Mac build first runs small native loader fixtures. Set
+`checks_only=true` with a Mac target to run those fixtures without compiling
+KiCad. They check relocated transitive libraries, repeatable search-path repair,
+missing dependencies, valid symlink aliases and genuinely conflicting copies.
+These fixture runs do not produce a KiCad package or establish editor readiness.
+
 Artifacts and `receipt.json` are retained even after ordinary failures. A failed
 receipt is not a usable delivery; archive hashes alone are not native execution
-proof. Successful candidates still report `QualifyingDelivery=false`: native
+proof. Failed installed Mac trees may be retained separately under `diagnostics`
+for repair; they are explicitly unqualified and must not be published as packages.
+Successful candidates still report `QualifyingDelivery=false`: native
 Codex Desktop journeys, Mac/Windows automatic updating, Apple notarization,
 Windows Authenticode and complete engineering qualification are not established
 by this build workflow. GitHub artifacts require GitHub access; verified public
@@ -869,7 +877,8 @@ The hosted bootstrap never runs a clean-slate setup against a personal Mac.
 
 ## Manually invoked Mac validation
 
-The command below is implemented but has **not been executed on a Mac**. Prepare
+The validation implementation has run on native GitHub Mac runners, but complete
+Mac validation and operator/Codex Desktop journeys remain unqualified. Prepare
 matching dependencies with the [official KiCad Mac Builder workflow](https://dev-docs.kicad.org/en/build/macos/index.html) first. Reuse
 its generated `toolchain/kicad-mac-builder.cmake`, including its customized
 wxWidgets. The command does not run bootstrap scripts, clean dependencies, install

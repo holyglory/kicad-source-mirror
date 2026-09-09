@@ -712,3 +712,25 @@ tier = "development"
 requires = ["native-build"]
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSession&TestCategory!=NativePackage&TestCategory!=NativePackageArchive&TestCategory!=NativeUpdateArchive&TestCategory!=NativeUpdater&TestCategory!=NativeCaptionUpdate", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
 retained_artifacts = [{ name = "native-session-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
+[test.mac-runtime-contracts]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_TEST_NNG_LIBRARY = "/usr/lib/x86_64-linux-gnu/libnng.so" }
+
+[[test.mac-runtime-contracts.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts", "explicit-transport"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.mac-runtime-contracts.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacManagedRuntimeTests|FullyQualifiedName~MacArchitectureTests|FullyQualifiedName~RuntimeInfoTests|FullyQualifiedName~NngTransportTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-runtime-contracts"]
+retained_artifacts = [{ name = "mac-runtime-contracts", path = "automation/artifacts/mac-runtime-contracts", max_bytes = 16777216 }]
+
+[[test.mac-runtime-contracts.check]]
+name = "explicit-transport"
+tier = "development"
+command = ["env", "KICAD_AUTOMATION_NNG_LIBRARY=/usr/lib/x86_64-linux-gnu/libnng.so", "dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NngTransportTests", "--logger", "trx", "--results-directory", "automation/artifacts/explicit-nng-contracts"]
+retained_artifacts = [{ name = "explicit-nng-contracts", path = "automation/artifacts/explicit-nng-contracts", max_bytes = 16777216 }]

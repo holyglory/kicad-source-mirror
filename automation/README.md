@@ -822,11 +822,13 @@ Do not point a production workflow at this development build yet.
 ## Manually invoked Mac validation
 
 The command below is implemented but has **not been executed on a Mac**. Prepare
-matching dependencies with the official KiCad Mac Builder workflow first. Reuse
+matching dependencies with the [official KiCad Mac Builder workflow](https://dev-docs.kicad.org/en/build/macos/index.html) first. Reuse
 its generated `toolchain/kicad-mac-builder.cmake`, including its customized
 wxWidgets. The command does not run bootstrap scripts, clean dependencies, install
-a worker, or change an existing worktree. The .NET SDK, CMake, Ninja and a shared
-NNG library discoverable by the .NET native loader must already be available.
+a worker, or change an existing worktree. The .NET SDK, CMake, Ninja and native
+Poppler utilities must already be available. The native install must supply a
+matching shared NNG dylib inside `KiCad.app/Contents/Frameworks`; a missing,
+ambiguous or externally linked library fails explicitly.
 
 Run from a checkout containing this helper, substituting actual absolute paths
 and a full commit SHA available from that checkout's `origin`:
@@ -855,15 +857,34 @@ installation. This restriction is on the Mac validation build destination,
 not on engineering-project paths or ordinary application use.
 
 The output directory must not already exist. The helper fetches the exact commit,
-creates a detached source worktree there, builds with the supplied toolchain,
-runs the pinned native bundle install rules into its own `install` directory,
-checks the installed manager/CLI Mach-O architecture slices and native commit,
-runs the selected CTest checks and non-Linux-only MSTest checks, and retains the
+creates a detached source worktree there, restores/publishes the matching
+self-contained `osx-arm64` or `osx-x64` MCP runtime before the expensive native
+build, then builds with the supplied toolchain. It runs the pinned native bundle
+install rules into its own `install` directory, verifies the existing native
+bundle signature, checks manager/CLI/runtime/NNG architecture slices and native
+commit, runs the actual compiled runtime/NNG probe, then selected CTest and
+non-Linux-only MSTest checks. It retains the
 source/build for inspection. It writes `result.json` and `evidence.tar.gz` on
 success or a handled failure. The archive includes a versioned receipt, actual
 step results, logs, CMake configuration and hashes of produced evidence. Images
 are included only if checks actually produce them under
 `KICAD_AUTOMATION_EVIDENCE_DIRECTORY`; the helper does not synthesize screenshots.
+
+The self-contained MCP stays in `<output>/managed`, beside rather than inside
+the already signed native app. `<output>/kicad-mcp` launches it with an explicit
+binding to the matching bundle's NNG dylib. This does not rewrite or re-sign the
+native bundle. The startup-only `KICAD_AUTOMATION_NNG_LIBRARY` override accepts
+an existing absolute library path; document fields and update responses cannot
+set it. With no override, existing native-loader behavior remains unchanged.
+
+Receipt schema 3 adds managed-host, CoreCLR, host-policy and NNG identities plus
+the actual runtime/NNG version probe. Schemas 1 and 2 remain integrity-readable
+under their original limits. The runtime probe opens/closes real request and
+subscription sockets without contacting an editor; it is not a GUI/MCP journey,
+a dependency-closure audit, a redistributable/notarized Mac package or updater
+qualification. Linux run `t20260909T120117Z-8fe7a7` verifies the contract logic,
+real local NNG binding and failure behavior only. Native-Mac execution and both
+architecture-specific distributions remain open.
 
 Transfer the result and archive through the existing Git/SSH workflow. On Linux
 or Mac, the following verifies integrity and commit identity only:

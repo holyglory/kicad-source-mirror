@@ -11,6 +11,19 @@ public interface INativeTransport
 /// <summary>Native NNG REQ/REP transport. No shell, HTTP service or Python bridge.</summary>
 public sealed class NngTransport : INativeTransport
 {
+    /// <summary>Checks the actual native C binding without listening or dialing.</summary>
+    public static string ProbeLibrary()
+    {
+        Nng.Check(Nng.nng_req0_open(out var request));
+        try { Nng.Check(Nng.nng_setopt_ms(request, "recv-timeout", 1000)); }
+        finally { Nng.Check(Nng.nng_close(request)); }
+        Nng.Check(Nng.nng_sub0_open(out var subscription));
+        try { Nng.Check(Nng.nng_setopt_ms(subscription, "recv-timeout", 1000)); }
+        finally { Nng.Check(Nng.nng_close(subscription)); }
+        return Marshal.PtrToStringUTF8(Nng.nng_version())
+            ?? throw new InvalidDataException("NNG did not report its library version.");
+    }
+
     public Task<byte[]> ExchangeAsync(string endpoint, byte[] request, TimeSpan timeout,
                                       CancellationToken cancellationToken = default)
     {
@@ -77,11 +90,33 @@ public sealed class NngException(int errorCode, string message) : IOException(me
 
 internal static class Nng
 {
+    static Nng()
+    {
+        // This override belongs to the trusted process launcher, never a design
+        // document. It lets a Mac runtime use the matching app-bundle dylib
+        // without changing an already signed native bundle or loader globals.
+        string? library = Environment.GetEnvironmentVariable("KICAD_AUTOMATION_NNG_LIBRARY");
+        if (library is null) return;
+        if (!Path.IsPathFullyQualified(library) || !File.Exists(library))
+            throw new InvalidDataException("KICAD_AUTOMATION_NNG_LIBRARY must name an existing absolute native library.");
+        NativeLibrary.SetDllImportResolver(typeof(Nng).Assembly, (name, _, _) =>
+            name == "nng" ? NativeLibrary.Load(library) : IntPtr.Zero);
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct Socket { public uint Id; }
 
     [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern IntPtr nng_version();
+
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int nng_req0_open(out Socket socket);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int nng_rep0_open(out Socket socket);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int nng_listen(Socket socket, [MarshalAs(UnmanagedType.LPUTF8Str)] string address, IntPtr listener, int flags);
+    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int nng_setopt_size(Socket socket, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, nuint value);
     [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int nng_sub0_open(out Socket socket);
     [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]

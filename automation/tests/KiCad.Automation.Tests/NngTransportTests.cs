@@ -15,7 +15,7 @@ public sealed class NngTransportTests
     {
         string directory = Directory.CreateTempSubdirectory("kng-").FullName;
         string endpoint = "ipc://" + Path.Combine(directory, "peer.sock");
-        Nng.Check(nng_rep0_open(out var socket));
+        Nng.Check(Nng.nng_rep0_open(out var socket));
         Task? server = null;
         bool exchangeCompleted = false;
         try
@@ -24,8 +24,8 @@ public sealed class NngTransportTests
             Nng.Check(Nng.nng_setopt_ms(socket, "send-timeout", 5000));
             // Isolate the real client's receive behavior from the echo peer's
             // receive default. No mock transport or encoding shortcut is used.
-            Nng.Check(nng_setopt_size(socket, "recv-size-max", 8 * 1024 * 1024));
-            Nng.Check(nng_listen(socket, endpoint, IntPtr.Zero, 0));
+            Nng.Check(Nng.nng_setopt_size(socket, "recv-size-max", 8 * 1024 * 1024));
+            Nng.Check(Nng.nng_listen(socket, endpoint, IntPtr.Zero, 0));
             server = Task.Run(() =>
             {
                 nuint size = 0;
@@ -60,7 +60,7 @@ public sealed class NngTransportTests
     {
         string directory = Directory.CreateTempSubdirectory("kng-").FullName;
         string endpoint = "ipc://" + Path.Combine(directory, "peer.sock");
-        Nng.Check(nng_rep0_open(out var socket));
+        Nng.Check(Nng.nng_rep0_open(out var socket));
         var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseReply = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task? server = null;
@@ -69,7 +69,7 @@ public sealed class NngTransportTests
         {
             Nng.Check(Nng.nng_setopt_ms(socket, "recv-timeout", 5000));
             Nng.Check(Nng.nng_setopt_ms(socket, "send-timeout", 5000));
-            Nng.Check(nng_listen(socket, endpoint, IntPtr.Zero, 0));
+            Nng.Check(Nng.nng_listen(socket, endpoint, IntPtr.Zero, 0));
             server = Task.Run(async () =>
             {
                 for (int exchange = 0; exchange < 2; exchange++)
@@ -139,12 +139,4 @@ public sealed class NngTransportTests
         finally { Directory.Delete(directory, true); }
     }
 
-    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int nng_rep0_open(out Nng.Socket socket);
-    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int nng_setopt_size(Nng.Socket socket,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string name, nuint size);
-    [DllImport("nng", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int nng_listen(Nng.Socket socket,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string endpoint, IntPtr listener, int flags);
 }

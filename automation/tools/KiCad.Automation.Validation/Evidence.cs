@@ -14,7 +14,7 @@ public sealed record ValidationReceipt(int SchemaVersion, string Platform, strin
     string? BuilderCommit, string? BuilderStatus, string ToolchainSha256, string NativeTestSelection,
     string DotnetTestSelection, string Status, string? Failure, IReadOnlyList<ValidationStep> Steps,
     IReadOnlyList<EvidenceFile> Files, string? TargetArchitecture = null,
-    IReadOnlyList<NativeBinaryEvidence>? NativeBinaries = null);
+    IReadOnlyList<NativeBinaryEvidence>? NativeBinaries = null, MacManagedRuntimeEvidence? ManagedRuntime = null);
 public sealed record ValidationResult(int SchemaVersion, string Status, string ExpectedCommit,
     string ReceiptSha256, string ArchiveSha256, string Archive, bool CrossPlatformReady = false);
 
@@ -90,13 +90,13 @@ public static partial class Evidence
             else
                 files.Add(name, (entry.Length, Convert.ToHexStringLower(await SHA256.HashDataAsync(entry.DataStream, cancellationToken))));
         }
-        if (receipt is null || receipt.SchemaVersion is not (1 or 2) || receipt.Platform != "macos"
+        if (receipt is null || receipt.SchemaVersion is not (1 or 2 or 3) || receipt.Platform != "macos"
             || receipt.VerifiedCommit != commit || receipt.ExpectedCommit != commit || receipt.Status != "checks_passed"
             || receipt.Steps.Count == 0 || receipt.Steps.Any(step => step.ExitCode != 0))
             throw new InvalidDataException("The receipt does not describe successful selected Mac checks for this exact commit.");
-        if (architecture is not null && (receipt.SchemaVersion != 2 || receipt.TargetArchitecture != architecture))
+        if (architecture is not null && (receipt.SchemaVersion < 2 || receipt.TargetArchitecture != architecture))
             throw new InvalidDataException("Receipt does not identify the requested Mac target.");
-        if (receipt.SchemaVersion == 2)
+        if (receipt.SchemaVersion >= 2)
         {
             if (receipt.TargetArchitecture is null || receipt.NativeBinaries is null
                 || receipt.NativeBinaries.Count != 2 || receipt.NativeBinaries.Any(b => b is null)
@@ -111,6 +111,11 @@ public static partial class Evidence
                 if (binary.Sha256 is null || binary.Sha256.Length != 64 || binary.Sha256.Any(c => !char.IsAsciiHexDigitLower(c)))
                     throw new InvalidDataException("Native executable checksum is invalid.");
             }
+        }
+        if (receipt.SchemaVersion == 3)
+        {
+            if (receipt.ManagedRuntime is null) throw new InvalidDataException("The Mac runtime receipt is missing.");
+            MacManagedRuntime.ValidateEvidence(receipt.ManagedRuntime, receipt.TargetArchitecture!);
         }
         if (receipt.Files.Count != files.Count || receipt.Files.Select(file => file.Path).Distinct().Count() != receipt.Files.Count)
             throw new InvalidDataException("Evidence inventory does not match the archive.");

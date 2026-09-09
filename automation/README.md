@@ -853,6 +853,10 @@ architecture and the installed KiCad commit, and opens real native NNG sockets.
 The Windows archive places `kicad-mcp.exe` in `bin` beside KiCad, NNG and the
 matching Microsoft C++ runtime DLLs. Its installed runtime probe does not use the
 native-library override needed by source-tree tests.
+Windows dependency preparation uses KiCad's documented public NuGet binary feed
+read-only, with the existing manifest/registry pins and local vcpkg cache. An ABI
+cache miss builds the pinned dependency from source; cache availability is not
+a compatibility or native-execution claim.
 Source archives accompany successfully built application archives.
 
 Every full Mac build first runs small native loader fixtures. Set

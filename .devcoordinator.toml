@@ -772,7 +772,7 @@ command = ["cmake", "--build", "automation/artifacts/native", "--target", "qa_ee
 [[test.native-symbol-library-identity.check]]
 name = "identity"
 tier = "development"
-command = ["xvfb-run", "-a", "ctest", "--test-dir", "automation/artifacts/native", "--no-tests=error", "--output-on-failure", "-R", "^qa_schematic_symbol_library_identity$"]
+command = ["xvfb-run", "-a", "ctest", "--test-dir", "automation/artifacts/native", "--no-tests=error", "--output-on-failure", "-R", "^qa_schematic_(symbol_library_identity|formatting)$"]
 
 [[test.native-symbol-library-identity.check]]
 name = "managed-build"

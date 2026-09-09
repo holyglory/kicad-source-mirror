@@ -154,7 +154,8 @@ BOOST_AUTO_TEST_CASE( UnitReferenceFormattingPreservesTheNativeDisplayedSuffix )
             BOOST_REQUIRE_MESSAGE( SCH_FORMATTING::Validate( desired, failure ), failure );
             SCH_FORMATTING::Restore( settings, desired );
             const wxString prefix = separator ? wxString( wxChar( separator ) ) : wxString();
-            const wxString one = first == '1' ? wxS( "1" ) : wxString( wxChar( first ) );
+            const wxString one = first == '1' ? wxString( wxS( "1" ) )
+                                             : wxString( wxChar( first ) );
             const wxString many = first == '1' ? wxS( "27" )
                     : first == 'A' ? wxS( "AA" ) : wxS( "aa" );
             BOOST_CHECK( settings.SubReference( 1 ) == prefix + one );

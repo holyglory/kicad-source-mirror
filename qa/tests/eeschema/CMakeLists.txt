@@ -337,6 +337,10 @@ add_test( NAME qa_schematic_symbol_library_identity
     COMMAND $<TARGET_FILE:qa_eeschema> --run_test=SchematicSymbolLibraryIdentity --log_level=test_suite )
 setup_qa_env( qa_schematic_symbol_library_identity )
 
+add_test( NAME qa_schematic_formatting
+    COMMAND $<TARGET_FILE:qa_eeschema> --run_test=SchematicFormatting --log_level=test_suite )
+setup_qa_env( qa_schematic_formatting )
+
 setup_qa_env( qa_eeschema )
 
 # Focused native save/load acceptance without rebuilding every eeschema test.

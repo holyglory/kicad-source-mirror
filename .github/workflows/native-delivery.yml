@@ -99,6 +99,9 @@ jobs:
     env:
       SOURCE_COMMIT: ${{ inputs.source_commit }}
       VCPKG_COMMIT: 66c0373dc7fca549e5803087b9487edfe3aca0a1
+      # KiCad's documented, public read-only binary feed. ABI misses still build
+      # from the pinned manifest/registries; no packages are pushed to GitLab.
+      VCPKG_BINARY_SOURCES: clear;default,readwrite;nuget,https://gitlab.com/api/v4/projects/27426693/packages/nuget/index.json,read
       CHECKS_ONLY: ${{ inputs.checks_only }}
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "product": "kicad-codex",
+  "channel": "preview",
+  "sequence": 5,
+  "version": "preview-20260909T013416Z-2ed9d688883f",
+  "commit": "2ed9d688883f716960d84a7b5d884cd5b7d75521",
+  "artifacts": [
+    {
+      "platform": "linux-x64",
+      "format": "tar.gz",
+      "fileName": "kicad-codex-preview-20260909T013416Z-2ed9d688883f-debian13-x64.tar.gz",
+      "bytes": 220406934,
+      "sha256": "edfc01f997a445989ca93319904c8599fbafad4796917cd56ac31fa5c20170dd"
+    }
+  ]
+}

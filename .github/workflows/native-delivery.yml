@@ -48,6 +48,7 @@ jobs:
         with:
           ref: ${{ inputs.source_commit }}
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
       - name: Verify pinned ancestry
         shell: bash
@@ -98,6 +99,7 @@ jobs:
         with:
           ref: ${{ inputs.source_commit }}
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
       - name: Verify pinned ancestry and select installed MSVC
         shell: pwsh

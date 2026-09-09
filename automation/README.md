@@ -1254,11 +1254,11 @@ after another instance changes the shared installation selection.
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).
-It serves the frozen 6a93cb3fd254 Debian 13 x64 application archive and matching
-source, alongside the preserved 6a9de7fdd073, 8e6938a6006c, 38b65981e64b and a5666e707777
+It serves the frozen 3492c24706a1 Debian 13 x64 application archive and matching
+source, alongside the preserved 6a93cb3fd254, 6a9de7fdd073, 8e6938a6006c, 38b65981e64b and a5666e707777
 archives and older Debian installer. Public GET/hash, HEAD, range, private/control
-path rejection and upload rejection for all eleven files passed in
-`t20260908T234525Z-8622f6`.
+path rejection and upload rejection for all thirteen files passed in
+`t20260909T003832Z-901940`.
 No engineering repository, native control, credentials or private evidence is
 served there. Native-Mac packages are not yet available.
 
@@ -1285,11 +1285,11 @@ remain unfinished. Public availability is not a qualifying-delivery reset.
 
 ### Persistent publisher and public-channel Linux update
 
-Preview `preview-20260908T233613Z-6a93cb3fd254` is available as an
-[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260908T233613Z-6a93cb3fd254-debian13-x64.tar.gz)
-and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260908T233613Z-6a93cb3fd254-source.tar.gz).
+Preview `preview-20260909T002644Z-3492c24706a1` is available as an
+[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T002644Z-3492c24706a1-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T002644Z-3492c24706a1-source.tar.gz).
 The application archive SHA-256 is
-`49313c77e196d83c531b198f14e86ee21d3121b73e08df6eee912964fc1a5795`.
+`446ddb231ed24ae3599d7a5ca068ef5afee10667b7070488fef7298cdd9644fc`.
 
 Obtain `automation/distribution/preview-publisher.spki` from the trusted fork
 checkout (present from commit `6a9de7fdd0731378712f9cdbfda3c322f93cd89a`).
@@ -1333,6 +1333,21 @@ That empty-manager case uses the same frozen build with two fixture-signed
 metadata revisions; it is not a different-build public no-project upgrade.
 Separate startup checks reject invalid empty-manager arguments, preserve the
 explicit-project automation requirement and reject implicit schematic creation.
+
+Build 3492c24706a1 additionally restores the exact previous verified editor when
+activation fails after the old editor has closed. It does not change a selection
+made by another update or lower the accepted metadata checkpoint. Packaged-helper
+run `t20260909T002935Z-e4bcf1` exercised candidate drift and a competing selection
+change after preflight, real save/cancel/close, recovery of the previous native
+executable, saved schematic bytes and retained failure receipts. These are
+controlled faults with fixture-signed versions of the same real package, not
+power-loss or native-Mac proof. Public run `t20260909T003832Z-901940` verified the
+6a93cb3fd254-to-3492c24706a1 upgrade and empty-manager regression paths.
+Additional run `t20260909T004505Z-b19019` activated the rendered Save button
+inside the update's own save prompt, rather than pre-saving separately. It
+verified creation of the previously unsaved schematic, successful restart,
+saved-byte preservation and independent second-project updating. The original
+cancel and candidate-drift rejection checks remain in that journey.
 
 These prove the stated Linux journeys, not all update recovery cases or either
 native-Mac target. Broader restart/failure/power-loss recovery, Mac packaging

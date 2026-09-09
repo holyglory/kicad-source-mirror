@@ -236,6 +236,7 @@ public sealed partial class NativeSessionTests
             NativeKeyboard.SchematicShortcut(displayName, native.Id, "Return", "Error", false, false);
             await File.WriteAllBytesAsync(changedFile, original, deadline.Token);
             byte[] saved = [];
+            bool saveThroughUpdatePrompt = publicChannel && !emptyManager;
             if (!emptyManager)
             {
                 ClickUpdate();
@@ -246,13 +247,29 @@ public sealed partial class NativeSessionTests
                 Assert.IsFalse(native.HasExited);
                 Assert.AreEqual(initialTarget, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
                 Assert.IsFalse(File.Exists(schematic));
-                NativeKeyboard.SchematicShortcut(displayName, native.Id, "s");
-                while (!File.Exists(schematic)) await Task.Delay(100, deadline.Token);
-                saved = await File.ReadAllBytesAsync(schematic, deadline.Token);
+                if (!saveThroughUpdatePrompt)
+                {
+                    NativeKeyboard.SchematicShortcut(displayName, native.Id, "s");
+                    while (!File.Exists(schematic)) await Task.Delay(100, deadline.Token);
+                    saved = await File.ReadAllBytesAsync(schematic, deadline.Token);
+                }
             }
             ClickUpdate();
+            if (saveThroughUpdatePrompt)
+            {
+                await WaitWindow("Save");
+                await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "update-confirm-save.png"), deadline.Token);
+                // The native UnsavedChangesDialog declares wxYES_DEFAULT with
+                // the Save label. Activate that rendered default button.
+                NativeKeyboard.SchematicShortcut(displayName, native.Id, "Return", "Save", false, false);
+            }
             await native.WaitForExitAsync(deadline.Token);
             Assert.AreEqual(0, native.ExitCode);
+            if (saveThroughUpdatePrompt)
+            {
+                Assert.IsTrue(File.Exists(schematic), "The update Save button must persist the previously unsaved schematic.");
+                saved = await File.ReadAllBytesAsync(schematic, deadline.Token);
+            }
             string handovers = Path.Combine(installationRoot, "handovers");
             UpdateHandoffState? restarted = null;
             while (restarted is null)
@@ -341,6 +358,7 @@ public sealed partial class NativeSessionTests
                 captionClickVerified = true, driftRejectedBeforeClose = true, dirtyCloseCancelled = !emptyManager,
                 saveAndRestartVerified = !emptyManager, restartVerified = true, nativeEpochChanged = true,
                 emptyManagerPreserved = emptyManager,
+                saveThroughUpdatePrompt,
                 differentBuildUpgrade = artifact.Commit != candidateArtifact.Commit,
                 automaticManagedContext = automaticContext, secondLiveInstanceCaptionUpdate = secondNative is not null,
                 productionSigning = publicChannel, publicDownloadAndRegistration = publicChannel,

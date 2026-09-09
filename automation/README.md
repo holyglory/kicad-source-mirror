@@ -1254,12 +1254,12 @@ after another instance changes the shared installation selection.
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).
-It serves the frozen 095882e06694 Debian 13 x64 application archive and matching
-source, alongside the preserved 7a8d9ea241ee, 2ed9d688883f, 3492c24706a1, 6a93cb3fd254,
+It serves the frozen 8c88184d3333 Debian 13 x64 application archive and matching
+source, alongside the preserved 095882e06694, 7a8d9ea241ee, 2ed9d688883f, 3492c24706a1, 6a93cb3fd254,
 6a9de7fdd073, 8e6938a6006c, 38b65981e64b and a5666e707777
 archives and older Debian installer. Public GET/hash, HEAD, range, private/control
-path rejection and upload rejection for all nineteen files passed in
-`t20260909T030018Z-03c732`.
+path rejection and upload rejection for all twenty-one files passed in
+`t20260909T112737Z-903032`.
 No engineering repository, native control, credentials or private evidence is
 served there. Native-Mac packages are not yet available.
 
@@ -1286,11 +1286,11 @@ remain unfinished. Public availability is not a qualifying-delivery reset.
 
 ### Persistent publisher and public-channel Linux update
 
-Preview `preview-20260909T024727Z-095882e06694` is available as an
-[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T024727Z-095882e06694-debian13-x64.tar.gz)
-and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T024727Z-095882e06694-source.tar.gz).
+Preview `preview-20260909T034825Z-8c88184d3333` is available as an
+[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T034825Z-8c88184d3333-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T034825Z-8c88184d3333-source.tar.gz).
 The application archive SHA-256 is
-`946ab5c98f04bc99bef234a22e02622832711275db30dffc72ccc68dcd56f30e`.
+`8d5dc9823b20ed4f0ee10555530a158377f0fadda7be5280b40b43ee1a0132d8`.
 
 Obtain `automation/distribution/preview-publisher.spki` from the trusted fork
 checkout (present from commit `6a9de7fdd0731378712f9cdbfda3c322f93cd89a`).
@@ -1423,7 +1423,7 @@ empty-manager restart. The new command does not resume an interrupted update;
 report `legacy_journal_unverifiable`, including an upgrade supervised by an older
 helper. They do not gain missing recovery facts retroactively.
 
-### Explicit recovery before replacement launch (source increment)
+### Explicit recovery before replacement launch (Linux preview)
 
 If an updater stopped, the original editor has subsequently closed, and the
 journal proves no replacement launch was reached, reopen its exact verified
@@ -1455,6 +1455,16 @@ by a new attempt, and rejection of cancelled/ambiguous/legacy histories. The
 cancellation boundary uses a source test hook; this is not packaged-signal,
 automatic background resumption or power-loss proof. Recovery must not be
 inferred from a missing final response: use inspection to observe the editor.
+
+Packaged matrix `t20260909T035041Z-90a85a` verifies this flow with the bundled
+8c88184d3333 update, inspection and recovery helpers, and reruns the existing
+activation/startup/early-exit recovery cases. Cancellation at the exact pre-launch
+boundary and the startup-failure injection still use source hooks and are labelled
+as such. Public `t20260909T112737Z-903032` verifies the signed
+095882e06694-to-8c88184d3333 upgrade, direct Save prompt, two-project isolation,
+empty-manager restart and all twenty-one downloads. This does not establish
+automatic resumption of ambiguous launches, recovery of missing legacy context,
+power-loss durability or native-Mac qualification.
 
 ### Source PDF inspection (preliminary)
 

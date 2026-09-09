@@ -73,8 +73,10 @@ public static partial class Evidence
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (entry.EntryType == TarEntryType.Directory) continue;
-            if (entry.DataStream is null || entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile))
+            if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile)
+                || (entry.DataStream is null && entry.Length != 0))
                 throw new InvalidDataException("Evidence archives must contain ordinary files, not links or special entries.");
+            Stream data = entry.DataStream ?? Stream.Null;
             string name = entry.Name.StartsWith("./", StringComparison.Ordinal) ? entry.Name[2..] : entry.Name;
             if (Path.IsPathRooted(name) || name.Split('/').Any(part => part == "..") || files.ContainsKey(name))
                 throw new InvalidDataException("Invalid or repeated evidence path.");
@@ -82,13 +84,13 @@ public static partial class Evidence
             {
                 if (entry.Length > 4 * 1024 * 1024 || receipt is not null) throw new InvalidDataException("Invalid receipt size or duplicate receipt.");
                 using var bytes = new MemoryStream();
-                await entry.DataStream.CopyToAsync(bytes, cancellationToken);
+                await data.CopyToAsync(bytes, cancellationToken);
                 if (Convert.ToHexStringLower(SHA256.HashData(bytes.ToArray())) != result.ReceiptSha256)
                     throw new InvalidDataException("Receipt checksum does not match.");
                 receipt = JsonSerializer.Deserialize<ValidationReceipt>(bytes.ToArray());
             }
             else
-                files.Add(name, (entry.Length, Convert.ToHexStringLower(await SHA256.HashDataAsync(entry.DataStream, cancellationToken))));
+                files.Add(name, (entry.Length, Convert.ToHexStringLower(await SHA256.HashDataAsync(data, cancellationToken))));
         }
         if (receipt is null || receipt.SchemaVersion is not (1 or 2 or 3) || receipt.Platform != "macos"
             || receipt.VerifiedCommit != commit || receipt.ExpectedCommit != commit || receipt.Status != "checks_passed"

@@ -27,7 +27,9 @@ public sealed class ValidationEvidenceTests
     }
 
     [TestMethod]
-    public async Task SyntheticReceiptFixtureChecksIntegrityNotMacExecution()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SyntheticReceiptFixtureChecksIntegrityNotMacExecution(bool empty)
     {
         // These explicitly synthetic fixtures test the receipt codec only.
         // They are not production evidence or a Mac execution receipt.
@@ -36,7 +38,7 @@ public sealed class ValidationEvidenceTests
         {
             string evidence = Directory.CreateDirectory(Path.Combine(root, "evidence")).FullName;
             string log = Path.Combine(evidence, "fixture.log");
-            await File.WriteAllTextAsync(log, "Synthetic integrity-test fixture, not Mac execution.\n");
+            await File.WriteAllTextAsync(log, empty ? "" : "Synthetic integrity-test fixture, not Mac execution.\n");
             var now = DateTimeOffset.UnixEpoch;
             var receipt = new ValidationReceipt(1, "macos", "fixture", "fixture", FixtureCommit, FixtureCommit,
                 FixtureCommit, "synthetic", "synthetic", "synthetic", "synthetic", "checks_passed", null,
@@ -54,6 +56,34 @@ public sealed class ValidationEvidenceTests
                 Path.Combine(root, "result.json"), result.Archive, FixtureCommit));
         }
         finally { Directory.Delete(root, true); }
+    }
+
+    [TestMethod]
+    public async Task ALinkWithoutDataIsNotAnEmptyRegularEvidenceFile()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Inconclusive("This filesystem-link fixture runs on Unix without changing Windows symlink privileges.");
+            return;
+        }
+        string root = Directory.CreateTempSubdirectory("kicad-evidence-link-").FullName;
+        try
+        {
+            string evidence = Directory.CreateDirectory(Path.Combine(root, "evidence")).FullName;
+            string target = Path.Combine(evidence, "empty.log");
+            await File.WriteAllTextAsync(target, "");
+            File.CreateSymbolicLink(Path.Combine(evidence, "link.log"), "empty.log");
+            var now = DateTimeOffset.UnixEpoch;
+            var receipt = new ValidationReceipt(1, "macos", "fixture", "fixture", FixtureCommit, FixtureCommit,
+                FixtureCommit, "synthetic", "synthetic", "synthetic", "synthetic", "checks_passed", null,
+                [new("fixture", 0, now, now, "empty.log", "empty.log")],
+                [new("empty.log", 0, Evidence.Hash(target))]);
+            var result = await Evidence.SealAsync(root, evidence, receipt);
+            var error = await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
+                Evidence.VerifyAsync(Path.Combine(root, "result.json"), result.Archive, FixtureCommit));
+            StringAssert.Contains(error.Message, "ordinary files");
+        }
+        finally { Directory.Delete(root, recursive: true); }
     }
 
     [TestMethod]

@@ -10,7 +10,8 @@ namespace KiCad.Automation.Tests;
 public sealed partial class NativeSessionTests
 {
     private static async Task VerifyUpdateRestartHandoff(InstalledLinuxUpdate installed, InstalledLinuxUpdate candidate,
-        string evidence, CancellationToken token, bool rejectCandidateStartup = false, Func<Task>? beforeHandoff = null)
+        string evidence, CancellationToken token, bool rejectCandidateStartup = false, Func<Task>? beforeHandoff = null,
+        bool rejectActivation = false, bool changeSelectionDuringClose = false, bool useInstalledHelper = false)
     {
         string temporary = Directory.CreateTempSubdirectory("kicad-restart-").FullName;
         var processes = new List<Process>();
@@ -133,10 +134,25 @@ public sealed partial class NativeSessionTests
             Assert.AreEqual(selectedTarget, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
             NativeKeyboard.SchematicShortcut(fixtureDisplay, old.Id, "s");
             while (!File.Exists(schematic)) await Task.Delay(100, deadline.Token);
+            byte[] savedSchematic = await File.ReadAllBytesAsync(schematic, deadline.Token);
+            string selectionToPreserve = selectedTarget;
+            byte[] acceptedBeforeClose = await File.ReadAllBytesAsync(Path.Combine(installed.Root, "state", "accepted-envelope.json"), deadline.Token);
+            if (rejectActivation)
+                await File.AppendAllTextAsync(candidateReadme, "Synthetic candidate drift after the accepted preflight.", deadline.Token);
+            if (changeSelectionDuringClose)
+            {
+                var concurrent = await LinuxVerifiedInstallation.ActivateAsync(installed.Root, selectedTarget,
+                    candidate.ManifestSha256, Guid.NewGuid(), deadline.Token);
+                selectionToPreserve = concurrent.Activation.Target;
+                Assert.AreNotEqual(selectedTarget, selectionToPreserve);
+            }
             NativeKeyboard.SchematicShortcut(fixtureDisplay, old.Id, "q", "KiCad", true, false);
             await old.WaitForExitAsync(deadline.Token);
             var result = await handoff;
-            Assert.AreEqual(rejectCandidateStartup ? "restored" : "restarted", result.Status, result.Error);
+            await File.WriteAllTextAsync(Path.Combine(evidence, "restart-result.json"), JsonSerializer.Serialize(result), deadline.Token);
+            if (rejectActivation) await File.WriteAllBytesAsync(candidateReadme, originalReadme, deadline.Token);
+            bool expectRestored = rejectCandidateStartup || rejectActivation || changeSelectionDuringClose;
+            Assert.AreEqual(expectRestored ? "restored" : "restarted", result.Status, result.Error);
             Assert.IsNotNull(result.ProcessId);
             Process replacement = Process.GetProcessById(result.ProcessId.Value);
             processes.Add(replacement);
@@ -144,10 +160,18 @@ public sealed partial class NativeSessionTests
             Assert.AreNotEqual(oldEpoch, result.NativeEpoch);
             Assert.AreEqual("reconciliation_required", (await LinuxUpdateHandoff.ExecuteAsync(request, _ => Task.CompletedTask, deadline.Token)).Status);
             var replacementClient = new NativeClient(new NngTransport(), "ipc://" + replacementSocket
-                + (rejectCandidateStartup ? ".r" : ""), result.NativeEpoch);
+                + (expectRestored ? ".r" : ""), result.NativeEpoch);
             await replacementClient.OpenRootSchematicAsync(schematic, deadline.Token);
+            CollectionAssert.AreEqual(savedSchematic, await File.ReadAllBytesAsync(schematic, deadline.Token));
+            if (rejectActivation || changeSelectionDuringClose)
+            {
+                Assert.AreEqual(selectionToPreserve, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
+                CollectionAssert.AreEqual(acceptedBeforeClose,
+                    await File.ReadAllBytesAsync(Path.Combine(installed.Root, "state", "accepted-envelope.json"), deadline.Token));
+                Assert.AreEqual(Path.Combine(installed.VersionDirectory, "runtime/bin/kicad"), replacement.MainModule!.FileName);
+                Assert.IsTrue(File.Exists(Path.Combine(result.JournalDirectory, "activation-failure.json")));
+            }
             await NativeKeyboard.CaptureAsync(fixtureDisplay, Path.Combine(evidence, "replacement.png"), deadline.Token);
-            await File.WriteAllTextAsync(Path.Combine(evidence, "restart-result.json"), JsonSerializer.Serialize(result), deadline.Token);
             NativeKeyboard.SchematicShortcut(fixtureDisplay, replacement.Id, "q", "KiCad", true, false);
             await replacement.WaitForExitAsync(deadline.Token);
             string journalEvidence = Directory.CreateDirectory(Path.Combine(evidence, "journal")).FullName;
@@ -159,14 +183,22 @@ public sealed partial class NativeSessionTests
                 string configuration = Path.Combine(temporary, "restart-request.json");
                 await File.WriteAllTextAsync(configuration, JsonSerializer.Serialize(new LinuxRestartConfiguration(1, request),
                     new JsonSerializerOptions(JsonSerializerDefaults.Web)), deadline.Token);
-                var runner = UpdateCommandTests.StartInfo();
+                var runner = useInstalledHelper
+                    ? new ProcessStartInfo(Path.Combine(installed.VersionDirectory, "kicad-mcp"))
+                    { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true }
+                    : UpdateCommandTests.StartInfo();
+                await File.WriteAllTextAsync(Path.Combine(evidence, "handoff-helper.json"), JsonSerializer.Serialize(new
+                {
+                    schemaVersion = 1, helperKind = useInstalledHelper ? "installed" : "source",
+                    executable = runner.FileName, installedCommit = installed.Commit
+                }), deadline.Token);
                 foreach (string argument in new[] { "--restart-update", "--configuration", configuration }) runner.ArgumentList.Add(argument);
                 foreach (var (name, value) in start.Environment) runner.Environment[name] = value;
                 using var helper = Process.Start(runner)!;
-                Task<string> errors = helper.StandardError.ReadToEndAsync(deadline.Token);
+                Task<string> errors = helper.StandardError.ReadToEndAsync(handoffCancellation.Token);
                 try
                 {
-                    string readyLine = (await helper.StandardOutput.ReadLineAsync(deadline.Token))!;
+                    string readyLine = (await helper.StandardOutput.ReadLineAsync(handoffCancellation.Token))!;
                     await File.WriteAllTextAsync(Path.Combine(evidence, "handoff-ready.json"), readyLine, deadline.Token);
                     using var ready = JsonDocument.Parse(readyLine);
                     Assert.IsTrue(ready.RootElement.TryGetProperty("state", out var accepted), readyLine);
@@ -175,11 +207,12 @@ public sealed partial class NativeSessionTests
                     // Model the old window disappearing: close its response pipe
                     // after the acknowledgement, before it saves/closes.
                     helper.StandardOutput.Close();
-                    await helper.WaitForExitAsync(deadline.Token);
+                    await helper.WaitForExitAsync(handoffCancellation.Token);
                     await File.WriteAllTextAsync(Path.Combine(evidence, "handoff.stderr.log"), await errors, deadline.Token);
                     string journal = ready.RootElement.GetProperty("state").GetProperty("journalDirectory").GetString()!;
                     var result = JsonSerializer.Deserialize<UpdateHandoffState>(await File.ReadAllBytesAsync(Path.Combine(journal, "state.json"), deadline.Token),
                         new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                    await File.WriteAllTextAsync(Path.Combine(evidence, "handoff-result.json"), JsonSerializer.Serialize(result), deadline.Token);
                     Assert.AreEqual(0, helper.ExitCode, result.Error);
                     return result;
                 }

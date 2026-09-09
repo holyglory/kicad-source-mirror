@@ -48,7 +48,7 @@ public static class LinuxUpdateHandoff
         if (old.HasExited || LinuxProcessIdentity.Read(old.Id) != request.OldProcess)
             throw new InvalidDataException("The old process does not match its kernel start identity.");
         string executable = old.MainModule?.FileName ?? throw new InvalidDataException("The old executable identity is unavailable.");
-        _ = await LinuxVerifiedInstallation.InspectExecutableVersionAsync(root, executable, token);
+        var previousVersion = await LinuxVerifiedInstallation.InspectExecutableVersionAsync(root, executable, token);
         if (old.HasExited || LinuxProcessIdentity.Read(old.Id) != request.OldProcess || old.MainModule?.FileName != executable)
             throw new InvalidDataException("The old process changed during version verification.");
 
@@ -70,9 +70,14 @@ public static class LinuxUpdateHandoff
         try { await old.WaitForExitAsync(token); }
         catch (OperationCanceledException)
         {
-            state = new("cancelled_before_activation", journal, request.ExpectedTarget);
-            await Record(state, CancellationToken.None);
-            return state;
+            if (!old.HasExited)
+            {
+                state = new("cancelled_before_activation", journal, request.ExpectedTarget);
+                await Record(state, CancellationToken.None);
+                return state;
+            }
+            // Cancellation raced with the confirmed close. The activation
+            // branch will reject cancellation and restore the verified editor.
         }
 
         VerifiedLinuxActivation activated;
@@ -87,8 +92,25 @@ public static class LinuxUpdateHandoff
         {
             state = new("activation_failed", journal,
                 LinuxUpdateActivation.InspectTarget(Path.Combine(root, "manager")), Error: error.Message);
+            await SaveAsync(Path.Combine(journal, "activation-failure.json"), state, CancellationToken.None);
             await Record(state, CancellationToken.None);
-            return state;
+            try
+            {
+                // The old process is definitively gone and no replacement has
+                // been launched. Reverify its retained version, independently
+                // of a selection that another project may have changed. Do not
+                // roll back that shared selection or the accepted checkpoint.
+                var retained = await LinuxVerifiedInstallation.InspectExecutableVersionAsync(root, executable, CancellationToken.None);
+                if (retained != previousVersion)
+                    throw new InvalidDataException("The previous editor registration changed before recovery.");
+                return await LaunchAsync(retained, state.SelectedTarget!, "restored");
+            }
+            catch (Exception recoveryError) when (recoveryError is IOException or InvalidDataException or ArgumentException)
+            {
+                state = new("reconciliation_required", journal, state.SelectedTarget, Error: recoveryError.Message);
+                await Record(state, CancellationToken.None);
+                return state;
+            }
         }
         state = new("launching", journal, activated.Activation.Target);
         await Record(state, CancellationToken.None);
@@ -157,7 +179,10 @@ public static class LinuxUpdateHandoff
                     process.StartTime.ToUniversalTime().Ticks, Endpoint: "ipc://" + socket,
                     ProcessIdentity: LinuxProcessIdentity.Read(process.Id));
                 await Record(launched, CancellationToken.None);
-                using var readiness = CancellationTokenSource.CreateLinkedTokenSource(token);
+                // Once the old editor has closed, restoring it is bounded
+                // cleanup even if the update request itself was cancelled.
+                using var readiness = CancellationTokenSource.CreateLinkedTokenSource(
+                    label == "candidate" ? token : CancellationToken.None);
                 readiness.CancelAfter(TimeSpan.FromSeconds(60));
                 try
                 {

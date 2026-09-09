@@ -734,3 +734,26 @@ name = "explicit-transport"
 tier = "development"
 command = ["env", "KICAD_AUTOMATION_NNG_LIBRARY=/usr/lib/x86_64-linux-gnu/libnng.so", "dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NngTransportTests", "--logger", "trx", "--results-directory", "automation/artifacts/explicit-nng-contracts"]
 retained_artifacts = [{ name = "explicit-nng-contracts", path = "automation/artifacts/explicit-nng-contracts", max_bytes = 16777216 }]
+
+[test.hosted-delivery-contracts]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_TEST_NNG_LIBRARY = "/usr/lib/x86_64-linux-gnu/libnng.so" }
+
+[[test.hosted-delivery-contracts.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts", "windows-publish"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.hosted-delivery-contracts.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~MacManagedRuntimeTests|FullyQualifiedName~MacArchitectureTests|FullyQualifiedName~RuntimeInfoTests", "--logger", "trx", "--results-directory", "automation/artifacts/hosted-delivery-contracts"]
+retained_artifacts = [{ name = "hosted-delivery-contracts", path = "automation/artifacts/hosted-delivery-contracts", max_bytes = 16777216 }]
+
+[[test.hosted-delivery-contracts.check]]
+name = "windows-publish"
+tier = "development"
+requires = ["contracts"]
+command = ["dotnet", "publish", "automation/src/KiCad.Automation.Mcp", "--configuration", "Debug", "--runtime", "win-x64", "--self-contained", "true", "-p:RestoreLockedMode=true", "--output", "automation/artifacts/distribution/hosted-win-runtime"]

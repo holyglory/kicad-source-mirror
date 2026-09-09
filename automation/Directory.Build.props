@@ -9,6 +9,6 @@
     <AnalysisLevel>latest</AnalysisLevel>
   </PropertyGroup>
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'KiCad.Automation.Model' Or '$(MSBuildProjectName)' == 'KiCad.Automation.Native' Or '$(MSBuildProjectName)' == 'KiCad.Automation.Mcp' Or '$(MSBuildProjectName)' == 'KiCad.Automation.Distribution'">
-    <RuntimeIdentifiers>linux-x64;osx-arm64;osx-x64</RuntimeIdentifiers>
+    <RuntimeIdentifiers>linux-x64;osx-arm64;osx-x64;win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 </Project>

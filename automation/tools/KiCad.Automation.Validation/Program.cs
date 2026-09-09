@@ -6,6 +6,7 @@ try
     if (args.Length == 0 || args[0] is "--help" or "-h")
     {
         Console.WriteLine("kicad-validate mac --repository LOCAL_CHECKOUT --commit FULL_SHA --architecture arm64|x64 --builder MAC_BUILDER_CHECKOUT --toolchain EXISTING_CMAKE_TOOLCHAIN --output NEW_DIRECTORY [--native-tests CTEST_REGEX]");
+        Console.WriteLine("kicad-validate hosted --repository CHECKOUT --commit FULL_SHA --architecture arm64|x64 --output NEW_DIRECTORY --dependency-commit FULL_SHA (GitHub-hosted runners only)");
         Console.WriteLine("kicad-validate verify --result RESULT_JSON --archive EVIDENCE_TAR_GZ --commit FULL_SHA [--architecture arm64|x64]");
         Console.WriteLine("kicad-validate stage-linux --build NATIVE_BUILD --managed SELF_CONTAINED_PUBLISH --nng NNG_SHARED_LIBRARY --output EXISTING_STAGING_DIRECTORY");
         Console.WriteLine("kicad-validate package-linux --staging STAGING_RECEIPT --repository COMMITTED_SOURCE --commit FULL_SHA --version VERSION --output NEW_DIRECTORY");
@@ -24,7 +25,8 @@ try
     }
     string Required(string name) => options.TryGetValue(name, out string? value) ? value
         : throw new ArgumentException($"Missing --{name}.");
-    string[] allowed = args[0] == "mac"
+    string[] allowed = args[0] == "hosted" ? ["repository", "commit", "architecture", "output", "dependency-commit"]
+        : args[0] == "mac"
         ? ["repository", "commit", "architecture", "builder", "toolchain", "output", "native-tests"]
         : args[0] == "stage-linux" ? ["build", "managed", "nng", "output"]
         : args[0] == "package-linux" ? ["staging", "repository", "commit", "version", "output"]
@@ -36,6 +38,9 @@ try
         if (!allowed.Contains(name, StringComparer.Ordinal)) throw new ArgumentException($"Unknown option --{name}.");
     using var cancel = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
+    if (args[0] == "hosted")
+        return await HostedDelivery.RunAsync(new(Required("repository"), Required("commit"), Required("architecture"),
+            Required("output"), Required("dependency-commit")), cancel.Token) ? 0 : 1;
     if (args[0] is "publisher-create" or "publisher-export")
     {
         var receipt = args[0] == "publisher-create"

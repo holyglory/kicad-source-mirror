@@ -819,6 +819,49 @@ choose the registry directory. Start requires an explicit matching fork executab
 and an existing `.kicad_pro` path. Native endpoints use absolute local IPC paths.
 Do not point a production workflow at this development build yet.
 
+## GitHub-hosted Mac and Windows delivery (preliminary)
+
+The `Native delivery` GitHub Actions workflow builds an exact fork commit on
+Apple Silicon (`macos-15`), Intel Mac (`macos-15-intel`) and Windows x64
+(`windows-2022`). It runs only when dispatched, not on pushes or pull requests.
+One target failing does not cancel the other targets. The public update-signing
+key remains on the VPS; no private publisher or engineering repository is sent
+to the runners.
+
+```sh
+gh workflow run native-delivery.yml --repo holyglory/kicad-source-mirror \
+  --ref master -f source_commit=FULL_40_CHARACTER_FEATURE_COMMIT -f target=all
+gh run list --repo holyglory/kicad-source-mirror --workflow native-delivery.yml
+gh run watch RUN_ID --repo holyglory/kicad-source-mirror --exit-status
+gh run download RUN_ID --repo holyglory/kicad-source-mirror --dir NEW_EVIDENCE_DIRECTORY
+```
+
+Use `target=mac` or `target=windows` for a focused repair run. The workflow must
+be registered on the default branch; that branch contains the dispatch workflow
+without upgrading the pinned native source. The checkout and compiled runner
+come from the explicit requested commit, not the default branch.
+
+The compiled `hosted` command refuses other execution platforms and non-hosted
+environments, checks source identity and pinned ancestry, prepares dependencies
+only in a new output tree, and retains actual step results and dependency versions.
+Mac uses the pinned official KiCad Mac Builder and customized wxWidgets, then
+the exact-commit validation command below. Windows uses MSVC and KiCad's vcpkg
+manifest/registry pins, publishes the self-contained MCP executable, checks PE
+architecture and the installed KiCad commit, and opens real native NNG sockets.
+Source archives accompany successfully built application archives.
+
+Artifacts and `receipt.json` are retained even after ordinary failures. A failed
+receipt is not a usable delivery; archive hashes alone are not native execution
+proof. Successful candidates still report `QualifyingDelivery=false`: native
+Codex Desktop journeys, Mac/Windows automatic updating, Apple notarization,
+Windows Authenticode and complete engineering qualification are not established
+by this build workflow. GitHub artifacts require GitHub access; verified public
+downloads continue to be published separately through `https://kicad.vr.ae`.
+Do not replace that site's working Linux preview with an unverified CI artifact.
+
+Existing personal Macs can use the command below without dependency bootstrap.
+The hosted bootstrap never runs a clean-slate setup against a personal Mac.
+
 ## Manually invoked Mac validation
 
 The command below is implemented but has **not been executed on a Mac**. Prepare

@@ -12,7 +12,7 @@ public sealed partial class NativeSessionTests
     private static async Task VerifyUpdateRestartHandoff(InstalledLinuxUpdate installed, InstalledLinuxUpdate candidate,
         string evidence, CancellationToken token, bool rejectCandidateStartup = false, Func<Task>? beforeHandoff = null,
         bool rejectActivation = false, bool changeSelectionDuringClose = false, bool useInstalledHelper = false,
-        bool exitBeforeIdentity = false)
+        bool exitBeforeIdentity = false, bool inspectHandoff = false, bool interruptBeforeClose = false)
     {
         string temporary = Directory.CreateTempSubdirectory("kicad-restart-").FullName;
         var processes = new List<Process>();
@@ -21,6 +21,7 @@ public sealed partial class NativeSessionTests
         deadline.CancelAfter(TimeSpan.FromSeconds(beforeHandoff is null ? 90 : 180));
         using var handoffCancellation = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
         Task<UpdateHandoffState>? handoff = null;
+        Process? helperToInterrupt = null;
         try
         {
             var displayStart = new ProcessStartInfo("Xvfb") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
@@ -76,7 +77,8 @@ public sealed partial class NativeSessionTests
             string selectedTarget = LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory);
             var selectedBefore = await LinuxVerifiedInstallation.InspectSelectedAsync(installed.Root, selectedTarget, deadline.Token);
             string replacementSocket = Path.Combine(temporary, "new.sock");
-            var request = new LinuxUpdateHandoffRequest(installed.Root, selectedTarget, candidate.ManifestSha256,
+            var request = new LinuxUpdateHandoffRequest(interruptBeforeClose ? installed.Root + Path.DirectorySeparatorChar : installed.Root,
+                selectedTarget, candidate.ManifestSha256,
                 Guid.NewGuid(), LinuxProcessIdentity.Read(old.Id), project, Guid.Parse(instance), replacementSocket, true);
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxUpdateHandoff.ExecuteAsync(
                 request with { OldProcess = request.OldProcess with { StartTicks = request.OldProcess.StartTicks + 1 } }, _ => Task.CompletedTask, deadline.Token));
@@ -141,6 +143,16 @@ public sealed partial class NativeSessionTests
             await Task.WhenAny(waiting.Task, handoff).WaitAsync(deadline.Token);
             if (handoff.IsCompleted) await handoff; // surface a rejected request immediately
             await waiting.Task.WaitAsync(deadline.Token);
+            if (inspectHandoff)
+            {
+                var busy = await LinuxUpdateInspection.InspectAsync(installed.Root, request.OperationId, deadline.Token);
+                Assert.AreEqual("operation_unavailable", busy.Status);
+                var intent = JsonSerializer.Deserialize<UpdateHandoffIntent>(await File.ReadAllBytesAsync(
+                    Path.Combine(installed.Root, "handovers", request.OperationId.ToString("D"), "intent.json"), deadline.Token),
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                Assert.AreEqual(installed, intent.PreviousVersion);
+                Assert.AreEqual(request, intent.Request);
+            }
             NativeKeyboard.SchematicShortcut(fixtureDisplay, old.Id, "q", "KiCad", true, false);
             while (!NativeKeyboard.HasWindow(fixtureDisplay, old.Id, "Save"))
                 await Task.Delay(100, deadline.Token);
@@ -150,6 +162,24 @@ public sealed partial class NativeSessionTests
             Assert.IsFalse(old.HasExited);
             Assert.IsFalse(handoff.IsCompleted);
             Assert.AreEqual(selectedTarget, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
+            if (interruptBeforeClose)
+            {
+                Assert.IsNotNull(helperToInterrupt);
+                helperToInterrupt.Kill(entireProcessTree: true); // only this isolated fixture's updater, never its original editor
+                var interrupted = await handoff;
+                Assert.AreEqual("waiting_for_exit", interrupted.Status);
+                Assert.IsFalse(old.HasExited);
+                Assert.AreEqual(oldEpoch, (await client.HandshakeAsync(deadline.Token)).Epoch);
+                Assert.IsFalse(File.Exists(schematic));
+                var observation = await VerifyInspection("original_running");
+                Assert.AreEqual("live", observation.OriginalProcessStatus);
+                Assert.IsNull(observation.ObservedReplacement);
+                NativeKeyboard.SchematicShortcut(fixtureDisplay, old.Id, "s");
+                while (!File.Exists(schematic)) await Task.Delay(100, deadline.Token);
+                NativeKeyboard.SchematicShortcut(fixtureDisplay, old.Id, "q", "KiCad", true, false);
+                await old.WaitForExitAsync(deadline.Token);
+                return;
+            }
             NativeKeyboard.SchematicShortcut(fixtureDisplay, old.Id, "s");
             while (!File.Exists(schematic)) await Task.Delay(100, deadline.Token);
             byte[] savedSchematic = await File.ReadAllBytesAsync(schematic, deadline.Token);
@@ -178,6 +208,41 @@ public sealed partial class NativeSessionTests
             processes.Add(replacement);
             Assert.IsFalse(replacement.HasExited);
             Assert.AreNotEqual(oldEpoch, result.NativeEpoch);
+            if (inspectHandoff)
+            {
+                var observation = await VerifyInspection("replacement_running");
+                Assert.AreEqual(result.ProcessIdentity, observation.ObservedReplacement);
+                Assert.AreEqual(result.NativeEpoch, observation.NativeEpoch);
+                string operationDirectory = Path.Combine(installed.Root, "handovers", request.OperationId.ToString("D"));
+                string statePath = Path.Combine(operationDirectory, "state.json");
+                string requestPath = Path.Combine(operationDirectory, "request.json");
+                string intentPath = Path.Combine(operationDirectory, "intent.json");
+                byte[] stateBytes = await File.ReadAllBytesAsync(statePath, deadline.Token);
+                byte[] requestBytes = await File.ReadAllBytesAsync(requestPath, deadline.Token);
+                byte[] intentBytes = await File.ReadAllBytesAsync(intentPath, deadline.Token);
+                var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+                try
+                {
+                    await File.WriteAllTextAsync(statePath, JsonSerializer.Serialize(result with
+                    { ProcessIdentity = result.ProcessIdentity! with { StartTicks = result.ProcessIdentity!.StartTicks + 1 } }, json), deadline.Token);
+                    var wrongBirth = await VerifyInspection("replacement_identity_changed");
+                    Assert.IsNull(wrongBirth.ObservedReplacement);
+                    Assert.IsFalse(replacement.HasExited);
+                    await File.WriteAllBytesAsync(statePath, stateBytes, deadline.Token);
+                    var wrongInstance = request with { InstanceId = Guid.NewGuid() };
+                    var intent = JsonSerializer.Deserialize<UpdateHandoffIntent>(intentBytes, json)!;
+                    await File.WriteAllTextAsync(requestPath, JsonSerializer.Serialize(wrongInstance, json), deadline.Token);
+                    await File.WriteAllTextAsync(intentPath, JsonSerializer.Serialize(intent with { Request = wrongInstance }, json), deadline.Token);
+                    await VerifyInspection("native_identity_mismatch");
+                    Assert.IsFalse(replacement.HasExited);
+                }
+                finally
+                {
+                    await File.WriteAllBytesAsync(statePath, stateBytes, deadline.Token);
+                    await File.WriteAllBytesAsync(requestPath, requestBytes, deadline.Token);
+                    await File.WriteAllBytesAsync(intentPath, intentBytes, deadline.Token);
+                }
+            }
             Assert.AreEqual("reconciliation_required", (await LinuxUpdateHandoff.ExecuteAsync(request, _ => Task.CompletedTask, deadline.Token)).Status);
             var replacementClient = new NativeClient(new NngTransport(), "ipc://" + replacementSocket
                 + (expectRestored ? ".r" : ""), result.NativeEpoch);
@@ -203,12 +268,67 @@ public sealed partial class NativeSessionTests
             await NativeKeyboard.CaptureAsync(fixtureDisplay, Path.Combine(evidence, "replacement.png"), deadline.Token);
             NativeKeyboard.SchematicShortcut(fixtureDisplay, replacement.Id, "q", "KiCad", true, false);
             await replacement.WaitForExitAsync(deadline.Token);
+            if (inspectHandoff)
+            {
+                var exited = await VerifyInspection("replacement_exited");
+                Assert.IsNull(exited.ObservedReplacement);
+            }
             CopyJournal();
 
             void CopyJournal()
             {
                 foreach (string file in Directory.GetFiles(result.JournalDirectory))
                     File.Copy(file, Path.Combine(journalEvidence, Path.GetFileName(file)), overwrite: true);
+            }
+
+            async Task<UpdateInspection> VerifyInspection(string expectedStatus)
+            {
+                string operationDirectory = Path.Combine(installed.Root, "handovers", request.OperationId.ToString("D"));
+                async Task<(string Name, string Hash, DateTime Written)[]> Snapshot()
+                {
+                    var files = new List<(string, string, DateTime)>();
+                    foreach (string name in new[] { "request.json", "intent.json", "state.json", "operation.lock" })
+                    {
+                        string path = Path.Combine(operationDirectory, name);
+                        files.Add((name, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+                            await File.ReadAllBytesAsync(path, deadline.Token))), File.GetLastWriteTimeUtc(path)));
+                    }
+                    return files.ToArray();
+                }
+                var before = await Snapshot();
+                var runner = useInstalledHelper
+                    ? new ProcessStartInfo(Path.Combine(installed.VersionDirectory, "kicad-mcp"))
+                    { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true }
+                    : UpdateCommandTests.StartInfo();
+                foreach (string argument in new[] { "--inspect-update", "--installation", installed.Root,
+                    "--operation", request.OperationId.ToString("D") }) runner.ArgumentList.Add(argument);
+                using var inspection = Process.Start(runner)!;
+                Task<string> stdout = inspection.StandardOutput.ReadToEndAsync(deadline.Token);
+                Task<string> stderr = inspection.StandardError.ReadToEndAsync(deadline.Token);
+                try
+                {
+                    await inspection.WaitForExitAsync(deadline.Token);
+                    string text = await stdout;
+                    await File.WriteAllTextAsync(Path.Combine(evidence, "inspection-" + expectedStatus + ".json"), text, deadline.Token);
+                    Assert.AreEqual(0, inspection.ExitCode, text + await stderr);
+                    using var document = JsonDocument.Parse(text);
+                    var observation = document.RootElement.GetProperty("result").Deserialize<UpdateInspection>(
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                    Assert.AreEqual(expectedStatus, observation.Status);
+                    Assert.IsFalse(observation.AutomaticRecoveryAvailable);
+                    Assert.AreEqual(installed.ManifestSha256, observation.PreviousManifestSha256);
+                    CollectionAssert.AreEqual(before, await Snapshot(), "Inspection must not rewrite the journal.");
+                    string copy = Directory.CreateDirectory(Path.Combine(evidence, "inspection-journal-" + expectedStatus)).FullName;
+                    foreach (var (name, _, _) in before)
+                        File.Copy(Path.Combine(operationDirectory, name), Path.Combine(copy, name));
+                    return observation;
+                }
+                finally
+                {
+                    if (!inspection.HasExited) inspection.Kill(entireProcessTree: true);
+                    await inspection.WaitForExitAsync();
+                    await Task.WhenAll(stdout, stderr);
+                }
             }
 
             async Task<UpdateHandoffState> RunHandoffProcess()
@@ -228,6 +348,7 @@ public sealed partial class NativeSessionTests
                 foreach (string argument in new[] { "--restart-update", "--configuration", configuration }) runner.ArgumentList.Add(argument);
                 foreach (var (name, value) in start.Environment) runner.Environment[name] = value;
                 using var helper = Process.Start(runner)!;
+                helperToInterrupt = helper;
                 Task<string> errors = helper.StandardError.ReadToEndAsync(handoffCancellation.Token);
                 try
                 {
@@ -246,7 +367,8 @@ public sealed partial class NativeSessionTests
                     var result = JsonSerializer.Deserialize<UpdateHandoffState>(await File.ReadAllBytesAsync(Path.Combine(journal, "state.json"), deadline.Token),
                         new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
                     await File.WriteAllTextAsync(Path.Combine(evidence, "handoff-result.json"), JsonSerializer.Serialize(result), deadline.Token);
-                    Assert.AreEqual(0, helper.ExitCode, result.Error);
+                    if (!interruptBeforeClose) Assert.AreEqual(0, helper.ExitCode, result.Error);
+                    else Assert.AreNotEqual(0, helper.ExitCode);
                     return result;
                 }
                 finally

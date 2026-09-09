@@ -58,6 +58,7 @@ public sealed class UpdateCommandTests
     [DataRow("--prepare-update")]
     [DataRow("--install-package")]
     [DataRow("--restart-update")]
+    [DataRow("--inspect-update")]
     public async Task RealHelperProcessExitsInsteadOfStartingMcpForMalformedInvocation(string mode)
     {
         var start = StartInfo();
@@ -73,7 +74,8 @@ public sealed class UpdateCommandTests
             using var result = JsonDocument.Parse(await stdout);
             Assert.AreEqual("failed", result.RootElement.GetProperty("status").GetString());
             Assert.IsFalse(result.RootElement.GetProperty(mode switch
-            { "--install-package" => "automaticUpdatingQualified", "--restart-update" => "nativeEditorRestarted", _ => "installationReady" }).GetBoolean());
+            { "--install-package" => "automaticUpdatingQualified", "--restart-update" => "nativeEditorRestarted",
+                "--inspect-update" => "automaticRecoveryAvailable", _ => "installationReady" }).GetBoolean());
             Assert.IsFalse(result.RootElement.TryGetProperty("jsonrpc", out _));
         }
         finally

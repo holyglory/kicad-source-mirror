@@ -1385,6 +1385,36 @@ These prove the stated Linux journeys, not all update recovery cases or either
 native-Mac target. Broader restart/failure/power-loss recovery, Mac packaging
 and the complete engineering outcome remain unfinished.
 
+### Interrupted-update inspection (source increment)
+
+Find out whether the original editor survived an updater interruption or a
+replacement is already running without starting another editor:
+
+```sh
+kicad-mcp --inspect-update --installation /absolute/managed-installation \
+  --operation 00000000-0000-4000-8000-000000000001
+```
+
+Use the real operation UUID from that installation's handoff, not the example.
+New handoffs persist the exact previous verified version before acknowledging
+the old editor's close. Inspection locks an existing journal for reading,
+validates its bounded typed records, rechecks the previous signed installation,
+and matches kernel process identity, executable and native session where
+available. It never changes journal bytes, installation selection or editors.
+An unavailable lock does not prove an updater is alive. Missing identity,
+unreachable endpoints and legacy journals without the new intent record remain
+explicitly unverified; inspection does not guess or authorize a restart.
+
+Source check `t20260909T023746Z-4ee69d` exercises the compiled inspection command
+after killing only a test-owned updater while its original editor remains dirty,
+and after a normal replacement starts and then closes. It verifies stale kernel
+identity and wrong native-instance rejection without closing the live editor,
+unchanged journal hashes/write times, and absolute paths with a trailing separator.
+The fixture uses source-built helpers with a real frozen Linux KiCad package.
+This is observation evidence, not automatic interruption/power-loss recovery or
+native-Mac qualification. Older public packages do not gain the new journal
+record or command retroactively.
+
 ### Source PDF inspection (preliminary)
 
 The `kicad_source_pdf_page` tool reads a PDF declared under `documents` in the

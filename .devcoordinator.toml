@@ -239,6 +239,31 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeUpdateEarlyExit", "--logger", "trx", "--results-directory", "automation/artifacts/update-early-tests"]
 retained_artifacts = [{ name = "update-early-tests", path = "automation/artifacts/update-early-tests", max_bytes = 16777216 }, { name = "update-early-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
 
+[test.update-inspection]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260909T015731Z-7a8d9ea241ee", KICAD_RECOVERY_PACKAGED_HELPER = "0" }
+
+[[test.update-inspection.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts", "rendered"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.update-inspection.check]]
+name = "contracts"
+tier = "development"
+role = "preflight"
+invalidates = ["rendered"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~UpdateInspectionTests|FullyQualifiedName~UpdateCommandTests", "--logger", "trx", "--results-directory", "automation/artifacts/update-inspection-contracts"]
+retained_artifacts = [{ name = "inspection-contracts", path = "automation/artifacts/update-inspection-contracts", max_bytes = 16777216 }]
+
+[[test.update-inspection.check]]
+name = "rendered"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeUpdateInspection", "--logger", "trx", "--results-directory", "automation/artifacts/update-inspection-tests"]
+retained_artifacts = [{ name = "inspection-tests", path = "automation/artifacts/update-inspection-tests", max_bytes = 16777216 }, { name = "inspection-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
+
 [test.native-updater-journey]
 timeout_seconds = 3600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

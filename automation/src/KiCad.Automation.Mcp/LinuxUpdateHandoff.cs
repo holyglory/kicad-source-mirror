@@ -11,6 +11,8 @@ public sealed record LinuxUpdateHandoffRequest(string InstallationRoot, string E
 public sealed record UpdateHandoffState(string Status, string JournalDirectory, string? SelectedTarget = null,
     int? ProcessId = null, long? ProcessStartUtcTicks = null, string? NativeEpoch = null, string? Error = null,
     string? Endpoint = null, LinuxProcessIdentity? ProcessIdentity = null);
+public sealed record UpdateHandoffIntent(int SchemaVersion, LinuxUpdateHandoffRequest Request,
+    InstalledLinuxUpdate PreviousVersion, DateTimeOffset PreparedAtUtc);
 
 /// <summary>Called only after the operator chooses Update. Waits for a specific
 /// existing native process; never closes, signals or kills it. A launch with
@@ -65,6 +67,11 @@ public static class LinuxUpdateHandoff
             return new("reconciliation_required", journal, Error: "Inspect the existing handoff before retrying it.");
         }
         await SaveAsync(requestPath, request, token);
+        // The selected installation can differ from this editor's version.
+        // Preserve its exact verified identity before permitting the old window
+        // to close, so interrupted supervision never has to guess it later.
+        await SaveAsync(Path.Combine(journal, "intent.json"),
+            new UpdateHandoffIntent(1, request, previousVersion, DateTimeOffset.UtcNow), token);
         var state = new UpdateHandoffState("waiting_for_exit", journal, request.ExpectedTarget);
         await Record(state, token);
         await report(state);

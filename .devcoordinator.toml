@@ -264,6 +264,31 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeUpdateInspection", "--logger", "trx", "--results-directory", "automation/artifacts/update-inspection-tests"]
 retained_artifacts = [{ name = "inspection-tests", path = "automation/artifacts/update-inspection-tests", max_bytes = 16777216 }, { name = "inspection-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
 
+[test.interrupted-recovery]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260909T024727Z-095882e06694", KICAD_RECOVERY_PACKAGED_HELPER = "0" }
+
+[[test.interrupted-recovery.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts", "rendered"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.interrupted-recovery.check]]
+name = "contracts"
+tier = "development"
+role = "preflight"
+invalidates = ["rendered"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~UpdateRecoveryTests|FullyQualifiedName~UpdateInspectionTests|FullyQualifiedName~UpdateCommandTests", "--logger", "trx", "--results-directory", "automation/artifacts/interrupted-recovery-contracts"]
+retained_artifacts = [{ name = "recovery-contracts", path = "automation/artifacts/interrupted-recovery-contracts", max_bytes = 16777216 }]
+
+[[test.interrupted-recovery.check]]
+name = "rendered"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeInterruptedRecovery|TestCategory=NativeUpdateInspection|TestCategory=NativeUpdateCloseRecovery|TestCategory=NativeUpdateEarlyExit", "--logger", "trx", "--results-directory", "automation/artifacts/interrupted-recovery-tests"]
+retained_artifacts = [{ name = "interrupted-tests", path = "automation/artifacts/interrupted-recovery-tests", max_bytes = 16777216 }, { name = "interrupted-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
+
 [test.native-updater-journey]
 timeout_seconds = 3600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

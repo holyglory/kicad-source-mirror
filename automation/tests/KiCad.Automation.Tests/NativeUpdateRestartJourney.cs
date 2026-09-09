@@ -12,7 +12,8 @@ public sealed partial class NativeSessionTests
     private static async Task VerifyUpdateRestartHandoff(InstalledLinuxUpdate installed, InstalledLinuxUpdate candidate,
         string evidence, CancellationToken token, bool rejectCandidateStartup = false, Func<Task>? beforeHandoff = null,
         bool rejectActivation = false, bool changeSelectionDuringClose = false, bool useInstalledHelper = false,
-        bool exitBeforeIdentity = false, bool inspectHandoff = false, bool interruptBeforeClose = false)
+        bool exitBeforeIdentity = false, bool inspectHandoff = false, bool interruptBeforeClose = false,
+        bool recoverAfterClose = false)
     {
         string temporary = Directory.CreateTempSubdirectory("kicad-restart-").FullName;
         var processes = new List<Process>();
@@ -174,10 +175,83 @@ public sealed partial class NativeSessionTests
                 var observation = await VerifyInspection("original_running");
                 Assert.AreEqual("live", observation.OriginalProcessStatus);
                 Assert.IsNull(observation.ObservedReplacement);
+                Guid recoveryAttempt = Guid.NewGuid();
+                if (recoverAfterClose)
+                {
+                    string[] beforeRecovery = Directory.GetFiles(Path.Combine(installed.Root, "handovers", request.OperationId.ToString("D")));
+                    var alive = await VerifyRecovery(recoveryAttempt, "original_running", 0);
+                    Assert.IsFalse(alive.NativeEditorRestarted);
+                    CollectionAssert.AreEquivalent(beforeRecovery,
+                        Directory.GetFiles(Path.Combine(installed.Root, "handovers", request.OperationId.ToString("D"))));
+                }
                 NativeKeyboard.SchematicShortcut(fixtureDisplay, old.Id, "s");
                 while (!File.Exists(schematic)) await Task.Delay(100, deadline.Token);
+                byte[] interruptedSaved = await File.ReadAllBytesAsync(schematic, deadline.Token);
                 NativeKeyboard.SchematicShortcut(fixtureDisplay, old.Id, "q", "KiCad", true, false);
                 await old.WaitForExitAsync(deadline.Token);
+                if (recoverAfterClose)
+                {
+                    string operationDirectory = Path.Combine(installed.Root, "handovers", request.OperationId.ToString("D"));
+                    string statePath = Path.Combine(operationDirectory, "state.json");
+                    string intentPath = Path.Combine(operationDirectory, "intent.json");
+                    byte[] savedState = await File.ReadAllBytesAsync(statePath, deadline.Token);
+                    byte[] savedIntent = await File.ReadAllBytesAsync(intentPath, deadline.Token);
+                    var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+                    var currentState = JsonSerializer.Deserialize<UpdateHandoffState>(savedState, json)!;
+                    try
+                    {
+                        foreach (string refused in new[] { "cancelled_before_activation", "launching" })
+                        {
+                            await File.WriteAllTextAsync(statePath, JsonSerializer.Serialize(currentState with { Status = refused }, json), deadline.Token);
+                            await VerifyRecovery(Guid.NewGuid(), "launch_outcome_not_recoverable", 1);
+                            Assert.IsEmpty(Directory.GetFiles(operationDirectory, "recovery*.json"));
+                        }
+                        await File.WriteAllBytesAsync(statePath, savedState, deadline.Token);
+                        var intent = JsonSerializer.Deserialize<UpdateHandoffIntent>(savedIntent, json)!;
+                        await File.WriteAllTextAsync(intentPath, JsonSerializer.Serialize(intent with
+                        { SchemaVersion = 1, LaunchEnvironment = null }, json), deadline.Token);
+                        await VerifyRecovery(Guid.NewGuid(), "recovery_context_unavailable", 1);
+                        Assert.IsEmpty(Directory.GetFiles(operationDirectory, "recovery*.json"));
+                    }
+                    finally
+                    {
+                        await File.WriteAllBytesAsync(statePath, savedState, deadline.Token);
+                        await File.WriteAllBytesAsync(intentPath, savedIntent, deadline.Token);
+                    }
+                    using (var cancellation = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token))
+                    {
+                        Guid cancelledAttempt = Guid.NewGuid();
+                        var cancelled = await LinuxUpdateRecovery.RecoverAsync(installed.Root, request.OperationId,
+                            cancelledAttempt, () => cancellation.Cancel(), cancellation.Token);
+                        Assert.AreEqual("recovery_cancelled", cancelled.Status);
+                        Assert.IsNull(cancelled.State?.ProcessId);
+                        Assert.AreEqual(selectedTarget, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
+                        await File.WriteAllTextAsync(Path.Combine(evidence, "recovery-cancelled-source-hook.json"),
+                            JsonSerializer.Serialize(cancelled, json), deadline.Token);
+                        var retry = await VerifyRecovery(cancelledAttempt, "attempt_already_recorded", 0);
+                        Assert.IsTrue(retry.Reused);
+                        Assert.IsFalse(retry.NativeEditorRestarted);
+                    }
+                    var recovered = await VerifyRecovery(recoveryAttempt, "restored", 0);
+                    Assert.IsTrue(recovered.NativeEditorRestarted);
+                    Assert.IsNotNull(recovered.State?.ProcessIdentity);
+                    Assert.AreNotEqual(oldEpoch, recovered.State.NativeEpoch);
+                    Assert.AreEqual(selectedTarget, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
+                    var recoveredPeer = new NativeClient(new NngTransport(), recovered.State.Endpoint!, recovered.State.NativeEpoch);
+                    await recoveredPeer.OpenRootSchematicAsync(schematic, deadline.Token);
+                    CollectionAssert.AreEqual(interruptedSaved, await File.ReadAllBytesAsync(schematic, deadline.Token));
+                    await NativeKeyboard.CaptureAsync(fixtureDisplay, Path.Combine(evidence, "explicitly-recovered.png"), deadline.Token);
+                    await VerifyInspection("replacement_running");
+                    var replay = await VerifyRecovery(recoveryAttempt, "attempt_already_recorded", 0);
+                    Assert.IsTrue(replay.Reused);
+                    Assert.IsFalse(replay.NativeEditorRestarted);
+                    Assert.AreEqual(recovered.State.ProcessIdentity, replay.State!.ProcessIdentity);
+                    await VerifyRecovery(Guid.NewGuid(), "recovery_outcome_already_recorded", 1);
+                    using var recoveredProcess = Process.GetProcessById(recovered.State.ProcessId!.Value);
+                    NativeKeyboard.SchematicShortcut(fixtureDisplay, recoveredProcess.Id, "q", "KiCad", true, false);
+                    await recoveredProcess.WaitForExitAsync(deadline.Token);
+                    await VerifyInspection("replacement_exited");
+                }
                 return;
             }
             NativeKeyboard.SchematicShortcut(fixtureDisplay, old.Id, "s");
@@ -287,7 +361,11 @@ public sealed partial class NativeSessionTests
                 async Task<(string Name, string Hash, DateTime Written)[]> Snapshot()
                 {
                     var files = new List<(string, string, DateTime)>();
-                    foreach (string name in new[] { "request.json", "intent.json", "state.json", "operation.lock" })
+                    var names = new[] { "request.json", "intent.json", "state.json", "operation.lock" }
+                        .Concat(Directory.GetFiles(operationDirectory, "recovery*.json")
+                            .Select(path => Path.GetFileName(path) ?? throw new InvalidDataException("Recovery file name is missing.")))
+                        .Order(StringComparer.Ordinal);
+                    foreach (string name in names)
                     {
                         string path = Path.Combine(operationDirectory, name);
                         files.Add((name, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
@@ -327,6 +405,51 @@ public sealed partial class NativeSessionTests
                 {
                     if (!inspection.HasExited) inspection.Kill(entireProcessTree: true);
                     await inspection.WaitForExitAsync();
+                    await Task.WhenAll(stdout, stderr);
+                }
+            }
+
+            async Task<UpdateRecoveryResult> VerifyRecovery(Guid attempt, string expectedStatus, int expectedExit)
+            {
+                var runner = useInstalledHelper
+                    ? new ProcessStartInfo(Path.Combine(installed.VersionDirectory, "kicad-mcp"))
+                    { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true }
+                    : UpdateCommandTests.StartInfo();
+                // Do not copy DISPLAY/profile overrides here: recovery must use
+                // the saved, allowlisted original context in intent.json.
+                foreach (string argument in new[] { "--recover-update", "--installation", installed.Root,
+                    "--operation", request.OperationId.ToString("D"), "--attempt", attempt.ToString("D") }) runner.ArgumentList.Add(argument);
+                using var recovery = Process.Start(runner)!;
+                Task<string> stdout = recovery.StandardOutput.ReadToEndAsync(deadline.Token);
+                Task<string> stderr = recovery.StandardError.ReadToEndAsync(deadline.Token);
+                try
+                {
+                    await recovery.WaitForExitAsync(deadline.Token);
+                    string text = await stdout;
+                    await File.WriteAllTextAsync(Path.Combine(evidence, "recovery-" + expectedStatus + "-" + attempt.ToString("N") + ".json"), text, deadline.Token);
+                    using var document = JsonDocument.Parse(text);
+                    Assert.IsTrue(document.RootElement.TryGetProperty("result", out var resultElement), text + await stderr);
+                    var result = resultElement.Deserialize<UpdateRecoveryResult>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                    if (result.State?.ProcessIdentity is { } identity)
+                    {
+                        try
+                        {
+                            var native = Process.GetProcessById(identity.ProcessId);
+                            if (!native.HasExited && LinuxProcessIdentity.Read(native.Id) == identity
+                                && native.MainModule?.FileName == Path.Combine(installed.VersionDirectory, "runtime/bin/kicad")
+                                && !processes.Any(item => !item.HasExited && item.Id == native.Id)) processes.Add(native);
+                            else native.Dispose();
+                        }
+                        catch (ArgumentException) { }
+                    }
+                    Assert.AreEqual(expectedExit, recovery.ExitCode, text + await stderr);
+                    Assert.AreEqual(expectedStatus, result.Status);
+                    return result;
+                }
+                finally
+                {
+                    if (!recovery.HasExited) recovery.Kill(entireProcessTree: true);
+                    await recovery.WaitForExitAsync();
                     await Task.WhenAll(stdout, stderr);
                 }
             }

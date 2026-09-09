@@ -35,8 +35,14 @@ public sealed partial class NativeSessionTests
         => VerifyCloseRecoveryFixture(concurrentSelection: false, rejectStartup: false,
             inspectHandoff: true, interruptBeforeClose: interrupted);
 
+    [TestMethod]
+    [TestCategory("NativeInterruptedRecovery")]
+    public Task ExplicitRecoveryReopensOnlyTheClosedOriginalAndDoesNotDuplicateARecordedAttempt()
+        => VerifyCloseRecoveryFixture(concurrentSelection: false, rejectStartup: false,
+            inspectHandoff: true, interruptBeforeClose: true, recoverAfterClose: true);
+
     private async Task VerifyCloseRecoveryFixture(bool concurrentSelection, bool rejectStartup, bool earlyExit = false,
-        bool inspectHandoff = false, bool interruptBeforeClose = false)
+        bool inspectHandoff = false, bool interruptBeforeClose = false, bool recoverAfterClose = false)
     {
         string cataloguePath = Environment.GetEnvironmentVariable("KICAD_PACKAGE_CATALOGUE")
             ?? throw new AssertFailedException("Select an exact frozen native package for recovery checks.");
@@ -46,7 +52,7 @@ public sealed partial class NativeSessionTests
         var artifact = catalogue.Manifest.Artifacts.Single(item => item.Platform == "linux-x64"
             && item.FileName.EndsWith(".tar.gz", StringComparison.Ordinal));
         string evidence = Directory.CreateDirectory(Path.Combine(CloseRecoveryEvidence.Value,
-            inspectHandoff ? interruptBeforeClose ? "inspect-interrupted" : "inspect-restarted" :
+            recoverAfterClose ? "explicit-recovery" : inspectHandoff ? interruptBeforeClose ? "inspect-interrupted" : "inspect-restarted" :
             earlyExit ? "exit-before-identity" : rejectStartup ? "startup-after-other-selection" : concurrentSelection ? "selection-changed" : "candidate-changed")).FullName;
         string temporary = Directory.CreateTempSubdirectory("kicad-close-recovery-").FullName;
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(5));
@@ -82,7 +88,7 @@ public sealed partial class NativeSessionTests
                 rejectActivation: !concurrentSelection && !rejectStartup && !inspectHandoff,
                 changeSelectionDuringClose: concurrentSelection && !rejectStartup,
                 useInstalledHelper: helperMode == "1" && !rejectStartup, exitBeforeIdentity: earlyExit,
-                inspectHandoff: inspectHandoff, interruptBeforeClose: interruptBeforeClose);
+                inspectHandoff: inspectHandoff, interruptBeforeClose: interruptBeforeClose, recoverAfterClose: recoverAfterClose);
         }
         finally { Directory.Delete(temporary, recursive: true); }
     }

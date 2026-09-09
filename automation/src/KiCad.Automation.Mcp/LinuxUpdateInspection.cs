@@ -12,6 +12,8 @@ public sealed record UpdateInspection(string Status, Guid OperationId, DateTimeO
     string? OriginalProcessStatus = null, string? ReplacementProcessStatus = null,
     LinuxProcessIdentity? ObservedReplacement = null, string? NativeEpoch = null,
     bool AutomaticRecoveryAvailable = false);
+internal sealed record UpdateJournalSnapshot(UpdateHandoffIntent Intent, UpdateHandoffState State,
+    InstalledLinuxUpdate PreviousVersion, UpdateRecoveryClaim? Recovery);
 
 /// <summary>Observes an existing handoff under its existing ownership lock.
 /// Never starts/stops processes, changes selection, or rewrites the journal.
@@ -52,14 +54,12 @@ public static class LinuxUpdateInspection
             if (!File.Exists(intentPath)) return report with { Status = "legacy_journal_unverifiable" };
             if (!File.Exists(Path.Combine(journal, "request.json")) || !File.Exists(Path.Combine(journal, "state.json")))
                 return report with { Status = "journal_incomplete" };
-            var intent = await ReadAsync<UpdateHandoffIntent>(intentPath, token);
-            var request = await ReadAsync<LinuxUpdateHandoffRequest>(Path.Combine(journal, "request.json"), token);
-            var state = await ReadAsync<UpdateHandoffState>(Path.Combine(journal, "state.json"), token);
-            Validate(root, journal, operationId, intent, request, state);
+            var snapshot = await ReadSnapshotAsync(root, journal, operationId, token);
+            var intent = snapshot.Intent;
+            var request = intent.Request;
+            var state = snapshot.State;
             string oldExecutable = Path.Combine(intent.PreviousVersion.VersionDirectory, "runtime/bin/kicad");
-            var previous = await LinuxVerifiedInstallation.InspectExecutableVersionAsync(root, oldExecutable, token);
-            if (previous != intent.PreviousVersion)
-                throw new InvalidDataException("The previous editor registration no longer matches the saved intent.");
+            var previous = snapshot.PreviousVersion;
             string selection = LinuxUpdateActivation.InspectTarget(Path.Combine(root, "manager"));
             string original = ObserveProcess(request.OldProcess, oldExecutable);
             report = report with { JournalStatus = state.Status, PreviousManifestSha256 = previous.ManifestSha256,
@@ -70,7 +70,8 @@ public static class LinuxUpdateInspection
                         ? "no_replacement_recorded" : "launch_outcome_unknown" };
             if (state.ProcessIdentity is null)
                 return report with { Status = "replacement_identity_unavailable", ReplacementProcessStatus = "unknown" };
-            bool restored = state.Endpoint == "ipc://" + request.SocketPath + ".r";
+            bool restored = state.Endpoint == "ipc://" + request.SocketPath + ".r"
+                || snapshot.Recovery is { } recovery && state.Endpoint == "ipc://" + recovery.SocketPath;
             string executable = restored ? oldExecutable
                 : Path.Combine(root, "versions", request.ManifestSha256, "payload/runtime/bin/kicad");
             _ = await LinuxVerifiedInstallation.InspectExecutableVersionAsync(root, executable, token);
@@ -95,7 +96,36 @@ public static class LinuxUpdateInspection
         }
     }
 
-    private static string ObserveProcess(LinuxProcessIdentity expected, string executable)
+    // Caller must own the existing operation lock. This is shared with explicit
+    // recovery so both paths interpret the same typed journal and version data.
+    internal static async Task<UpdateJournalSnapshot> ReadSnapshotAsync(string root, string journal, Guid operation,
+        CancellationToken token)
+    {
+        var intent = await ReadAsync<UpdateHandoffIntent>(Path.Combine(journal, "intent.json"), token);
+        var request = await ReadAsync<LinuxUpdateHandoffRequest>(Path.Combine(journal, "request.json"), token);
+        var state = await ReadAsync<UpdateHandoffState>(Path.Combine(journal, "state.json"), token);
+        UpdateRecoveryClaim? recovery = null;
+        if (File.Exists(Path.Combine(journal, "recovery.json")))
+        {
+            recovery = await ReadAsync<UpdateRecoveryClaim>(Path.Combine(journal, "recovery.json"), token);
+            if (recovery.SchemaVersion != 1 || recovery.OperationId != operation || recovery.AttemptId == Guid.Empty
+                || recovery.BootId == Guid.Empty || recovery.StartedAtUtc == default
+                || !Path.IsPathFullyQualified(recovery.SocketPath) || recovery.SocketPath.Length > 80)
+                throw new InvalidDataException("The recovery attempt does not match this operation.");
+            string prefix = Path.Combine(journal, "recovery-" + recovery.AttemptId.ToString("N"));
+            if (await ReadAsync<UpdateRecoveryClaim>(prefix + ".json", token) != recovery)
+                throw new InvalidDataException("The current recovery pointer does not match its immutable attempt.");
+            state = await ReadAsync<UpdateHandoffState>(prefix + ".state.json", token);
+        }
+        Validate(root, journal, operation, intent, request, state, recovery);
+        string executable = Path.Combine(intent.PreviousVersion.VersionDirectory, "runtime/bin/kicad");
+        var previous = await LinuxVerifiedInstallation.InspectExecutableVersionAsync(root, executable, token);
+        if (previous != intent.PreviousVersion)
+            throw new InvalidDataException("The previous editor registration no longer matches the saved intent.");
+        return new(intent, state, previous, recovery);
+    }
+
+    internal static string ObserveProcess(LinuxProcessIdentity expected, string executable)
     {
         try
         {
@@ -112,9 +142,9 @@ public static class LinuxUpdateInspection
     }
 
     private static void Validate(string root, string journal, Guid operation, UpdateHandoffIntent intent,
-        LinuxUpdateHandoffRequest request, UpdateHandoffState state)
+        LinuxUpdateHandoffRequest request, UpdateHandoffState state, UpdateRecoveryClaim? recovery)
     {
-        if (intent.SchemaVersion != 1 || intent.Request != request || intent.PreviousVersion is null
+        if (intent.SchemaVersion is not (1 or 2) || intent.Request != request || intent.PreviousVersion is null
             || intent.PreparedAtUtc == default || request.OperationId != operation
             || !Path.IsPathFullyQualified(request.InstallationRoot)
             || Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.InstallationRoot)) != root
@@ -126,14 +156,17 @@ public static class LinuxUpdateInspection
             || !Digest(request.ManifestSha256) || state.JournalDirectory != journal
             || intent.PreviousVersion.Root != root || !Digest(intent.PreviousVersion.ManifestSha256))
             throw new InvalidDataException("The saved handoff does not match this exact installation and operation.");
+        if (intent.SchemaVersion == 2) UpdateLaunchEnvironment.Validate(intent.LaunchEnvironment);
         if (state.Status is not ("waiting_for_exit" or "cancelled_before_activation" or "activating" or "activation_failed"
-            or "launching" or "launch_failed" or "awaiting_native" or "rolling_back" or "restarted" or "restored" or "reconciliation_required"))
+            or "launching" or "launch_failed" or "awaiting_native" or "rolling_back" or "restarted" or "restored"
+            or "reconciliation_required" or "recovering_previous" or "recovery_cancelled"))
             throw new InvalidDataException("The saved handoff status is unsupported.");
         if (state.ProcessId is null && (state.ProcessIdentity is not null || state.Endpoint is not null)
             || state.ProcessId is <= 0 || state.ProcessIdentity is not null
                 && (state.ProcessIdentity.ProcessId != state.ProcessId || state.ProcessIdentity.BootId == Guid.Empty)
             || state.ProcessId is not null && state.Endpoint != "ipc://" + request.SocketPath
-                && state.Endpoint != "ipc://" + request.SocketPath + ".r")
+                && state.Endpoint != "ipc://" + request.SocketPath + ".r"
+                && (recovery is null || state.Endpoint != "ipc://" + recovery.SocketPath))
             throw new InvalidDataException("The saved replacement process and endpoint identities are inconsistent.");
     }
 

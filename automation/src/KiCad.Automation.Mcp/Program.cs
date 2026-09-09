@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-if (args.FirstOrDefault() is "--prepare-update" or "--check-update" or "--install-package" or "--restart-update" or "--inspect-update")
+if (args.FirstOrDefault() is "--prepare-update" or "--check-update" or "--install-package" or "--restart-update" or "--inspect-update" or "--recover-update")
 {
     using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(15));
     ConsoleCancelEventHandler cancel = (_, e) => { e.Cancel = true; cancellation.Cancel(); };
@@ -16,6 +16,7 @@ if (args.FirstOrDefault() is "--prepare-update" or "--check-update" or "--instal
             "--install-package" => await LinuxInstallCommand.RunAsync(args, Console.Out, cancellation.Token),
             "--restart-update" => await LinuxRestartCommand.RunAsync(args, Console.Out, cancellation.Token),
             "--inspect-update" => await LinuxUpdateInspectionCommand.RunAsync(args, Console.Out, cancellation.Token),
+            "--recover-update" => await LinuxUpdateRecoveryCommand.RunAsync(args, Console.Out, cancellation.Token),
             _ => await UpdatePreparationCommand.RunAsync(args, Console.Out, cancellation.Token)
         };
     }

@@ -1423,6 +1423,39 @@ empty-manager restart. The new command does not resume an interrupted update;
 report `legacy_journal_unverifiable`, including an upgrade supervised by an older
 helper. They do not gain missing recovery facts retroactively.
 
+### Explicit recovery before replacement launch (source increment)
+
+If an updater stopped, the original editor has subsequently closed, and the
+journal proves no replacement launch was reached, reopen its exact verified
+previous version without changing the shared installation selection:
+
+```sh
+kicad-mcp --recover-update --installation /absolute/managed-installation \
+  --operation 00000000-0000-4000-8000-000000000001 \
+  --attempt 00000000-0000-4000-8000-000000000002
+```
+
+Use the real interrupted operation ID and a new recovery attempt ID. Repeating
+an attempt returns its recorded outcome and does not launch again. A fresh
+explicit attempt can follow a cancellation before launch; immutable attempt
+records are retained. A live original, a recorded successful recovery, cancelled
+update, ambiguous launch history, or missing context is not restarted.
+
+New schema-2 intents capture only reviewed display/profile environment keys,
+not the full environment, credentials, PATH or version-specific executable
+overrides. Schema-1 intents remain inspectable but are insufficient for this
+recovery command. Ordinary updates and recovery share the same verified native
+launcher, with instance/project checks and early-exit handling.
+
+Source run `t20260909T034132Z-625e26` kills only the test-owned updater, verifies
+the dirty original remains usable, saves/closes it through KiCad, and explicitly
+recovers it using the recorded display/profile context. It checks saved bytes,
+unchanged shared selection, attempt replay, cancellation before launch followed
+by a new attempt, and rejection of cancelled/ambiguous/legacy histories. The
+cancellation boundary uses a source test hook; this is not packaged-signal,
+automatic background resumption or power-loss proof. Recovery must not be
+inferred from a missing final response: use inspection to observe the editor.
+
 ### Source PDF inspection (preliminary)
 
 The `kicad_source_pdf_page` tool reads a PDF declared under `documents` in the

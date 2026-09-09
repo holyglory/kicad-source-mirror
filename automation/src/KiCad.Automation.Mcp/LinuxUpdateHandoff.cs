@@ -12,7 +12,8 @@ public sealed record UpdateHandoffState(string Status, string JournalDirectory, 
     int? ProcessId = null, long? ProcessStartUtcTicks = null, string? NativeEpoch = null, string? Error = null,
     string? Endpoint = null, LinuxProcessIdentity? ProcessIdentity = null);
 public sealed record UpdateHandoffIntent(int SchemaVersion, LinuxUpdateHandoffRequest Request,
-    InstalledLinuxUpdate PreviousVersion, DateTimeOffset PreparedAtUtc);
+    InstalledLinuxUpdate PreviousVersion, DateTimeOffset PreparedAtUtc,
+    IReadOnlyDictionary<string, string?>? LaunchEnvironment = null);
 
 /// <summary>Called only after the operator chooses Update. Waits for a specific
 /// existing native process; never closes, signals or kills it. A launch with
@@ -71,7 +72,8 @@ public static class LinuxUpdateHandoff
         // Preserve its exact verified identity before permitting the old window
         // to close, so interrupted supervision never has to guess it later.
         await SaveAsync(Path.Combine(journal, "intent.json"),
-            new UpdateHandoffIntent(1, request, previousVersion, DateTimeOffset.UtcNow), token);
+            new UpdateHandoffIntent(2, request, previousVersion, DateTimeOffset.UtcNow,
+                UpdateLaunchEnvironment.Capture(launchEnvironment)), token);
         var state = new UpdateHandoffState("waiting_for_exit", journal, request.ExpectedTarget);
         await Record(state, token);
         await report(state);
@@ -154,129 +156,14 @@ public static class LinuxUpdateHandoff
             return retained;
         }
 
-        async Task<UpdateHandoffState> LaunchAsync(InstalledLinuxUpdate version, string target, string label)
-        {
-            string prefix = Path.Combine(version.VersionDirectory, "runtime");
-            string socket = label == "candidate" ? request.SocketPath : request.SocketPath + ".r";
-            var start = new ProcessStartInfo(Path.Combine(prefix, "bin/kicad"))
-            {
-                WorkingDirectory = request.ProjectPath.Length == 0 ? root : Path.GetDirectoryName(request.ProjectPath)!, UseShellExecute = false,
-                RedirectStandardOutput = true, RedirectStandardError = true
-            };
-            if (launchEnvironment is not null)
-                foreach (var (name, value) in launchEnvironment) start.Environment[name] = value;
-            start.Environment.Remove("APPDIR");
-            start.Environment.Remove("KICAD_RUN_FROM_BUILD_DIR");
-            start.Environment["LD_LIBRARY_PATH"] = Path.Combine(prefix, "lib");
-            start.Environment["KICAD_STOCK_DATA_HOME"] = Path.Combine(prefix, "share/kicad");
-            // The replacement keeps the installed updater identity. Native log
-            // redirection closes inherited pipes before it becomes interactive.
-            start.Environment["KICAD_AUTOMATION_UPDATE_HELPER"] = Path.Combine(prefix, "lib/kicad-automation/kicad-mcp");
-            start.Environment["KICAD_AUTOMATION_UPDATE_CONFIG"] = version.ConfigurationPath;
-            foreach (string argument in new[] { "--new", request.ProjectPath.Length == 0 ? "--update-manager" : "--automation", request.InstanceId.ToString("D"),
-                "--api-socket", socket, "--automation-log", Path.Combine(journal, label + "-native.log") })
-                start.ArgumentList.Add(argument);
-            if (request.SoftwareRendering) start.ArgumentList.Add("--software-rendering");
-            if (request.ProjectPath.Length != 0) start.ArgumentList.Add(request.ProjectPath);
-            beforeLaunch?.Invoke(label, start);
-            Process process;
-            try { process = Process.Start(start) ?? throw new IOException("Replacement did not start."); }
-            catch (Exception error) when (error is IOException or System.ComponentModel.Win32Exception)
-            {
-                var failure = new UpdateHandoffState("launch_failed", journal, target, Error: error.Message);
-                await Record(failure, CancellationToken.None);
-                return failure;
-            }
-            using (process)
-            {
-                Task drainOutput = CaptureAsync(process.StandardOutput.BaseStream, Path.Combine(journal, label + ".stdout.log"));
-                Task drainError = CaptureAsync(process.StandardError.BaseStream, Path.Combine(journal, label + ".stderr.log"));
-                if (afterLaunch is not null) await afterLaunch(label, process);
-                // Persist process identity before any readiness wait. If this
-                // write fails, do not spawn a second instance or kill this one.
-                var launched = new UpdateHandoffState("awaiting_native", journal, target, process.Id,
-                    Endpoint: "ipc://" + socket);
-                try
-                {
-                    if (process.HasExited) return await RecordEarlyExit();
-                    launched = launched with
-                    {
-                        ProcessStartUtcTicks = process.StartTime.ToUniversalTime().Ticks,
-                        ProcessIdentity = LinuxProcessIdentity.Read(process.Id)
-                    };
-                    // Capture can race with exit even after a successful read.
-                    if (process.HasExited) return await RecordEarlyExit();
-                }
-                catch (Exception identityError) when (identityError is IOException or InvalidOperationException
-                    or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
-                {
-                    if (process.HasExited) return await RecordEarlyExit();
-                    var uncertain = launched with { Status = "reconciliation_required", Error = identityError.Message };
-                    await Record(uncertain, CancellationToken.None);
-                    return uncertain;
-                }
-                await Record(launched, CancellationToken.None);
-                // Once the old editor has closed, restoring it is bounded
-                // cleanup even if the update request itself was cancelled.
-                using var readiness = CancellationTokenSource.CreateLinkedTokenSource(
-                    label == "candidate" ? token : CancellationToken.None);
-                readiness.CancelAfter(TimeSpan.FromSeconds(60));
-                try
-                {
-                    var client = new NativeClient(new NngTransport(), "ipc://" + socket);
-                    while (true)
-                    {
-                        if (process.HasExited)
-                        {
-                            await Task.WhenAll(drainOutput, drainError);
-                            var failed = launched with { Status = "launch_failed", Error = "Replacement exited with code " + process.ExitCode };
-                            await Record(failed, CancellationToken.None);
-                            return failed;
-                        }
-                        readiness.Token.ThrowIfCancellationRequested();
-                        try
-                        {
-                            var session = await client.HandshakeAsync(readiness.Token);
-                            if (session.InstanceId != request.InstanceId.ToString("D") || session.ProjectPath != request.ProjectPath)
-                                throw new InvalidDataException("Replacement instance identity does not match the handoff.");
-                            // Native --automation-log must release both inherited
-                            // pipes before the helper can finish independently.
-                            await Task.WhenAll(drainOutput, drainError).WaitAsync(readiness.Token);
-                            var ready = launched with { Status = label == "candidate" ? "restarted" : "restored", NativeEpoch = session.Epoch };
-                            await Record(ready, CancellationToken.None);
-                            return ready;
-                        }
-                        catch (NngException) { }
-                        catch (NativeApiException error) when (error.Status is 4 or 7) { }
-                        await Task.Delay(100, readiness.Token);
-                    }
-                }
-                catch (Exception error) when (error is IOException or InvalidDataException or OperationCanceledException
-                    or KiCad.Automation.Model.AutomationException)
-                {
-                    var uncertain = launched with { Status = "reconciliation_required", Error = error.Message };
-                    await Record(uncertain, CancellationToken.None);
-                    return uncertain;
-                }
-
-                async Task<UpdateHandoffState> RecordEarlyExit()
-                {
-                    await Task.WhenAll(drainOutput, drainError);
-                    var failed = launched with { Status = "launch_failed", Error = "Replacement exited with code " + process.ExitCode };
-                    await Record(failed, CancellationToken.None);
-                    return failed;
-                }
-            }
-        }
+        Task<UpdateHandoffState> LaunchAsync(InstalledLinuxUpdate version, string target, string label) =>
+            LinuxUpdateLauncher.LaunchAsync(new(request, version, journal, target, label,
+                label == "candidate" ? request.SocketPath : request.SocketPath + ".r"),
+                Record, token, launchEnvironment, beforeLaunch, afterLaunch);
 
         Task Record(UpdateHandoffState value, CancellationToken cancellation) => SaveAsync(Path.Combine(journal, "state.json"), value, cancellation);
     }
 
-    private static async Task CaptureAsync(Stream source, string path)
-    {
-        await using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
-        await source.CopyToAsync(output);
-    }
 
     private static void Validate(LinuxUpdateHandoffRequest request)
     {
@@ -293,19 +180,21 @@ public static class LinuxUpdateHandoff
             throw new ArgumentException("Use an exact live process, an existing project or explicit empty manager, and a new short local socket for the handoff.");
     }
 
-    private static async Task SaveAsync<T>(string path, T value, CancellationToken token)
+    internal static async Task SaveAsync<T>(string path, T value, CancellationToken token, bool overwrite = true)
     {
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(value, Json);
+        if (bytes.Length > 65536) throw new InvalidDataException("Update journal record exceeds the supported size.");
         string pending = path + "." + Guid.NewGuid().ToString("N") + ".partial";
         try
         {
             await using (var file = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                await JsonSerializer.SerializeAsync(file, value, Json, token);
+                await file.WriteAsync(bytes, token);
                 await file.FlushAsync(token);
                 file.Flush(flushToDisk: true);
             }
             token.ThrowIfCancellationRequested();
-            File.Move(pending, path, overwrite: true);
+            File.Move(pending, path, overwrite: overwrite);
         }
         finally { if (File.Exists(pending)) File.Delete(pending); }
     }

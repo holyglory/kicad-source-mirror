@@ -1,0 +1,140 @@
+name: Native delivery
+run-name: Native delivery ${{ inputs.source_commit }} (${{ inputs.target }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact 40-character commit in this fork (no branch names)
+        required: true
+        type: string
+      target:
+        description: Native targets to build
+        required: true
+        default: all
+        type: choice
+        options: [all, mac, windows]
+
+# SA-09: disposable public-source builds; no publisher key, engineering
+# repository, persistent runner or live editor-control endpoint.
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    if: inputs.target == 'all' || inputs.target == 'mac'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 350
+    env:
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      DELIVERY_ARCHITECTURE: ${{ matrix.architecture }}
+      MAC_BUILDER_COMMIT: 227de1489ae646b2723723bad99f27c10c07c322
+      HOMEBREW_NO_ANALYTICS: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - name: Check exact source input
+        shell: bash
+        run: '[[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify pinned ancestry
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          git merge-base --is-ancestor f638a860a05b3e48d1074314a656ad9b8f597466 HEAD
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: automation/global.json
+      - name: Prepare official Mac dependencies and validate the candidate
+        working-directory: automation
+        shell: bash
+        run: |
+          dotnet run --project tools/KiCad.Automation.Validation --configuration Release -- \
+            hosted --repository "$GITHUB_WORKSPACE" --commit "$SOURCE_COMMIT" \
+            --architecture "$DELIVERY_ARCHITECTURE" --output "$RUNNER_TEMP/kicad-delivery" \
+            --dependency-commit "$MAC_BUILDER_COMMIT"
+      - name: Retain native result and bounded build evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-macos-${{ matrix.architecture }}-${{ inputs.source_commit }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/kicad-delivery/evidence
+            ${{ runner.temp }}/kicad-delivery/receipt.json
+            ${{ runner.temp }}/kicad-delivery/packages
+            ${{ runner.temp }}/kicad-delivery/mac/evidence
+            ${{ runner.temp }}/kicad-delivery/mac/result.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 1
+
+  windows:
+    if: inputs.target == 'all' || inputs.target == 'windows'
+    runs-on: windows-2022
+    timeout-minutes: 350
+    env:
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      VCPKG_COMMIT: 66c0373dc7fca549e5803087b9487edfe3aca0a1
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - name: Check exact source input
+        shell: pwsh
+        run: |
+          if ($env:SOURCE_COMMIT -cnotmatch '^[0-9a-f]{40}$') { throw 'An exact lower-case commit is required.' }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify pinned ancestry and select installed MSVC
+        shell: pwsh
+        run: |
+          if ((git rev-parse HEAD) -ne $env:SOURCE_COMMIT) { throw 'Wrong source commit.' }
+          git merge-base --is-ancestor f638a860a05b3e48d1074314a656ad9b8f597466 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned ancestry is missing.' }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'The runner is missing MSVC x64.' }
+          Import-Module (Join-Path $vs 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          foreach ($name in @('PATH', 'INCLUDE', 'LIB', 'LIBPATH', 'VCToolsRedistDir', 'VSINSTALLDIR')) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ($value) { "$name=$value" >> $env:GITHUB_ENV }
+          }
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: automation/global.json
+      - name: Build, inspect and package Windows x64
+        working-directory: automation
+        shell: pwsh
+        run: |
+          dotnet run --project tools/KiCad.Automation.Validation --configuration Release -- `
+            hosted --repository "$env:GITHUB_WORKSPACE" --commit "$env:SOURCE_COMMIT" `
+            --architecture x64 --output "$env:RUNNER_TEMP/kicad-delivery" `
+            --dependency-commit "$env:VCPKG_COMMIT"
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows delivery failed; see retained evidence.' }
+      - name: Retain native result and bounded build evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-windows-x64-${{ inputs.source_commit }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/kicad-delivery/evidence
+            ${{ runner.temp }}/kicad-delivery/receipt.json
+            ${{ runner.temp }}/kicad-delivery/packages
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 1

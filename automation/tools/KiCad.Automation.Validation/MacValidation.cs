@@ -124,6 +124,12 @@ public static class MacValidation
             managedRuntime = new(request.Architecture, managedBinaries,
                 Path.GetRelativePath(nativeBundle, nng).Replace('\\', '/'), runtime.Framework, runtime.NngVersion);
             MacManagedRuntime.ValidateEvidence(managedRuntime, request.Architecture);
+            string dependencyScript = Path.Combine(evidence, "dependency-audit.cmake");
+            string dependencyReport = Path.Combine(evidence, "dependency-audit.json");
+            await File.WriteAllTextAsync(dependencyScript,
+                MacDependencyAudit.CreateScript(nativeBundle, managed, dependencyReport), cancellationToken);
+            await Run("runtime-dependency-audit", "cmake", ["-P", dependencyScript]);
+            _ = MacDependencyAudit.ReadReport(await File.ReadAllTextAsync(dependencyReport, cancellationToken), nativeBundle, managed);
             string launcher = Path.Combine(output, "kicad-mcp");
             await File.WriteAllTextAsync(launcher, "#!/bin/sh\nset -eu\n"
                 + "kicad_mac_root=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd -P)\n"

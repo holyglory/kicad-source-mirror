@@ -886,6 +886,20 @@ qualification. Linux run `t20260909T120117Z-8fe7a7` verifies the contract logic,
 real local NNG binding and failure behavior only. Native-Mac execution and both
 architecture-specific distributions remain open.
 
+The command now also runs a native CMake dependency audit before the selected
+tests. Native applications/shared libraries/loadable modules and the MCP runtime
+use separate executable contexts. Unresolved or conflicting dependencies fail;
+non-system dependencies must resolve inside the preserved app or sibling runtime.
+No extra search directory is injected to hide a missing runtime path. The generated
+script and resolved inventory are retained in `evidence/dependency-audit.cmake`
+and `evidence/dependency-audit.json`. Physical containment is checked before paths
+are reported under the declared roots, preserving aliases such as Mac `/tmp`.
+This uses [CMake's native dependency resolver](https://cmake.org/cmake/help/latest/command/file.html#get-runtime-dependencies).
+Linux run `t20260909T124453Z-1a2822` checks generation, path/error contracts and
+the refusal to execute this audit on Linux; it is not Mac resolver execution.
+Dynamic plug-in loading, redistribution/signing and complete native-Mac journeys
+still need their actual platform checks.
+
 Transfer the result and archive through the existing Git/SSH workflow. On Linux
 or Mac, the following verifies integrity and commit identity only:
 

@@ -726,7 +726,7 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.mac-runtime-contracts.check]]
 name = "contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacManagedRuntimeTests|FullyQualifiedName~MacArchitectureTests|FullyQualifiedName~RuntimeInfoTests|FullyQualifiedName~NngTransportTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-runtime-contracts"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacDependencyAuditTests|FullyQualifiedName~MacManagedRuntimeTests|FullyQualifiedName~MacArchitectureTests|FullyQualifiedName~RuntimeInfoTests|FullyQualifiedName~NngTransportTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-runtime-contracts"]
 retained_artifacts = [{ name = "mac-runtime-contracts", path = "automation/artifacts/mac-runtime-contracts", max_bytes = 16777216 }]
 
 [[test.mac-runtime-contracts.check]]

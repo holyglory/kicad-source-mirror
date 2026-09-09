@@ -1254,11 +1254,11 @@ after another instance changes the shared installation selection.
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).
-It serves the frozen 3492c24706a1 Debian 13 x64 application archive and matching
-source, alongside the preserved 6a93cb3fd254, 6a9de7fdd073, 8e6938a6006c, 38b65981e64b and a5666e707777
+It serves the frozen 2ed9d688883f Debian 13 x64 application archive and matching
+source, alongside the preserved 3492c24706a1, 6a93cb3fd254, 6a9de7fdd073, 8e6938a6006c, 38b65981e64b and a5666e707777
 archives and older Debian installer. Public GET/hash, HEAD, range, private/control
-path rejection and upload rejection for all thirteen files passed in
-`t20260909T003832Z-901940`.
+path rejection and upload rejection for all fifteen files passed in
+`t20260909T014326Z-8d4e0a`.
 No engineering repository, native control, credentials or private evidence is
 served there. Native-Mac packages are not yet available.
 
@@ -1285,11 +1285,11 @@ remain unfinished. Public availability is not a qualifying-delivery reset.
 
 ### Persistent publisher and public-channel Linux update
 
-Preview `preview-20260909T002644Z-3492c24706a1` is available as an
-[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T002644Z-3492c24706a1-debian13-x64.tar.gz)
-and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T002644Z-3492c24706a1-source.tar.gz).
+Preview `preview-20260909T013416Z-2ed9d688883f` is available as an
+[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T013416Z-2ed9d688883f-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T013416Z-2ed9d688883f-source.tar.gz).
 The application archive SHA-256 is
-`446ddb231ed24ae3599d7a5ca068ef5afee10667b7070488fef7298cdd9644fc`.
+`edfc01f997a445989ca93319904c8599fbafad4796917cd56ac31fa5c20170dd`.
 
 Obtain `automation/distribution/preview-publisher.spki` from the trusted fork
 checkout (present from commit `6a9de7fdd0731378712f9cdbfda3c322f93cd89a`).
@@ -1348,6 +1348,24 @@ inside the update's own save prompt, rather than pre-saving separately. It
 verified creation of the previously unsaved schematic, successful restart,
 saved-byte preservation and independent second-project updating. The original
 cancel and candidate-drift rejection checks remain in that journey.
+
+Build 2ed9d688883f extends recovery to failed replacement startup when another
+project has already selected the candidate: it restores the closed editor's
+actual verified version, independently of shared-selection rollback. A replacement
+that exits before process identity can be captured now enters startup recovery
+instead of aborting with a process-inspection exception. A still-live process
+with uncertain identity is left for reconciliation, not duplicated.
+
+Run `t20260909T013556Z-4ace69` passed four real-editor recovery cases with the
+frozen package. Candidate drift and a concurrent selection change use its bundled
+helper. The older-editor startup-failure and early-exit cases use source-helper
+test hooks to trigger actual KiCad startup rejection and delay identity observation;
+they are not packaged-helper fault-injection proof. Saved schematic bytes,
+restored executable identity and preserved selection are checked after recovery.
+Public run `t20260909T014326Z-8d4e0a` then verified the real signed
+3492c24706a1-to-2ed9d688883f upgrade, direct Save-prompt action, two-project
+isolation and fixture-signed empty-manager restart. The live-identity-error branch
+and crash/power-loss recovery remain outside these specific proofs.
 
 These prove the stated Linux journeys, not all update recovery cases or either
 native-Mac target. Broader restart/failure/power-loss recovery, Mac packaging

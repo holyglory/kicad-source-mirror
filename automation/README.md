@@ -1254,12 +1254,12 @@ after another instance changes the shared installation selection.
 ### Public preliminary downloads
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).
-It serves the frozen 7a8d9ea241ee Debian 13 x64 application archive and matching
-source, alongside the preserved 2ed9d688883f, 3492c24706a1, 6a93cb3fd254,
+It serves the frozen 095882e06694 Debian 13 x64 application archive and matching
+source, alongside the preserved 7a8d9ea241ee, 2ed9d688883f, 3492c24706a1, 6a93cb3fd254,
 6a9de7fdd073, 8e6938a6006c, 38b65981e64b and a5666e707777
 archives and older Debian installer. Public GET/hash, HEAD, range, private/control
-path rejection and upload rejection for all seventeen files passed in
-`t20260909T020550Z-17af01`.
+path rejection and upload rejection for all nineteen files passed in
+`t20260909T030018Z-03c732`.
 No engineering repository, native control, credentials or private evidence is
 served there. Native-Mac packages are not yet available.
 
@@ -1286,11 +1286,11 @@ remain unfinished. Public availability is not a qualifying-delivery reset.
 
 ### Persistent publisher and public-channel Linux update
 
-Preview `preview-20260909T015731Z-7a8d9ea241ee` is available as an
-[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T015731Z-7a8d9ea241ee-debian13-x64.tar.gz)
-and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T015731Z-7a8d9ea241ee-source.tar.gz).
+Preview `preview-20260909T024727Z-095882e06694` is available as an
+[application archive](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T024727Z-095882e06694-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260909T024727Z-095882e06694-source.tar.gz).
 The application archive SHA-256 is
-`f7d004b694fd50310f63845fcb77144e8f58a257c35abb947adc898c36f54cca`.
+`946ab5c98f04bc99bef234a22e02622832711275db30dffc72ccc68dcd56f30e`.
 
 Obtain `automation/distribution/preview-publisher.spki` from the trusted fork
 checkout (present from commit `6a9de7fdd0731378712f9cdbfda3c322f93cd89a`).
@@ -1385,7 +1385,7 @@ These prove the stated Linux journeys, not all update recovery cases or either
 native-Mac target. Broader restart/failure/power-loss recovery, Mac packaging
 and the complete engineering outcome remain unfinished.
 
-### Interrupted-update inspection (source increment)
+### Interrupted-update inspection (Linux preview)
 
 Find out whether the original editor survived an updater interruption or a
 replacement is already running without starting another editor:
@@ -1412,8 +1412,16 @@ identity and wrong native-instance rejection without closing the live editor,
 unchanged journal hashes/write times, and absolute paths with a trailing separator.
 The fixture uses source-built helpers with a real frozen Linux KiCad package.
 This is observation evidence, not automatic interruption/power-loss recovery or
-native-Mac qualification. Older public packages do not gain the new journal
-record or command retroactively.
+native-Mac qualification.
+
+Packaged check `t20260909T025037Z-e8e8ec` repeats these journeys using the actual
+helpers shipped in build 095882e06694, including the inspection subprocess.
+Public `t20260909T030018Z-03c732` verifies its signed downloads and the normal
+7a8d9ea241ee-to-095882e06694 Save-prompt upgrade, two-project isolation and
+empty-manager restart. The new command does not resume an interrupted update;
+`automaticRecoveryAvailable` remains false. Older handoffs without `intent.json`
+report `legacy_journal_unverifiable`, including an upgrade supervised by an older
+helper. They do not gain missing recovery facts retroactively.
 
 ### Source PDF inspection (preliminary)
 

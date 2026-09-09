@@ -15,13 +15,17 @@ namespace KiCad.Automation.Tests;
 public sealed class DownloadServerTests
 {
     [TestMethod]
-    public async Task RealHttpServesOnlyListedBytesWithHeadAndResume()
+    [DataRow("linux-x64")]
+    [DataRow("osx-arm64")]
+    [DataRow("osx-x64")]
+    [DataRow("win-x64")]
+    public async Task RealHttpServesOnlyListedBytesWithHeadAndResume(string platform)
     {
         string root = Directory.CreateTempSubdirectory("kicad-download-fixture-").FullName;
         try
         {
             byte[] content = "Synthetic package fixture; not a real application."u8.ToArray();
-            var artifact = await WriteFixture(root, content);
+            var artifact = await WriteFixture(root, content, platform);
             await File.WriteAllTextAsync(Path.Combine(root, "private.txt"), "must not be served");
             DownloadCatalogue catalogue = await DownloadCatalogue.LoadAsync(root);
             await using var app = DownloadServer.Create(catalogue, "http://127.0.0.1:0");
@@ -56,7 +60,7 @@ public sealed class DownloadServerTests
                 using var changed = await http.GetAsync(path);
                 Assert.AreEqual(HttpStatusCode.ServiceUnavailable, changed.StatusCode);
                 await Assert.ThrowsExactlyAsync<InvalidDataException>(() => DownloadCatalogue.LoadAsync(root));
-                await WriteFixture(root, content);
+                await WriteFixture(root, content, platform);
                 Assert.IsNotNull(await DownloadCatalogue.LoadAsync(root),
                     "Restoring the exact package and revalidating must recover catalogue loading.");
             }
@@ -78,6 +82,7 @@ public sealed class DownloadServerTests
                 artifact with { FileName = "../fixture.zip" },
                 artifact with { FileName = "design.kicad_sch" },
                 artifact with { Platform = "any" },
+                artifact with { Platform = "win-arm64" },
                 artifact with { Commit = "main" },
                 artifact with { SourceSha256 = "unknown" },
                 artifact with { Sha256 = new string('0', 64) },
@@ -113,9 +118,9 @@ public sealed class DownloadServerTests
         finally { Directory.Delete(root, true); }
     }
 
-    private static async Task<DownloadArtifact> WriteFixture(string root, byte[] content)
+    private static async Task<DownloadArtifact> WriteFixture(string root, byte[] content, string platform = "linux-x64")
     {
-        var artifact = new DownloadArtifact("synthetic-fixture.zip", "linux-x64", "synthetic-test",
+        var artifact = new DownloadArtifact("synthetic-fixture.zip", platform, "synthetic-test",
             new string('1', 40), new string('2', 64), content.Length,
             Convert.ToHexStringLower(SHA256.HashData(content)));
         await File.WriteAllBytesAsync(Path.Combine(root, artifact.FileName), content);

@@ -38,7 +38,7 @@ public sealed partial class DownloadCatalogue
                 || !HashPattern().IsMatch(artifact.SourceSha256 ?? "")
                 || !HashPattern().IsMatch(artifact.Sha256 ?? "")
                 || artifact.Bytes <= 0 || string.IsNullOrWhiteSpace(artifact.Version)
-                || artifact.Platform is not ("linux-x64" or "osx-arm64" or "osx-x64" or "source"))
+                || artifact.Platform is not ("linux-x64" or "osx-arm64" or "osx-x64" or "win-x64" or "source"))
                 throw new InvalidDataException("An artifact has invalid identity, platform, size or hash.");
             string path = Path.Combine(root, artifact.FileName);
             var info = new FileInfo(path);

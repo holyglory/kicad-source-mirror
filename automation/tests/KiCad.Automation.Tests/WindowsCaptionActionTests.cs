@@ -36,6 +36,7 @@ public sealed class WindowsCaptionActionTests
             await File.WriteAllTextAsync(Path.Combine(evidence, "compile.stdout.log"), compiled.Output, deadline.Token);
             await File.WriteAllTextAsync(Path.Combine(evidence, "compile.stderr.log"), compiled.Error, deadline.Token);
             Assert.AreEqual(0, compiled.ExitCode, compiled.Output + compiled.Error);
+            var observer = await WindowsUiObserver.CreateAsync(root, evidence, deadline.Token);
             process = Process.Start(new ProcessStartInfo(executable) { UseShellExecute = false,
                 RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
                 StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = Encoding.UTF8 })!;
@@ -52,6 +53,15 @@ public sealed class WindowsCaptionActionTests
             Assert.AreEqual(0x2b, Frame(state, 0)["role"]!.GetValue<int>()); // Native MSAA push button.
             Assert.AreEqual(1, Frame(state, 0)["menuActions"]!.GetValue<int>());
             WindowsNativeUi.Capture(process, first, Path.Combine(evidence, "available.png"));
+            var identity = KiCad.Automation.Mcp.WindowsProcessIdentity.Read(process.Id);
+            var observed = await observer.InspectAsync(identity, deadline.Token);
+            var externalButton = observed.GetProperty("buttons").EnumerateArray().Single(button =>
+                button.GetProperty("title").GetString() == "Update" && button.GetProperty("visible").GetBoolean());
+            Assert.IsTrue(externalButton.GetProperty("enabled").GetBoolean());
+            await File.WriteAllTextAsync(Path.Combine(evidence, "external-observation.json"), observed.GetRawText(), deadline.Token);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => observer.InspectAsync(identity with { CreationFileTime = "1" }, deadline.Token));
+            await Assert.ThrowsAsync<OperationCanceledException>(() => observer.InspectAsync(identity, new CancellationToken(true)));
+            Assert.IsFalse(process.HasExited);
             using (var wrongOwner = Process.GetCurrentProcess())
                 Assert.ThrowsExactly<InvalidOperationException>(() => WindowsNativeUi.Click(wrongOwner, first, 0, 0));
             Click(state, 0, first);

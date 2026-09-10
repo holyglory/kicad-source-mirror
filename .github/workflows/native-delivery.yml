@@ -193,6 +193,7 @@ jobs:
       - name: Check Windows delivery contracts and select supported stages
         if: inputs.windows_fixture == 'all' || inputs.windows_fixture == 'caption'
         id: stages
+        timeout-minutes: 10
         working-directory: automation
         shell: pwsh
         run: |

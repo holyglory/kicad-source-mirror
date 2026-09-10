@@ -91,7 +91,9 @@ struct ACTION
         HDC dc = GetWindowDC( window ); if( !dc ) return;
         // Retain native non-client sizing, system buttons, menus, dragging and
         // resizing. Only this caption strip is repainted to reserve title space.
-        UINT flags = DC_TEXT | DC_ICON | DC_GRADIENT;
+        // rcTitleBar begins after the separately rendered system-menu icon.
+        // Drawing DC_ICON here would duplicate it beside the native one.
+        UINT flags = DC_TEXT | DC_GRADIENT;
         if( GetForegroundWindow() == window ) flags |= DC_ACTIVE;
         DrawCaption( window, dc, &caption, flags );
         DrawFrameControl( dc, &control, DFC_BUTTON,

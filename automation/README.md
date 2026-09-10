@@ -4,6 +4,31 @@ Implementation branch: `feature/codex-kicad-automation`, based on
 `f638a860a05b3e48d1074314a656ad9b8f597466`. This is an incomplete implementation
 of the approved six-milestone program, not a release.
 
+## Latest preliminary Linux update — September 10, 2026
+
+[Linux application](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260910T105342Z-9b748bcdb3c5-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260910T105342Z-9b748bcdb3c5-source.tar.gz)
+identify native/managed candidate `9b748bcdb3c5aff57342ca00048d84163ae20029`,
+version `preview-20260910T105342Z-9b748bcdb3c5`. The authenticated
+[preview feed](https://kicad.vr.ae/updates/preview.json) advanced to sequence 9.
+Use the verified `--install-package` bootstrap described below for managed
+installation and automatic update context; simply unpacking is not that bootstrap.
+
+Native package run `t20260910T105152Z-b27f17` checked the installed application
+and produced the exact-source archives. Public run `t20260910T111624Z-895aa6`
+verified all 27 downloads and the signed upgrade from `8c88184d3333` through
+the real caption action, including Save/Cancel, two project sessions and the
+empty manager. Public download observation was `2026-09-10T11:17:08.608667Z`;
+the later management delivery receipt is not that observation time.
+Both existing Mac downloads remain available. No Windows package is part of
+this delivery; its repaired candidate is tracked in GitHub run `34467734029`.
+
+This remains preliminary. Receipt qualification flags have not been promoted.
+Mac updating (`p4d6c4ee22fd8078d`), Windows updating (`p67f11d25763f499e`) and
+actual Codex Desktop qualification (`p8bf96f1c4b709a28`) remain explicit open
+outcomes alongside the original engineering milestones. These checks do not
+establish native Mac/Desktop execution, complete XML synchronization or routing.
+
 ## Current source boundary
 
 The compiled C# service uses the official MCP SDK over STDIO and generated KiCad

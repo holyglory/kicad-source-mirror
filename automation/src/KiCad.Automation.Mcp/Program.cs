@@ -25,7 +25,9 @@ if (args.FirstOrDefault() is "--prepare-update" or "--check-update" or "--instal
         Environment.ExitCode = args[0] switch
         {
             "--install-package" => await LinuxInstallCommand.RunAsync(args, Console.Out, cancellation.Token),
-            "--restart-update" => OperatingSystem.IsMacOS()
+            "--restart-update" => OperatingSystem.IsWindows()
+                ? await WindowsRestartCommand.RunAsync(args, Console.Out, cancellation.Token)
+                : OperatingSystem.IsMacOS()
                 ? await MacRestartCommand.RunAsync(args, Console.Out, cancellation.Token)
                 : await LinuxRestartCommand.RunAsync(args, Console.Out, cancellation.Token),
             "--inspect-update" => OperatingSystem.IsMacOS()

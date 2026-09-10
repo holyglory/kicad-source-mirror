@@ -168,7 +168,7 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.windows-process-identity.check]]
 name = "contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsProcessIdentityTests|FullyQualifiedName~WindowsUpdateHandoffTests|FullyQualifiedName~WindowsNativeHandoffJourneyTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-process-identity"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsProcessIdentityTests|FullyQualifiedName~WindowsUpdateHandoffTests|FullyQualifiedName~WindowsRestartCommandTests|FullyQualifiedName~WindowsNativeHandoffJourneyTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-process-identity"]
 retained_artifacts = [{ name = "windows-process-identity", path = "automation/artifacts/windows-process-identity", max_bytes = 16777216 }]
 
 [test.windows-launchers]

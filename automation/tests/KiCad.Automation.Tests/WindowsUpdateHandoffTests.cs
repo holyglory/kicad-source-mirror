@@ -67,6 +67,16 @@ public sealed class WindowsUpdateHandoffTests
             Assert.AreEqual("reconciliation_required", repeated.Status);
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => WindowsUpdateHandoff.ExecuteAsync(request with { SocketPath = socket + "x" },
                 _ => Task.CompletedTask, deadline.Token));
+            var commandRequest = request with { OperationId = Guid.NewGuid() };
+            string commandPath = Path.Combine(root, "restart.json");
+            await File.WriteAllTextAsync(commandPath, JsonSerializer.Serialize(new WindowsRestartConfiguration(3, commandRequest),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)), deadline.Token);
+            using var commandCancel = new CancellationTokenSource();
+            using var writer = new AcknowledgmentWriter(commandCancel);
+            Assert.AreEqual(2, await WindowsRestartCommand.RunAsync(["--restart-update", "--configuration", commandPath], writer, commandCancel.Token));
+            Assert.AreEqual(1, writer.Lines, "After acknowledging close, completion must not depend on the old window's output pipe.");
+            Assert.IsFalse(process.HasExited);
+            Assert.AreEqual(original, await WindowsVerifiedVersions.InspectCurrentAsync(installation, deadline.Token));
             await File.WriteAllTextAsync(Path.Combine(evidence, "result.json"), JsonSerializer.Serialize(new
             {
                 schemaVersion = 1, status = "passed", syntheticNativePayload = true, exactProcessBound = true,
@@ -83,6 +93,19 @@ public sealed class WindowsUpdateHandoffTests
                 process.Dispose();
             }
             await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(root);
+        }
+    }
+
+    private sealed class AcknowledgmentWriter(CancellationTokenSource cancellation) : StringWriter
+    {
+        public int Lines { get; private set; }
+        public override Task WriteLineAsync(string? value)
+        {
+            Lines++;
+            if (Lines != 1) throw new IOException("The acknowledged window's pipe is closed.");
+            using var result = JsonDocument.Parse(value!);
+            Assert.AreEqual("waiting_for_exit", result.RootElement.GetProperty("state").GetProperty("status").GetString());
+            cancellation.Cancel(); return base.WriteLineAsync(value);
         }
     }
 }

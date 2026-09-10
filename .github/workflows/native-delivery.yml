@@ -27,7 +27,7 @@ on:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
         default: all
-        options: [all, package-staging, handoff, caption]
+        options: [all, package-staging, handoff, caption, harness]
       mac_update_baseline_commit:
         description: With integrated-update, exact baseline commit with a retained signed envelope for each selected Mac architecture
         type: string
@@ -191,13 +191,21 @@ jobs:
         with:
           global-json-file: automation/global.json
       - name: Check Windows delivery contracts and select supported stages
-        if: inputs.windows_fixture == 'all' || inputs.windows_fixture == 'caption'
+        if: inputs.windows_fixture == 'all' || inputs.windows_fixture == 'caption' || inputs.windows_fixture == 'harness'
         id: stages
         timeout-minutes: 10
         working-directory: automation
         shell: pwsh
         run: |
           $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
+          if ($env:WINDOWS_FIXTURE -eq 'harness') {
+            if ($env:CHECKS_ONLY -ne 'true') { throw 'Harness verification is a checks-only fixture.' }
+            dotnet test KiCad.Automation.slnx --configuration Release `
+              --filter 'FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsDiagnosticPackageTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests' `
+              --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
+            if ($LASTEXITCODE -ne 0) { throw 'Windows harness fixture failed.' }
+            exit 0
+          }
           if ($env:WINDOWS_FIXTURE -eq 'caption') {
             if ($env:CHECKS_ONLY -ne 'true') { throw 'Caption component verification is a checks-only fixture.' }
             dotnet test KiCad.Automation.slnx --configuration Release `
@@ -207,7 +215,7 @@ jobs:
             exit 0
           }
           dotnet test KiCad.Automation.slnx --configuration Release `
-            --filter 'FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~WindowsJsonLinkTests|FullyQualifiedName~NativeIpcEndpointTests|FullyQualifiedName~WindowsUiDriverTests|FullyQualifiedName~WindowsArchivePreflightTests|FullyQualifiedName~WindowsUpdateStagerTests|FullyQualifiedName~WindowsVersionSelectionTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~WindowsVerifiedVersionsTests|FullyQualifiedName~WindowsLauncherTests|FullyQualifiedName~WindowsInstallerTests|FullyQualifiedName~WindowsProcessIdentityTests|FullyQualifiedName~WindowsUpdateHandoffTests|FullyQualifiedName~WindowsUpdateInspectionTests|FullyQualifiedName~WindowsRestartCommandTests|FullyQualifiedName~WindowsNativeRestartRequestTests|FullyQualifiedName~UpdateStoreLeaseTests|FullyQualifiedName~UpdateRegistrationRetryTests' `
+            --filter 'FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~WindowsJsonLinkTests|FullyQualifiedName~NativeIpcEndpointTests|FullyQualifiedName~WindowsUiDriverTests|FullyQualifiedName~WindowsArchivePreflightTests|FullyQualifiedName~WindowsUpdateStagerTests|FullyQualifiedName~WindowsVersionSelectionTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~WindowsVerifiedVersionsTests|FullyQualifiedName~WindowsLauncherTests|FullyQualifiedName~WindowsInstallerTests|FullyQualifiedName~WindowsProcessIdentityTests|FullyQualifiedName~WindowsUpdateHandoffTests|FullyQualifiedName~WindowsUpdateInspectionTests|FullyQualifiedName~WindowsRestartCommandTests|FullyQualifiedName~WindowsNativeRestartRequestTests|FullyQualifiedName~UpdateStoreLeaseTests|FullyQualifiedName~UpdateRegistrationRetryTests|FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsDiagnosticPackageTests' `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
           if ($LASTEXITCODE -ne 0) { throw 'Windows delivery preflight failed.' }
           $split = Test-Path 'tools/KiCad.Automation.Validation/HostedWindowsCheckpoint.cs'
@@ -282,6 +290,7 @@ jobs:
             ${{ runner.temp }}/kicad-delivery/packages
             ${{ runner.temp }}/kicad-delivery/windows-prepared.json
             ${{ runner.temp }}/kicad-delivery/windows-build-started.json
+            ${{ runner.temp }}/kicad-delivery/diagnostics
             ${{ runner.temp }}/kicad-windows-preflight
           if-no-files-found: error
           retention-days: 14

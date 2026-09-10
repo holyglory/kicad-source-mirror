@@ -280,8 +280,11 @@ internal static class WindowsNativeUi
         uint scan = MapVirtualKeyW(key, 4); // MAPVK_VK_TO_VSC_EX
         if ((scan & 0xff) == 0 || (scan >> 8) is not (0 or 0xe0))
             throw new ArgumentException("This key has no supported native scan-code mapping.", nameof(key));
+        // Some layouts map navigation VKs to the keypad scan code without an
+        // E0 prefix. Preserve the dedicated navigation key, not keypad End/1.
+        bool extended = (scan >> 8) == 0xe0 || key is >= 0x21 and <= 0x28 or 0x2d or 0x2e;
         return new() { Type = 1, Data = new() { Keyboard = new() { ScanCode = (ushort)(scan & 0xff),
-            Flags = 8U | (up ? 2U : 0U) | ((scan >> 8) == 0xe0 ? 1U : 0U) } } };
+            Flags = 8U | (up ? 2U : 0U) | (extended ? 1U : 0U) } } };
     }
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }

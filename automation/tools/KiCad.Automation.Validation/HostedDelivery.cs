@@ -97,6 +97,13 @@ public static class HostedDelivery
             status = error is OperationCanceledException ? "cancelled" : "failed";
             failure = error.Message;
         }
+        if (!mac && status is "failed" or "cancelled")
+        {
+            using var preservation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            try { await WindowsDiagnosticPackage.RetainAsync(output, request.Commit, steps, preservation.Token); }
+            catch (Exception error) when (error is IOException or InvalidDataException or OperationCanceledException or UnauthorizedAccessException)
+            { failure += " Diagnostic package retention failed: " + error.Message; }
+        }
         var artifacts = Directory.Exists(packages)
             ? Directory.GetFiles(packages).Order(StringComparer.Ordinal).Select(path => new EvidenceFile(
                 Path.GetFileName(path), new FileInfo(path).Length, Evidence.Hash(path))).ToArray() : [];
@@ -276,31 +283,48 @@ public static class HostedDelivery
             start.Environment["GIT_CONFIG_KEY_0"] = "url.https://git.code.sf.net/.insteadOf";
             start.Environment["GIT_CONFIG_VALUE_0"] = "git://git.code.sf.net/";
             var began = DateTimeOffset.UtcNow;
+            using var operation = CancellationTokenSource.CreateLinkedTokenSource(token);
+            bool editorJourney = !mac && name == "installed-editor-journey";
+            if (editorJourney) operation.CancelAfter(TimeSpan.FromMinutes(12));
+            using var logLifetime = CancellationTokenSource.CreateLinkedTokenSource(operation.Token);
             using var process = Process.Start(start) ?? throw new IOException("Cannot start " + name);
             await using var outFile = File.Create(stdout);
             await using var errFile = File.Create(stderr);
-            Task outCopy = process.StandardOutput.BaseStream.CopyToAsync(outFile);
-            Task errCopy = process.StandardError.BaseStream.CopyToAsync(errFile);
-            try { await process.WaitForExitAsync(token); }
+            Task<bool> outCopy = Copy(process.StandardOutput.BaseStream, outFile);
+            Task<bool> errCopy = Copy(process.StandardError.BaseStream, errFile);
+            try { await process.WaitForExitAsync(operation.Token); }
             catch (OperationCanceledException)
             {
                 if (!process.HasExited) process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None);
+                using var killed = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                await process.WaitForExitAsync(killed.Token);
                 throw;
             }
             finally
             {
-                await Task.WhenAll(outCopy, errCopy);
+                if (editorJourney) logLifetime.CancelAfter(TimeSpan.FromSeconds(3));
+                if (editorJourney) await Task.WhenAll(outCopy, errCopy).WaitAsync(TimeSpan.FromSeconds(8));
+                else await Task.WhenAll(outCopy, errCopy);
                 await outFile.FlushAsync(CancellationToken.None);
                 await errFile.FlushAsync(CancellationToken.None);
                 steps.Add(new(name, process.ExitCode, began, DateTimeOffset.UtcNow,
                     Path.GetFileName(stdout), Path.GetFileName(stderr)));
+                if (editorJourney)
+                    await File.WriteAllTextAsync(Path.Combine(evidence, prefix + ".capture.json"), JsonSerializer.Serialize(new
+                    { schemaVersion = 1, stdoutReachedEof = outCopy.Result, stderrReachedEof = errCopy.Result }), CancellationToken.None);
             }
+            if (!outCopy.Result || !errCopy.Result) throw new IOException(name + " diagnostic streams did not close within their bounded drain.");
             if (process.ExitCode != 0) throw new IOException($"{name} exited {process.ExitCode}; see {prefix} logs.");
             if (!capture) return "";
             if (outFile.Length > 65536) throw new InvalidDataException(name + " metadata exceeds 64 KiB.");
             await outFile.DisposeAsync();
             return await File.ReadAllTextAsync(stdout, token);
+
+            async Task<bool> Copy(Stream source, Stream destination)
+            {
+                try { await source.CopyToAsync(destination, logLifetime.Token); return true; }
+                catch (OperationCanceledException) when (logLifetime.IsCancellationRequested) { return false; }
+            }
         }
     }
 

@@ -199,14 +199,17 @@ public sealed class WindowsInstalledPackageTests
     private sealed record Editor(Process Process, NativeClient Native, InstanceRecord Record, DocumentSpecifier Document,
         string DocumentJson, string Schematic, string MarkerId, string MarkerText);
 
-    private sealed class Mcp(Process process, Task diagnostics, CancellationToken token) : IAsyncDisposable
+    internal sealed class Mcp(Process process, Task diagnostics, CancellationTokenSource diagnosticStop,
+        string requestStatePath, CancellationToken token) : IAsyncDisposable
     {
         private int nextId;
         public static async Task<Mcp> Start(string executable, string scratch, string state, string evidence,
             string name, WindowsProcessJob job, CancellationToken token)
         {
             var start = new ProcessStartInfo(executable) { WorkingDirectory = scratch, UseShellExecute = false,
-                RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+                StandardInputEncoding = new System.Text.UTF8Encoding(false), StandardOutputEncoding = new System.Text.UTF8Encoding(false),
+                StandardErrorEncoding = new System.Text.UTF8Encoding(false) };
             start.Environment["KICAD_AUTOMATION_STATE_DIRECTORY"] = state;
             start.Environment["KICAD_CONFIG_HOME"] = Path.Combine(scratch, "config");
             start.Environment["KICAD_CACHE_HOME"] = Path.Combine(scratch, "cache");
@@ -215,19 +218,26 @@ public sealed class WindowsInstalledPackageTests
             var process = Process.Start(start)!;
             try { job.Attach(process); }
             catch { process.Kill(); await process.WaitForExitAsync(); process.Dispose(); throw; }
-            var client = new Mcp(process, Capture(), token);
+            var stop = new CancellationTokenSource();
+            var client = new Mcp(process, Capture(), stop, Path.Combine(evidence, name + "-mcp-request.json"), token);
             try
             {
                 await client.Request("initialize", new { protocolVersion = "2025-06-18", capabilities = new { },
                     clientInfo = new { name = "windows-installed-package", version = "1" } });
-                await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+                await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}".AsMemory(), token);
+                await process.StandardInput.FlushAsync(token);
                 return client;
             }
             catch { await client.DisposeAsync(); throw; }
             async Task Capture()
             {
                 await using var log = File.Create(Path.Combine(evidence, name + "-mcp.stderr.log"));
-                await process.StandardError.BaseStream.CopyToAsync(log);
+                bool eof = false;
+                try { await process.StandardError.BaseStream.CopyToAsync(log, stop.Token); eof = true; }
+                catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+                await log.FlushAsync();
+                await File.WriteAllTextAsync(Path.Combine(evidence, name + "-mcp-capture.json"),
+                    JsonSerializer.Serialize(new { schemaVersion = 1, reachedEof = eof, bytes = log.Length }));
             }
         }
 
@@ -253,16 +263,22 @@ public sealed class WindowsInstalledPackageTests
         private async Task<JsonElement> Request(string method, object parameters)
         {
             int id = ++nextId;
-            await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params = parameters }));
+            await State("writing");
+            await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params = parameters }).AsMemory(), token);
+            await process.StandardInput.FlushAsync(token);
+            await State("waiting");
             while (true)
             {
                 string? line = await process.StandardOutput.ReadLineAsync(token);
                 if (line is null) throw new IOException("The packaged MCP process exited without a reply.");
                 using var response = JsonDocument.Parse(line);
                 if (!response.RootElement.TryGetProperty("id", out var replyId) || replyId.GetInt32() != id) continue;
+                await State("received");
                 if (response.RootElement.TryGetProperty("error", out var error)) throw new IOException(error.GetRawText());
                 return response.RootElement.Clone();
             }
+            Task State(string phase) => File.WriteAllTextAsync(requestStatePath,
+                JsonSerializer.Serialize(new { schemaVersion = 1, id, method, phase }), token);
         }
 
         public async ValueTask DisposeAsync()
@@ -272,8 +288,20 @@ public sealed class WindowsInstalledPackageTests
             try { await process.WaitForExitAsync(exit.Token); }
             finally
             {
-                if (!process.HasExited) process.Kill(); // Never kill its dirty native children on an MCP disconnect.
-                await process.WaitForExitAsync(); await diagnostics; process.Dispose();
+                try
+                {
+                    if (!process.HasExited) process.Kill(); // Never kill dirty native children on an MCP disconnect.
+                    using var killed = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    await process.WaitForExitAsync(killed.Token);
+                }
+                finally
+                {
+                    // Another inherited writer must not hold the completed
+                    // MCP client's diagnostic reader (and test cleanup) open.
+                    diagnosticStop.Cancel();
+                    try { await diagnostics.WaitAsync(TimeSpan.FromSeconds(5)); }
+                    finally { diagnosticStop.Dispose(); process.Dispose(); }
+                }
             }
         }
     }

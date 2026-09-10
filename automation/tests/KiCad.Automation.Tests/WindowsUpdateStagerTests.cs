@@ -30,6 +30,7 @@ public sealed class WindowsUpdateStagerTests
                 Assert.AreEqual(file.Sha256, Convert.ToHexStringLower(SHA256.HashData(bytes)));
                 Assert.AreEqual(file.Bytes, bytes.LongLength);
             }
+            await WindowsUpdateStager.VerifyExtractedAsync(destination, plan, default);
             await Assert.ThrowsExactlyAsync<ArgumentException>(() => WindowsUpdateStager.ExtractAsync(archive, destination, default));
             Assert.IsTrue(File.Exists(Path.Combine(destination, "bin/kicad.exe")));
         }
@@ -103,7 +104,7 @@ public sealed class WindowsUpdateStagerTests
                 Assert.IsFalse(receipt.RootElement.GetProperty("authenticodeVerified").GetBoolean());
                 Assert.IsTrue(receipt.RootElement.GetProperty("nativeRuntimeVerified").GetBoolean());
             }
-            foreach (string mode in new[] { "fail", "excess-output", "wrong-commit", "wrong-hash" })
+            foreach (string mode in new[] { "fail", "excess-output", "wrong-commit", "wrong-hash", "modify-payload" })
             {
                 var bad = await Package(mode == "wrong-commit" ? "normal" : mode, mode == "wrong-commit" ? new string('2', 40) : Commit);
                 if (mode == "wrong-hash") await File.AppendAllTextAsync(bad.Download.Path, "changed bytes");
@@ -141,6 +142,26 @@ public sealed class WindowsUpdateStagerTests
             foreach (string file in Directory.GetFiles(evidence, "*", SearchOption.AllDirectories)) TestContext.AddResultFile(file);
             Directory.Delete(scratch, true);
         }
+    }
+
+    [TestMethod]
+    [DataRow("added")]
+    [DataRow("changed")]
+    [DataRow("missing")]
+    public async Task ExtractedVerificationDetectsRuntimeDrift(string mode)
+    {
+        string scratch = Directory.CreateTempSubdirectory("kwdrift-").FullName;
+        try
+        {
+            using var archive = Zip("fixture bytes"u8.ToArray(), "normal");
+            string payload = Path.Combine(scratch, "payload");
+            var plan = await WindowsUpdateStager.ExtractAsync(archive, payload, default);
+            if (mode == "added") await File.WriteAllTextAsync(Path.Combine(payload, "unexpected.txt"), "extra");
+            if (mode == "changed") await File.WriteAllTextAsync(Path.Combine(payload, "bin/nng.dll"), "changed bytes");
+            if (mode == "missing") File.Delete(Path.Combine(payload, "bin/nng.dll"));
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => WindowsUpdateStager.VerifyExtractedAsync(payload, plan, default));
+        }
+        finally { Directory.Delete(scratch, true); }
     }
 
     private static MemoryStream Zip(byte[] executable, string mode, bool escaping = false)

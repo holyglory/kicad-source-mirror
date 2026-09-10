@@ -56,6 +56,7 @@ public static class WindowsUpdateStager
             if (commit != manifest.Release.Commit) throw new InvalidDataException("Staged Windows KiCad reports a different source commit.");
             string runtime = await Run("managed-runtime", Path.Combine(bin, "kicad-mcp.exe"), ["--runtime-info"]);
             RequireRuntime(runtime);
+            await VerifyExtractedAsync(payload, plan, token);
             await File.WriteAllTextAsync(Path.Combine(work, "staging.json"), JsonSerializer.Serialize(new
             {
                 schemaVersion = 1, status = "archive_staged", installationReady = false, platform = "win-x64",
@@ -219,6 +220,47 @@ public static class WindowsUpdateStager
         using var image = new PEReader(input);
         if (image.PEHeaders.CoffHeader.Machine != Machine.Amd64)
             throw new InvalidDataException("Staged Windows binary is not x64: " + Path.GetFileName(path));
+    }
+
+    internal static async Task VerifyExtractedAsync(string root, WindowsArchivePlan plan, CancellationToken token)
+    {
+        var expected = new Dictionary<string, WindowsArchiveEntry>(StringComparer.Ordinal);
+        foreach (var entry in plan.Entries)
+        {
+            expected[entry.Path] = entry;
+            string parent = entry.Path;
+            while (parent.LastIndexOf('/') is int slash && slash >= 0)
+            {
+                parent = parent[..slash];
+                expected.TryAdd(parent, new(parent, true, 0, null));
+            }
+        }
+        RequireOrdinary(root, directory: true);
+        var remaining = new HashSet<string>(expected.Keys, StringComparer.Ordinal);
+        await Visit(new DirectoryInfo(root));
+        if (remaining.Count != 0) throw new InvalidDataException("The extracted Windows update lost declared entries.");
+
+        async Task Visit(DirectoryInfo directory)
+        {
+            DateTime modified = directory.LastWriteTimeUtc;
+            foreach (var item in directory.EnumerateFileSystemInfos())
+            {
+                token.ThrowIfCancellationRequested();
+                string relative = Path.GetRelativePath(root, item.FullName).Replace(Path.DirectorySeparatorChar, '/');
+                if (!expected.TryGetValue(relative, out var entry) || !remaining.Remove(relative))
+                    throw new InvalidDataException("The extracted Windows update contains an undeclared entry: " + relative);
+                RequireOrdinary(item.FullName, entry.Directory);
+                if (entry.Directory) await Visit(new DirectoryInfo(item.FullName));
+                else
+                {
+                    await using var file = new FileStream(item.FullName, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    if (file.Length != entry.Bytes || Convert.ToHexStringLower(await SHA256.HashDataAsync(file, token)) != entry.Sha256)
+                        throw new InvalidDataException("Extracted Windows update bytes changed: " + relative);
+                }
+            }
+            directory.Refresh();
+            if (directory.LastWriteTimeUtc != modified) throw new InvalidDataException("The Windows payload directory changed during verification.");
+        }
     }
 
     internal static void RequireRuntime(string json)

@@ -18,6 +18,11 @@ int main( int argc, char** argv )
     if( argc == 2 && std::string( argv[1] ) == "--runtime-info" )
     {
         if( GetEnvironmentVariableA( "KICAD_AUTOMATION_NNG_LIBRARY", nullptr, 0 ) ) return 9;
+        if( mode == "modify-payload" )
+        {
+            std::ofstream changed( std::filesystem::path( executable ).parent_path() / "unexpected.txt" );
+            changed << "Changed during runtime check";
+        }
         std::cout << "{\"schemaVersion\":1,\"status\":\"runtime_available\","
             "\"processArchitecture\":\"X64\",\"framework\":\".NET 10.0 synthetic fixture\","
             "\"nngVersion\":\"synthetic fixture, not actual NNG\","

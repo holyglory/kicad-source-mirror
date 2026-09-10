@@ -47,7 +47,7 @@ public static class UpdatePreparationCommand
             using var source = new UpdateDownloader(new Uri(configuration.Origin, UriKind.Absolute));
             var checker = new UpdateChecker(source, configuration.StateDirectory, publisherKey, installed,
                 configuration.Channel, configuration.Platform, configuration.Format);
-            string? expectedTarget = configuration.InstallationRoot is { } installationRoot
+            string? expectedTarget = runtime == "linux-x64" && configuration.InstallationRoot is { } installationRoot
                 ? LinuxUpdateActivation.InspectTarget(Path.Combine(installationRoot, "manager")) : null;
             await Emit(new { schemaVersion = 1, status = "checking", installationReady = false });
             var result = await checker.CheckAsync(token);
@@ -68,7 +68,7 @@ public static class UpdatePreparationCommand
                 });
                 return 0;
             }
-            if (runtime != "linux-x64" || configuration.Format != "tar.gz")
+            if (configuration.Format != "tar.gz" || (runtime != "linux-x64" && configuration.InstallationRoot is not null))
             {
                 await Emit(new { schemaVersion = 1, status = "preparation_unavailable", installationReady = false });
                 return 0;
@@ -76,6 +76,19 @@ public static class UpdatePreparationCommand
             var progress = new TransferProgress(output);
             var download = await source.DownloadAsync(result.Manifest, runtime, configuration.Format,
                 configuration.StagingDirectory, progress, token);
+            if (runtime.StartsWith("osx-", StringComparison.Ordinal))
+            {
+                await Emit(new { schemaVersion = 1, status = "staging", installationReady = false });
+                var mac = await MacUpdateStager.StageAsync(result.Manifest, download, configuration.StagingDirectory, token);
+                await Emit(new
+                {
+                    schemaVersion = 1, status = "archive_staged", installationReady = false,
+                    directory = mac.Directory, manifestSha256 = mac.ManifestSha256,
+                    version = result.Manifest.Release.Version, commit = result.Manifest.Release.Commit,
+                    nativeIdentityVerified = true, nativeCommit = result.Manifest.Release.Commit
+                });
+                return 0;
+            }
             if (configuration.InstallationRoot is { } managedRoot)
             {
                 await Emit(new { schemaVersion = 1, status = "registering_candidate", installationReady = false });

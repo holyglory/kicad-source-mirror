@@ -470,6 +470,23 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacArchitectureTests|FullyQualifiedName~ValidationEvidenceTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-validation-contracts"]
 retained_artifacts = [{ name = "mac-validation-contracts", path = "automation/artifacts/mac-validation-contracts", max_bytes = 16777216 }]
 
+[test.mac-update-archive]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_MAC_ARM64_ARCHIVE = "/mnt/build-storage/codex/kicad/evidence/github-34409695853-macos-arm64/kicad-delivery/packages/kicad-codex-f79a41ed7aae781715877ef6c52ccf3762846b84-macos-arm64.tar.gz", KICAD_MAC_X64_ARCHIVE = "/mnt/build-storage/codex/kicad/evidence/github-34427874672-macos-x64/kicad-delivery/packages/kicad-codex-4c6a88502a4c84da7ff1cf4ae9ca54bd266a106d-macos-x64.tar.gz" }
+
+[[test.mac-update-archive.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.mac-update-archive.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacArchivePreflightTests|FullyQualifiedName~MacUpdateStagerTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~LinuxUpdateStagerTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-update-archive"]
+retained_artifacts = [{ name = "mac-update-archive", path = "automation/artifacts/mac-update-archive", max_bytes = 16777216 }]
+
 # Independent verification of the already frozen archive, not a rebuild of it.
 [test.archive-delivery]
 timeout_seconds = 600

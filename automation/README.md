@@ -189,8 +189,12 @@ editor after a deliberate failed launch, preserving the newer shared selection.
 Its release sequence and publisher are isolated test data; it does not qualify
 a different-build, dirty-document caption update.
 The compiled Windows `--restart-update` command now uses schema version 3 and
-stops depending on the original window's stdout after acknowledgment. Native
-caption Update integration and full dirty-document update qualification remain open.
+stops depending on the original window's stdout after acknowledgment. KiCad's
+native Windows request builder now records the kernel process creation time as
+an exact decimal string, preserves Unicode project paths, and reads the current
+selection at the time of the click. Its C++ output passed the actual managed
+schema and kernel-identity checks in native run `34530292881`. Native caption
+Update integration and full dirty-document update qualification remain open.
 
 Windows inspection and explicit interrupted-update recovery are now implemented
 at source `cc3d606493`: `--inspect-update --installation ABSOLUTE_ROOT --operation
@@ -200,8 +204,9 @@ requires the original editor to be confirmed gone and persisted proof that no
 replacement launch was reached. It reopens the exact verified previous version
 without changing the shared selection. Repeating an attempt does not launch
 another editor. Cancelled, legacy, live or ambiguous histories are not guessed.
-The expanded real Windows journey is under native verification in `34528431709`;
-this is not yet full dirty-document or caption-update qualification.
+The expanded real Windows journey passed in `34528431709`, including interrupted
+recovery and a retry that did not launch another process. This is not full
+dirty-document or caption-update qualification.
 
 ### Mac installation and restart checkpoints
 

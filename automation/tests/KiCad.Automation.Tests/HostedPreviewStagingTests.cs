@@ -58,6 +58,12 @@ public sealed class HostedPreviewStagingTests
     [DataRow("wrong-platform")]
     [DataRow("failed-step")]
     [DataRow("missing-step")]
+    [DataRow("missing-editor-step")]
+    [DataRow("missing-editor-proof")]
+    [DataRow("failed-editor-proof")]
+    [DataRow("no-editor-input")]
+    [DataRow("duplicate-editor")]
+    [DataRow("failed-editor-exit")]
     [DataRow("duplicate-step")]
     [DataRow("changed-package")]
     [DataRow("diagnostic")]
@@ -66,6 +72,8 @@ public sealed class HostedPreviewStagingTests
     public async Task RejectsUnprovenOrChangedCandidatesBeforeCreatingPublicOutput(string mode)
     {
         using var fixture = await Fixture.Create();
+        if (mode == "missing-editor-proof") File.Delete(fixture.EditorProof);
+        else if (mode is "failed-editor-proof" or "no-editor-input" or "duplicate-editor" or "failed-editor-exit") await fixture.WriteEditorProof(mode);
         if (mode == "changed-package") await File.AppendAllTextAsync(Path.Combine(fixture.Candidate, "packages", fixture.App.Path), "changed");
         else if (mode == "name-collision")
         {
@@ -88,12 +96,13 @@ public sealed class HostedPreviewStagingTests
         private readonly string root = Directory.CreateTempSubdirectory("kicad-hosted-import-").FullName;
         public string Candidate => Path.Combine(root, "candidate");
         public string Previous => Path.Combine(root, "previous");
+        public string EditorProof => Path.Combine(Candidate, "evidence/installed-editor-tests/windows-installed-editor/result.json");
         public HostedPreviewRequest Request => new(Candidate, Commit, "win-x64", "123", "synthetic-preview", Previous, Path.Combine(root, "output"));
         public EvidenceFile App { get; private set; } = null!;
         public EvidenceFile Source { get; private set; } = null!;
         public string OriginalCatalogue { get; private set; } = "";
         private static readonly string[] Names = ["source-commit", "pinned-ancestry", "native-build", "native-tests", "native-install",
-            "installed-native-commit", "managed-runtime", "managed-contracts", "package-source", "source-still-clean"];
+            "installed-native-commit", "managed-runtime", "managed-contracts", "installed-editor-journey", "package-source", "source-still-clean"];
 
         public static async Task<Fixture> Create()
         {
@@ -115,8 +124,24 @@ public sealed class HostedPreviewStagingTests
                 new JsonSerializerOptions(JsonSerializerDefaults.Web));
             await File.WriteAllTextAsync(Path.Combine(value.Previous, "downloads.json"), value.OriginalCatalogue);
             await value.WriteReceipt("");
+            Directory.CreateDirectory(Path.GetDirectoryName(value.EditorProof)!);
+            await value.WriteEditorProof("");
             return value;
         }
+
+        public Task WriteEditorProof(string mode) => File.WriteAllTextAsync(EditorProof, JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1, status = mode == "failed-editor-proof" ? "failed" : "passed",
+            normalPackagedMcpLoading = true, twoInstancesIsolated = true, mcpRestartPreservedDirtyObjects = true,
+            nativeKeyboardSaveAndClose = mode != "no-editor-input",
+            instances = Enumerable.Range(1, 2).Select(index => new
+            {
+                instanceId = mode == "duplicate-editor" ? "11111111-1111-1111-1111-111111111111"
+                    : index == 1 ? "11111111-1111-1111-1111-111111111111" : "22222222-2222-2222-2222-222222222222",
+                processEpoch = "synthetic-epoch-" + index, markerId = "33333333-3333-3333-3333-333333333333",
+                nativeProcessExitCode = mode == "failed-editor-exit" ? 1 : 0
+            })
+        }));
 
         public async Task WriteReceipt(string mode)
         {
@@ -124,6 +149,7 @@ public sealed class HostedPreviewStagingTests
                 mode == "failed-step" && name == "native-build" ? 1 : 0,
                 DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "synthetic.stdout", "synthetic.stderr")).ToArray();
             if (mode == "missing-step") steps = steps.Skip(1).ToArray();
+            if (mode == "missing-editor-step") steps = steps.Where(step => step.Name != "installed-editor-journey").ToArray();
             if (mode == "duplicate-step") steps = [.. steps, steps[0]];
             await File.WriteAllTextAsync(Path.Combine(Candidate, "receipt.json"), JsonSerializer.Serialize(new
             {

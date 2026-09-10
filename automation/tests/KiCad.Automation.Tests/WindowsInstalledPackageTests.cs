@@ -113,7 +113,7 @@ public sealed class WindowsInstalledPackageTests
                 twoInstancesIsolated = true, mcpRestartPreservedDirtyObjects = true,
                 nativeKeyboardSaveAndClose = true, publicMcpObjectCreationVerified = false,
                 publicMcpSaveCloseVerified = false, codexDesktopQualified = false, automaticUpdatingQualified = false,
-                instances = editors.Select(e => new { e.Record.InstanceId, e.Record.Epoch, e.MarkerId,
+                instances = editors.Select(e => new { instanceId = e.Record.InstanceId, processEpoch = e.Record.Epoch, markerId = e.MarkerId,
                     nativeProcessExitCode = e.Process.ExitCode })
             }), deadline.Token);
             TestContext.AddResultFile(Path.Combine(evidence, "result.json"));

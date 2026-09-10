@@ -1050,8 +1050,22 @@ missing dependencies, valid symlink aliases and genuinely conflicting copies.
 These fixture runs do not produce a KiCad package or establish editor readiness.
 For Windows, `target=windows -f checks_only=true` runs the small compiled delivery
 and checkpoint fixtures on the native Windows runner without building KiCad.
-It checks the orchestration contracts, not a completed native package or the
-full preparation/upload/compilation sequence.
+It also checks literal native pipe addressing and process-scoped GUI capture,
+Ctrl+S, clean close, cancellation, wrong-process rejection and blank-render
+detection on an explicitly synthetic native window. These are not a completed
+KiCad package or the full preparation/upload/compilation sequence.
+
+New Windows candidates must also run the installed-editor journey before
+packaging and public staging. It starts two projects through the packaged MCP
+executable with its normal DLL loading, creates native test notes, obtains
+matching image/state observations through MCP, disconnects and reattaches MCP
+without losing dirty objects, and saves/closes through the native UI. The native
+note setup and UI save are not proof of general MCP creation or save/close tools;
+those remain open outcomes `p1efcacbeee4e12cc` and `pa11c69fd160444b7`. Compilation
+on Linux or passing the small Windows UI fixture is not execution of this
+installed-package journey. Evidence includes PNG captures, object identities,
+process epochs and explicit qualification flags; it does not claim actual Codex
+Desktop operation or working Windows updates.
 
 Signed update metadata recognizes Linux TAR.GZ/DEB, Mac TAR.GZ/ZIP and Windows
 x64 ZIP archives with exact target and format selection. That compatibility

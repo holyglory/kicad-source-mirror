@@ -53,12 +53,14 @@ public static partial class HostedPreviewStaging
             throw new InvalidDataException("The candidate is failed, ambiguous, diagnostic-only or belongs to another source/target/run.");
         string[] required = platform == "macos"
             ? ["source-commit", "pinned-ancestry", "official-dependencies", "package-native", "package-source", "source-still-clean"]
-            : ["source-commit", "pinned-ancestry", "native-build", "native-tests", "native-install", "installed-native-commit", "managed-runtime", "managed-contracts", "package-source", "source-still-clean"];
+            : ["source-commit", "pinned-ancestry", "native-build", "native-tests", "native-install", "installed-native-commit", "managed-runtime", "managed-contracts", "installed-editor-journey", "package-source", "source-still-clean"];
         foreach (string step in required)
             if (receipt.Steps.Count(x => x.Name == step) != 1) throw new InvalidDataException("Missing or repeated successful build step: " + step);
         if (platform == "macos")
             await Evidence.VerifyAsync(Path.Combine(candidate, "mac/result.json"), Path.Combine(candidate, "mac/evidence.tar.gz"),
                 request.Commit, token, architecture);
+        else
+            await VerifyWindowsEditorJourney(candidate, token);
 
         string prefix = "kicad-codex-" + request.Commit + "-";
         EvidenceFile app = SingleArtifact(prefix + suffix), source = SingleArtifact(prefix + "source.tar.gz");
@@ -77,6 +79,32 @@ public static partial class HostedPreviewStaging
             if (matches.Length != 1) throw new InvalidDataException("Missing or ambiguous native/source archive: " + name);
             return matches[0];
         }
+    }
+
+    private static async Task VerifyWindowsEditorJourney(string candidate, CancellationToken token)
+    {
+        const string failure = "The Windows candidate lacks a passing installed editor/MCP journey.";
+        try
+        {
+            using var document = JsonDocument.Parse(await Metadata(Path.Combine(candidate, "evidence", "installed-editor-tests",
+                "windows-installed-editor", "result.json"), token));
+            var result = document.RootElement;
+            if (result.GetProperty("schemaVersion").GetInt32() != 1 || result.GetProperty("status").GetString() != "passed")
+                throw new InvalidDataException(failure);
+            foreach (string field in new[] { "normalPackagedMcpLoading", "twoInstancesIsolated", "mcpRestartPreservedDirtyObjects", "nativeKeyboardSaveAndClose" })
+                if (!result.GetProperty(field).GetBoolean()) throw new InvalidDataException(failure);
+            var instances = result.GetProperty("instances").EnumerateArray().ToArray();
+            if (instances.Length != 2) throw new InvalidDataException(failure);
+            var ids = new HashSet<Guid>();
+            foreach (var instance in instances)
+                if (!Guid.TryParseExact(instance.GetProperty("instanceId").GetString(), "D", out var id) || id == Guid.Empty
+                    || !ids.Add(id) || string.IsNullOrWhiteSpace(instance.GetProperty("processEpoch").GetString())
+                    || !Guid.TryParseExact(instance.GetProperty("markerId").GetString(), "D", out var marker) || marker == Guid.Empty
+                    || instance.GetProperty("nativeProcessExitCode").GetInt32() != 0)
+                    throw new InvalidDataException(failure);
+        }
+        catch (Exception error) when (error is IOException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+        { throw new InvalidDataException(failure, error); }
     }
 
     internal sealed record PublicPreviewArtifact(DownloadArtifact Artifact, string Source);

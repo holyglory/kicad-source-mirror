@@ -6,7 +6,7 @@ of the approved six-milestone program, not a release.
 
 ## Latest preliminary Mac builds — September 10, 2026
 
-[Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-cd4934ad7bcb28c50d35586e6d022bda0d2ffee8-macos-arm64.tar.gz)
+[Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-cd4934ad7bcb28c50d35586e6d022bda0d2ffee8-macos-arm64.tar.gz),
 [Intel application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-cd4934ad7bcb28c50d35586e6d022bda0d2ffee8-macos-x64.tar.gz),
 and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-cd4934ad7bcb28c50d35586e6d022bda0d2ffee8-source.tar.gz)
 identify `cd4934ad7bcb28c50d35586e6d022bda0d2ffee8`, version
@@ -183,8 +183,11 @@ persisted intent before acknowledgment, no original-process signal, unchanged
 selection on cancellation, and no duplicate handoff execution. Real Windows
 handoff run `34525358151` reached a successful native restart but then failed an
 exact path comparison because generated paths used mixed separators. Source
-`a2c942a29e` normalizes the derived executable paths; rerun `34526278706` must
-finish both restart and older-editor recovery before that behavior is qualified.
+`a2c942a29e` normalizes the derived executable paths. Rerun `34526278706` passed
+real native cancellation, restart and restoration of the correct older retained
+editor after a deliberate failed launch, preserving the newer shared selection.
+Its release sequence and publisher are isolated test data; it does not qualify
+a different-build, dirty-document caption update.
 The compiled Windows `--restart-update` command now uses schema version 3 and
 stops depending on the original window's stdout after acknowledgment. Native
 caption Update integration and full dirty-document update qualification remain open.
@@ -242,9 +245,8 @@ delivery is run `34487042181`, not a published Windows package yet.
 Platform feed routing is implemented and published. Mac update origins are
 `https://kicad.vr.ae/platforms/osx-arm64/` and
 `https://kicad.vr.ae/platforms/osx-x64/`; each serves `updates/preview.json` and
-only matching platform archives under `artifacts/`. Apple Silicon feed sequence 2
-references the new `969193719393` build; Intel remains on its existing sequence-1
-feed while its corrected candidate builds.
+only matching platform archives under `artifacts/`. Apple Silicon feed sequence 3
+and Intel feed sequence 2 now reference the matching `cd4934ad7bcb` previews.
 Windows routing is implemented, but its real feed remains absent until a package
 is available. This remaining delivery is tracked in `pe405c1d3374a315a`.
 

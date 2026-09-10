@@ -2,6 +2,7 @@
 #include "caption_action.h"
 #include <oleacc.h>
 #include <commctrl.h>
+#include <dwmapi.h>
 #include <nlohmann/json.hpp>
 #include <array>
 #include <iostream>
@@ -145,6 +146,13 @@ void HandleCommand( const std::string& line )
         {
             ACCESS retained( frame.window ); DestroyWindow( frame.window ); frame.set( true, true );
             extra["staleInvokeResult"] = retained.value->accDoDefaultAction( retained.child );
+        }
+        if( frame.window && ( op == "set" || op == "resize" || op == "show" || op == "enable" ) )
+        {
+            // State and captured pixels must describe the same completed size
+            // and visibility change, not the compositor's previous surface.
+            RedrawWindow( frame.window, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW );
+            DwmFlush();
         }
         auto response = Snapshot(); response.update( extra ); std::cout << response.dump() << '\n' << std::flush;
     }

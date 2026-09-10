@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           export KICAD_HOSTED_FIXTURE_EVIDENCE="$RUNNER_TEMP/kicad-loader-preflight/evidence"
-          kicad_mac_test_filter='FullyQualifiedName~MacRuntimePathTests|FullyQualifiedName~MacArchivePreflightTests|FullyQualifiedName~MacUpdateStagerTests|FullyQualifiedName~MacVerifiedInstallationTests|FullyQualifiedName~PosixUpdateActivationTests|FullyQualifiedName~MacProcessIdentityTests|FullyQualifiedName~MacUpdateHandoffTests|FullyQualifiedName~MacCaptionActionTests'
+          kicad_mac_test_filter='FullyQualifiedName~MacRuntimePathTests|FullyQualifiedName~MacArchivePreflightTests|FullyQualifiedName~MacUpdateStagerTests|FullyQualifiedName~MacVerifiedInstallationTests|FullyQualifiedName~PosixUpdateActivationTests|FullyQualifiedName~MacProcessIdentityTests|FullyQualifiedName~MacUpdateHandoffTests|FullyQualifiedName~MacCaptionActionTests|FullyQualifiedName~UpdateStoreLeaseTests|FullyQualifiedName~UpdateRegistrationRetryTests'
           if [ "$CHECKS_ONLY" = true ] && [ "$MAC_FIXTURE" = caption ]; then
             kicad_mac_test_filter='FullyQualifiedName~MacCaptionActionTests'
           fi
@@ -89,7 +89,7 @@ jobs:
             kicad_mac_test_filter='FullyQualifiedName~MacUiDriverTests'
           fi
           if [ "$CHECKS_ONLY" = true ] && [ "$MAC_FIXTURE" = concurrency ]; then
-            kicad_mac_test_filter='FullyQualifiedName~UpdateStoreLeaseTests|FullyQualifiedName~MacCaptionActionTests|FullyQualifiedName~MacUiDriverTests|FullyQualifiedName~MacVerifiedInstallationTests'
+            kicad_mac_test_filter='FullyQualifiedName~UpdateStoreLeaseTests|FullyQualifiedName~UpdateRegistrationRetryTests|FullyQualifiedName~MacCaptionActionTests|FullyQualifiedName~MacUiDriverTests|FullyQualifiedName~MacVerifiedInstallationTests'
           fi
           if [ "$MAC_FIXTURE" = integrated-update ]; then
             test "$CHECKS_ONLY" = true
@@ -185,7 +185,7 @@ jobs:
         run: |
           $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
           dotnet test KiCad.Automation.slnx --configuration Release `
-            --filter 'FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~WindowsJsonLinkTests|FullyQualifiedName~NativeIpcEndpointTests|FullyQualifiedName~WindowsUiDriverTests|FullyQualifiedName~WindowsArchivePreflightTests|FullyQualifiedName~WindowsUpdateStagerTests|FullyQualifiedName~WindowsVersionSelectionTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~WindowsVerifiedVersionsTests|FullyQualifiedName~WindowsLauncherTests|FullyQualifiedName~WindowsInstallerTests|FullyQualifiedName~WindowsProcessIdentityTests' `
+            --filter 'FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~WindowsJsonLinkTests|FullyQualifiedName~NativeIpcEndpointTests|FullyQualifiedName~WindowsUiDriverTests|FullyQualifiedName~WindowsArchivePreflightTests|FullyQualifiedName~WindowsUpdateStagerTests|FullyQualifiedName~WindowsVersionSelectionTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~WindowsVerifiedVersionsTests|FullyQualifiedName~WindowsLauncherTests|FullyQualifiedName~WindowsInstallerTests|FullyQualifiedName~WindowsProcessIdentityTests|FullyQualifiedName~WindowsUpdateHandoffTests' `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
           if ($LASTEXITCODE -ne 0) { throw 'Windows delivery preflight failed.' }
           $split = Test-Path 'tools/KiCad.Automation.Validation/HostedWindowsCheckpoint.cs'

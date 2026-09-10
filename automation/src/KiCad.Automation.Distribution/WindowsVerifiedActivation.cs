@@ -2,6 +2,24 @@ namespace KiCad.Automation.Distribution;
 
 public static partial class WindowsVerifiedVersions
 {
+    public static async Task<VerifiedWindowsVersion> InspectActivationAsync(string root, string expectedSelectionId,
+        string candidateDigest, CancellationToken token = default)
+    {
+        root = Root(root); RequireId(expectedSelectionId);
+        if (!Digest(candidateDigest)) throw new ArgumentException("An exact candidate digest is required.");
+        var policy = await Policy(root, token);
+        using var registration = Lock(Path.Combine(root, "registration.lock"));
+        var current = WindowsVersionSelection.Inspect(Path.Combine(root, "manager"));
+        if (current.SelectionId != expectedSelectionId) throw new InvalidDataException("Windows selection changed before update preflight.");
+        var baseline = await ReadVersion(root, DigestOf(current), policy, token);
+        var candidate = await ReadVersion(root, candidateDigest, policy, token);
+        if (candidate.Release.Sequence < baseline.Release.Sequence
+            || (candidate.Release.Sequence == baseline.Release.Sequence && candidate.PayloadSha256 != baseline.PayloadSha256))
+            throw new InvalidDataException("Windows update preflight cannot downgrade or replace an accepted release identity.");
+        await RequireAccepted(root, policy, baseline, candidate, token);
+        return Describe(root, candidate);
+    }
+
     // These transitions authenticate both sides but never close an editor or
     // infer the user's Update action. The native lifecycle integration owns that.
     public static async Task<SelectedWindowsVersion> ActivateAsync(string root, string expectedSelectionId,

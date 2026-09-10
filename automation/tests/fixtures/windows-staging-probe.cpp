@@ -6,6 +6,8 @@
 
 int main( int argc, char** argv )
 {
+    if( argc == 2 && std::string( argv[1] ) == "--stay" )
+    { std::cout << "ready\n" << std::flush; std::string input; std::getline( std::cin, input ); return 0; }
     wchar_t executable[32768];
     DWORD size = GetModuleFileNameW( nullptr, executable, 32768 );
     if( size == 0 || size >= 32768 ) return 2;

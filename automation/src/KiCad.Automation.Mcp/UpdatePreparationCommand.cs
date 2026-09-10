@@ -108,8 +108,10 @@ public static class UpdatePreparationCommand
                 if (configuration.InstallationRoot is { } macRoot)
                 {
                     await Emit(new { schemaVersion = 1, status = "registering_candidate", installationReady = false });
-                    var registered = await MacVerifiedInstallation.RegisterAsync(macRoot, expectedTarget!, download.Path,
-                        result.Manifest.CopyEnvelope(), token);
+                    var registered = await UpdateRegistrationRetry.AgainstCurrentSelection(
+                        () => MacVerifiedInstallation.InspectTarget(macRoot),
+                        current => MacVerifiedInstallation.RegisterAsync(macRoot, current, download.Path,
+                            result.Manifest.CopyEnvelope(), token));
                     await Emit(new
                     {
                         schemaVersion = 1, status = "candidate_registered", installationReady = false,

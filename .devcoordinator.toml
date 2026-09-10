@@ -582,6 +582,23 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacProcessIdentityTests|FullyQualifiedName~MacUpdateHandoffTests|FullyQualifiedName~LinuxUpdateActivationTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~UpdateRecoveryTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-restart"]
 retained_artifacts = [{ name = "mac-restart", path = "automation/artifacts/mac-restart", max_bytes = 16777216 }]
 
+[test.mac-ui-driver]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.mac-ui-driver.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.mac-ui-driver.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacUiDriverTests|FullyQualifiedName~MacProcessIdentityTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-ui-driver"]
+retained_artifacts = [{ name = "mac-ui-driver", path = "automation/artifacts/mac-ui-driver", max_bytes = 16777216 }]
+
 [[test.mac-restart.check]]
 name = "native"
 tier = "development"

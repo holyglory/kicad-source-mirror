@@ -19,10 +19,10 @@ on:
         type: boolean
         default: false
       mac_fixture:
-        description: With checks_only, select all Mac checks, caption, handoff or staging
+        description: With checks_only, select all Mac checks or a focused native fixture
         type: choice
         default: all
-        options: [all, caption, handoff, staging]
+        options: [all, caption, handoff, staging, ui-access]
 
 # SA-09: disposable public-source builds; no publisher key, engineering
 # repository, persistent runner or live editor-control endpoint.
@@ -79,6 +79,9 @@ jobs:
           fi
           if [ "$CHECKS_ONLY" = true ] && [ "$MAC_FIXTURE" = staging ]; then
             kicad_mac_test_filter='FullyQualifiedName~MacUpdateStagerTests|FullyQualifiedName~NngBindingLifetimeTests'
+          fi
+          if [ "$CHECKS_ONLY" = true ] && [ "$MAC_FIXTURE" = ui-access ]; then
+            kicad_mac_test_filter='FullyQualifiedName~MacUiDriverTests'
           fi
           dotnet test KiCad.Automation.slnx --configuration Release \
             --filter "$kicad_mac_test_filter" --logger trx \

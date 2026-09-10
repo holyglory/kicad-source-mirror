@@ -84,7 +84,11 @@ Mac helper commands now include `--inspect-update --installation ABSOLUTE_ROOT
 the verified previous editor when the saved journal proves no replacement launch
 was reached and the original is gone; retries do not duplicate a live process.
 Native verification of this interrupted-helper path (`007521cca5`, run
-`34485495786`) is still pending at this checkpoint.
+`34485495786`) passed on Apple Silicon and Intel. Each target executed three
+checks covering the kernel identity binding and the real restart/restore/
+interrupted-recovery journeys; the non-Mac refusal control was not executed
+on Mac. Retained receipts confirm that a live original is not duplicated,
+recovery retries reuse their recorded outcome and shared selection is preserved.
 
 Same-source preliminary Mac builds at `3c0699fc4f` are running separately:
 Apple Silicon `34484262464` and Intel `34485572638`. They do not include the
@@ -92,6 +96,17 @@ later explicit-recovery helper changes. No newer Mac download is claimed here.
 The integrated dirty-document Update-button journey, final recovery coverage,
 same-candidate packaging and actual Codex Desktop operation remain open under
 `p4d6c4ee22fd8078d` and `p8bf96f1c4b709a28`.
+
+Windows run `34467734029` retained both its preparation checkpoint and final
+failure logs. The standalone updater test was missing its `kicommon` link
+dependency after adopting KiCad's JSON import wrapper. Source `84359da19e3b`
+adds that dependency and a missing-provider negative link fixture; the repaired
+delivery is run `34487042181`, not a published Windows package yet.
+
+Platform feed compatibility remains open in `pe405c1d3374a315a`: old published
+Linux helpers cannot parse the new Mac TAR.GZ and Windows feed records. The
+root Linux-compatible feed must remain readable while native platform updates
+gain separate base paths on the same download-only site.
 
 ## Current source boundary
 

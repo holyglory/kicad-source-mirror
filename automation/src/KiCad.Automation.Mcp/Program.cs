@@ -4,6 +4,17 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+if (args.FirstOrDefault() == "--launch-installed")
+{
+    // A forwarded STDIO MCP session is not a finite 15-minute update job.
+    using var cancellation = new CancellationTokenSource();
+    ConsoleCancelEventHandler cancel = (_, e) => { e.Cancel = true; cancellation.Cancel(); };
+    Console.CancelKeyPress += cancel;
+    try { Environment.ExitCode = await WindowsLaunchCommand.RunAsync(args, Console.Error, cancellation.Token); }
+    finally { Console.CancelKeyPress -= cancel; }
+    return;
+}
+
 if (args.FirstOrDefault() is "--prepare-update" or "--check-update" or "--install-package" or "--restart-update" or "--inspect-update" or "--recover-update" or "--runtime-info")
 {
     using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(15));

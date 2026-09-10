@@ -22,9 +22,13 @@ public static partial class WindowsVerifiedVersions
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, PropertyNameCaseInsensitive = false, MaxDepth = 8 };
 
-    public static async Task<SelectedWindowsVersion> CreateAsync(string root, string archive,
+    public static Task<SelectedWindowsVersion> CreateAsync(string root, string archive,
         ReadOnlyMemory<byte> envelope, ReadOnlyMemory<byte> trustedPublisherSpki, Uri origin, string channel,
-        CancellationToken token = default)
+        CancellationToken token = default) => CreateCore(root, archive, envelope, trustedPublisherSpki, origin, channel, null, token);
+
+    private static async Task<SelectedWindowsVersion> CreateCore(string root, string archive,
+        ReadOnlyMemory<byte> envelope, ReadOnlyMemory<byte> trustedPublisherSpki, Uri origin, string channel,
+        Func<string, VerifiedUpdateManifest, Task>? beforePublish, CancellationToken token)
     {
         root = Root(root, exists: false);
         if (!Path.IsPathFullyQualified(archive)) throw new ArgumentException("Use an absolute archive path.");
@@ -48,6 +52,7 @@ public static partial class WindowsVerifiedVersions
             var selection = await WindowsVersionSelection.InitializeAsync(Path.Combine(work, "manager"), manifest.PayloadSha256, token);
             await WriteNew(Path.Combine(work, "store.json"), new
             { schemaVersion = 1, status = "verified_version_store", installationReady = false, nativeEditorRestarted = false }, token);
+            if (beforePublish is not null) await beforePublish(work, manifest);
             token.ThrowIfCancellationRequested(); Absent(root); Directory.Move(work, root); published = true;
             return new(Describe(root, manifest), selection.SelectionId);
         }

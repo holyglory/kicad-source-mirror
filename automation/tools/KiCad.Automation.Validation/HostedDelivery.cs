@@ -205,6 +205,11 @@ public static class HostedDelivery
             if (crt.Length != 1) throw new InvalidDataException("Select exactly one matching MSVC x64 CRT.");
             CopyDlls(crt[0], bin);
             CopyTree(managedPublish, managed);
+            string launcherBuild = Path.Combine(output, "launchers");
+            await Run("launcher-configure", "cmake", ["-S", Path.Combine(repository, "automation/native/windows-launcher"),
+                "-B", launcherBuild, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_INSTALL_PREFIX=" + install]);
+            await Run("launcher-build", "cmake", ["--build", launcherBuild]);
+            await Run("launcher-install", "cmake", ["--install", launcherBuild]);
             // Include the dependency licenses and native KiCad license with the preview.
             CopyTree(Path.Combine(dependencies, "share"), Path.Combine(install, "dependency-notices"));
             foreach (string license in Directory.GetFiles(repository, "LICENSE*"))

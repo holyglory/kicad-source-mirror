@@ -137,6 +137,23 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~PlatformUpdateFeedTests|FullyQualifiedName~SignedUpdateServerTests|FullyQualifiedName~DownloadServerTests|FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~SignedLinuxPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/platform-update-feeds"]
 retained_artifacts = [{ name = "platform-update-feeds", path = "automation/artifacts/platform-update-feeds", max_bytes = 16777216 }]
 
+[test.windows-launchers]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.windows-launchers.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.windows-launchers.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsLauncherTests|FullyQualifiedName~WindowsInstallerTests|FullyQualifiedName~WindowsVerifiedVersionsTests|FullyQualifiedName~UpdateCommandTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-launchers"]
+retained_artifacts = [{ name = "windows-launchers", path = "automation/artifacts/windows-launchers", max_bytes = 16777216 }]
+
 [test.windows-package-84359-inspect]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_TEST_WINDOWS_ARCHIVE = "/mnt/build-storage/codex/kicad/evidence/github-34487042181-windows-full/kicad-delivery/packages/kicad-codex-84359da19e3b168290b6199dc36077edbf03faf5-windows-x64.zip", KICAD_TEST_WINDOWS_ARCHIVE_COMMIT = "84359da19e3b168290b6199dc36077edbf03faf5", KICAD_TEST_WINDOWS_ARCHIVE_SHA256 = "486557b4de48cb2baf7809e1c9411440c7eb0e6613d7d35adbdeb984db1ec655" }

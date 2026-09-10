@@ -26,7 +26,8 @@ int main( int argc, char** argv )
         std::cout << "{\"schemaVersion\":1,\"status\":\"runtime_available\","
             "\"processArchitecture\":\"X64\",\"framework\":\".NET 10.0 synthetic fixture\","
             "\"nngVersion\":\"synthetic fixture, not actual NNG\","
-            "\"nativeEditorContacted\":false,\"crossPlatformReady\":false}";
+            "\"nativeEditorContacted\":false,\"crossPlatformReady\":false,\"fixtureExecutablePath\":\""
+            << std::filesystem::path( executable ).generic_u8string() << "\"}";
         return 0;
     }
     return 3;

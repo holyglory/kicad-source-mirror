@@ -53,6 +53,19 @@ public sealed record MacProcessIdentity(int ProcessId, Guid BootId, ulong StartS
         return bsd;
     }
 
+    internal static string PhysicalExecutable(string path)
+    {
+        if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("Mac executable resolution requires macOS.");
+        byte[] buffer = new byte[4096];
+        if (RealPath(path, buffer) == 0) throw new IOException("The Mac executable path no longer resolves.");
+        int end = Array.IndexOf(buffer, (byte)0);
+        if (end <= 0) throw new InvalidDataException("Invalid Mac physical executable path.");
+        return Encoding.UTF8.GetString(buffer, 0, end);
+    }
+
+    [DllImport("/usr/lib/libSystem.B.dylib", EntryPoint = "realpath", SetLastError = true)]
+    private static extern nint RealPath([MarshalAs(UnmanagedType.LPUTF8Str)] string path, [Out] byte[] result);
+
     [DllImport("/usr/lib/libproc.dylib", EntryPoint = "proc_pidinfo", SetLastError = true)]
     private static extern int PidInfo(int pid, int flavor, ulong arg, [Out] byte[] buffer, int bytes);
     [DllImport("/usr/lib/libproc.dylib", EntryPoint = "proc_pidpath", SetLastError = true)]

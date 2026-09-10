@@ -23,6 +23,8 @@ public sealed class MacUpdateHandoffTests
         await Assert.ThrowsExactlyAsync<PlatformNotSupportedException>(() => MacUpdateHandoff.ExecuteAsync(null!,
             _ => { acknowledged = true; return Task.CompletedTask; }));
         Assert.IsFalse(acknowledged);
+        await Assert.ThrowsExactlyAsync<PlatformNotSupportedException>(() => MacUpdateInspection.InspectAsync("/not-an-install", Guid.NewGuid()));
+        await Assert.ThrowsExactlyAsync<PlatformNotSupportedException>(() => MacUpdateRecovery.RecoverAsync("/not-an-install", Guid.NewGuid(), Guid.NewGuid()));
     }
 
     [TestMethod]
@@ -48,7 +50,9 @@ public sealed class MacUpdateHandoffTests
         var handoffs = new List<Task<MacUpdateHandoffState>>();
         var streams = new List<Task>();
         string? originalNng = Environment.GetEnvironmentVariable("KICAD_AUTOMATION_NNG_LIBRARY");
-        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(12));
+        // Three real installed-process journeys share this outer ceiling;
+        // each individual native readiness handshake still has its 60s limit.
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(20));
         try
         {
             string probe = await MacProcessIdentityTests.CompileProbe(root, deadline.Token);
@@ -65,9 +69,10 @@ public sealed class MacUpdateHandoffTests
                 ["KICAD_CONFIG_HOME"] = Path.Combine(root, "config"), ["KICAD_CACHE_HOME"] = Path.Combine(root, "cache"),
                 ["XDG_CONFIG_HOME"] = Path.Combine(root, "xdg-config"), ["XDG_CACHE_HOME"] = Path.Combine(root, "xdg-cache")
             };
-            foreach (bool failStartup in new[] { false, true })
+            foreach (string scenario in new[] { "restart", "restore", "interrupted" })
             {
-                string name = failStartup ? "restore" : "restart";
+                bool failStartup = scenario == "restore";
+                string name = scenario;
                 string oldSocket = "/tmp/km-" + Guid.NewGuid().ToString("N")[..12] + ".sock";
                 string newSocket = "/tmp/km-" + Guid.NewGuid().ToString("N")[..12] + ".sock";
                 Guid instance = Guid.NewGuid();
@@ -90,6 +95,37 @@ public sealed class MacUpdateHandoffTests
                 await Assert.ThrowsExactlyAsync<InvalidDataException>(() => MacUpdateHandoff.ExecuteAsync(
                     request with { OldProcess = identity with { StartMicroseconds = (identity.StartMicroseconds + 1) % 1000000 } },
                     _ => throw new AssertFailedException("Stale process was acknowledged"), deadline.Token));
+                if (scenario == "interrupted")
+                {
+                    await Assert.ThrowsExactlyAsync<IOException>(() => MacUpdateHandoff.ExecuteAsync(request,
+                        _ => throw new IOException("Synthetic lost acknowledgement before launch."), deadline.Token, environment));
+                    Assert.AreEqual("original_running", (await MacUpdateInspection.InspectAsync(installation, request.OperationId, deadline.Token)).Status);
+                    Assert.AreEqual("original_running", (await MacUpdateRecovery.RecoverAsync(installation, request.OperationId,
+                        Guid.NewGuid(), deadline.Token)).Status);
+                    await MacProcessIdentityTests.Run(probe, ["quit", old.Id.ToString()], deadline.Token);
+                    await old.WaitForExitAsync(deadline.Token);
+                    Assert.AreEqual("no_replacement_recorded", (await MacUpdateInspection.InspectAsync(installation, request.OperationId, deadline.Token)).Status);
+                    Guid recoveryId = Guid.NewGuid();
+                    var recovery = await MacUpdateRecovery.RecoverAsync(installation, request.OperationId, recoveryId, deadline.Token);
+                    Assert.AreEqual("restored", recovery.Status, recovery.State?.Error);
+                    Assert.IsNotNull(recovery.State?.ProcessId);
+                    using var recovered = Process.GetProcessById(recovery.State.ProcessId.Value);
+                    processes.Add(Process.GetProcessById(recovered.Id));
+                    Assert.AreEqual("replacement_running", (await MacUpdateInspection.InspectAsync(installation, request.OperationId, deadline.Token)).Status);
+                    var retried = await MacUpdateRecovery.RecoverAsync(installation, request.OperationId, recoveryId, deadline.Token);
+                    Assert.AreEqual("attempt_already_recorded", retried.Status);
+                    Assert.IsTrue(retried.Reused);
+                    Assert.AreEqual(target, MacVerifiedInstallation.InspectTarget(installation));
+                    await File.WriteAllTextAsync(Path.Combine(evidence, name + ".json"), JsonSerializer.Serialize(new
+                    {
+                        schemaVersion = 1, platform, commit, explicitRecoveryVerified = true, liveOriginalNotDuplicated = true,
+                        retryDidNotDuplicate = true, sharedSelectionPreserved = true, actualProcessIdentityVerified = true,
+                        automaticUpdatingQualified = false
+                    }), deadline.Token);
+                    await MacProcessIdentityTests.Run(probe, ["quit", recovered.Id.ToString()], deadline.Token);
+                    await recovered.WaitForExitAsync(deadline.Token);
+                    continue;
+                }
                 using (var cancel = new CancellationTokenSource())
                 {
                     var cancelled = await MacUpdateHandoff.ExecuteAsync(request with { OperationId = Guid.NewGuid() },
@@ -110,6 +146,7 @@ public sealed class MacUpdateHandoffTests
                 if (handoff.IsCompleted) await handoff;
                 await acknowledged.Task.WaitAsync(deadline.Token);
                 Assert.IsFalse(old.HasExited);
+                Assert.AreEqual("operation_unavailable", (await MacUpdateInspection.InspectAsync(installation, request.OperationId, deadline.Token)).Status);
                 await MacProcessIdentityTests.Run(probe, ["quit", old.Id.ToString()], deadline.Token);
                 var result = await handoff.WaitAsync(deadline.Token);
                 Assert.AreEqual(failStartup ? "restored" : "restarted", result.Status, result.Error);
@@ -120,6 +157,9 @@ public sealed class MacUpdateHandoffTests
                 Assert.AreEqual("", fresh.ProjectPath);
                 var replay = await MacUpdateHandoff.ExecuteAsync(request, _ => throw new AssertFailedException("Retry acknowledged another close"), deadline.Token);
                 Assert.AreEqual("reconciliation_required", replay.Status);
+                Assert.AreEqual("replacement_running", (await MacUpdateInspection.InspectAsync(installation, request.OperationId, deadline.Token)).Status);
+                Assert.AreEqual("launch_outcome_not_recoverable", (await MacUpdateRecovery.RecoverAsync(installation,
+                    request.OperationId, Guid.NewGuid(), deadline.Token)).Status);
                 await File.WriteAllTextAsync(Path.Combine(evidence, name + ".json"), JsonSerializer.Serialize(new
                 {
                     schemaVersion = 1, platform, commit, result.Status, cancelledBeforeClose = true, wrongProcessRejected = true,

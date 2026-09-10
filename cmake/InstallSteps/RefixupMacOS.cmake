@@ -93,6 +93,29 @@ function( delete_all_rpaths BINARY_PATH )
 endfunction()
 
 function( refix_image_rpaths binary bundle )
+    execute_process( COMMAND otool -L "${binary}"
+        OUTPUT_VARIABLE loads RESULT_VARIABLE load_result ERROR_VARIABLE load_error )
+    execute_process( COMMAND otool -D "${binary}"
+        OUTPUT_VARIABLE identity RESULT_VARIABLE id_result ERROR_VARIABLE id_error )
+    if( NOT load_result EQUAL 0 OR NOT id_result EQUAL 0 )
+        message( FATAL_ERROR "Could not inspect load commands for ${binary}: ${load_error} ${id_error}" )
+    endif()
+    string( REGEX REPLACE "^[^\n]*\n" "" identity "${identity}" )
+    string( STRIP "${identity}" identity )
+    string( REPLACE "\n" ";" load_lines "${loads}" )
+    set( needs_rpath FALSE )
+    foreach( line IN LISTS load_lines )
+        string( REGEX REPLACE "[ \t]+\\(compatibility version.*$" "" dependency "${line}" )
+        string( STRIP "${dependency}" dependency )
+        if( dependency MATCHES "^@rpath/" AND NOT dependency STREQUAL identity )
+            set( needs_rpath TRUE )
+        endif()
+    endforeach()
+    # System-only code models need no new load command. In particular, small
+    # Intel ngspice modules may have no spare Mach-O header space for one.
+    if( NOT needs_rpath )
+        return()
+    endif()
     # A dylib/module cannot rely on a particular caller having the right rpath.
     # Use its own installed location, including for nested editor executables.
     # This also avoids routing through each editor's Frameworks symlink.

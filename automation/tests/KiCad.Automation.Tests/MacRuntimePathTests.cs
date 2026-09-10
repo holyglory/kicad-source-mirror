@@ -53,10 +53,17 @@ public sealed class MacRuntimePathTests
             string fix = Path.Combine(root, "fix.cmake");
             string script = "cmake_minimum_required(VERSION 3.21)\ninclude(" + Q(Path.Combine(repository.FullName,
                 "cmake/InstallSteps/RefixupMacOS.cmake")) + ")\n";
+            string systemModule = Path.Combine(frameworks, "system-only.so");
+            await Run("xcrun", ["clang", "-bundle", Path.Combine(root, "leaf.c"), "-o", systemModule]);
+            string originalModuleHash = Evidence.Hash(systemModule);
+            string originalLeafHash = Evidence.Hash(leaf);
+            script += "refix_image_rpaths(" + Q(systemModule) + " " + Q(bundle) + ")\n";
             foreach (string file in new[] { leaf, parent, executable })
                 script += "refix_image_rpaths(" + Q(file) + " " + Q(bundle) + ")\n";
             await File.WriteAllTextAsync(fix, script);
             await Run("cmake", ["-P", fix]);
+            Assert.AreEqual(originalModuleHash, Evidence.Hash(systemModule), "A system-only module was needlessly changed.");
+            Assert.AreEqual(originalLeafHash, Evidence.Hash(leaf), "A dylib self-install ID was mistaken for a dependency.");
             string first = await Run("otool", ["-l", parent]);
             Assert.IsFalse(first.Contains(outside, StringComparison.Ordinal), "A developer-library search path survived normalization.");
             await Run("cmake", ["-P", fix]);

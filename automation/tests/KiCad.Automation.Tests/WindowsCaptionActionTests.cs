@@ -86,13 +86,6 @@ public sealed class WindowsCaptionActionTests
             state = await WaitClicks(1);
             Assert.AreEqual(0, Frame(state, 1)["clicks"]!.GetValue<int>());
             WindowsNativeUi.Capture(process, first, Path.Combine(evidence, "clicked.png"));
-            // Open the actual native system menu and choose its appended action
-            // using keyboard input, not a synthetic WM_SYSCOMMAND or handler call.
-            WindowsNativeUi.Shortcut(process, first, 0x12, 0x20); // Alt+Space
-            await WindowsNativeUi.WaitForSystemMenu(process, first, deadline.Token);
-            WindowsNativeUi.PressKey(process, first, 0x23); // End
-            WindowsNativeUi.PressKey(process, first, 0x0d); // Enter
-            state = await WaitClicks(2);
             Click(state, 0, first, cancel: true);
             for (int attempt = 0; attempt < 30; ++attempt)
             {
@@ -101,12 +94,12 @@ public sealed class WindowsCaptionActionTests
                 await Task.Delay(50, deadline.Token);
             }
             Assert.AreEqual(1, Frame(state, 0)["escapes"]!.GetValue<int>(), "The cancellation must reach the actual input queue.");
-            Assert.AreEqual(2, Frame(state, 0)["clicks"]!.GetValue<int>());
+            Assert.AreEqual(1, Frame(state, 0)["clicks"]!.GetValue<int>());
 
             state = await Command(new { op = "set", visible = true, enabled = false });
             Assert.IsTrue(Unavailable(state, 0)); Click(state, 0, first);
             state = await Command(new { op = "invoke" }); Assert.IsTrue(state["invokeResult"]!.GetValue<int>() < 0);
-            Assert.AreEqual(2, Frame(state, 0)["clicks"]!.GetValue<int>());
+            Assert.AreEqual(1, Frame(state, 0)["clicks"]!.GetValue<int>());
             state = await Command(new { op = "set", visible = false, enabled = true });
             Assert.IsTrue(Invisible(state, 0)); Assert.IsTrue(Unavailable(state, 0));
             Assert.AreEqual(0, Frame(state, 0)["menuActions"]!.GetValue<int>());
@@ -125,7 +118,7 @@ public sealed class WindowsCaptionActionTests
             state = await Command(new { op = "invoke" }); Assert.IsTrue(state["invokeResult"]!.GetValue<int>() < 0);
             state = await Command(new { op = "show", visible = true });
             state = await Command(new { op = "invoke" }); Assert.AreEqual(0, state["invokeResult"]!.GetValue<int>());
-            Assert.AreEqual(3, Frame(state, 0)["clicks"]!.GetValue<int>());
+            Assert.AreEqual(2, Frame(state, 0)["clicks"]!.GetValue<int>());
             state = await Command(new { op = "destroy" });
             Assert.IsFalse(Frame(state, 0)["alive"]!.GetValue<bool>());
             Assert.IsTrue(state["staleInvokeResult"]!.GetValue<int>() < 0);
@@ -139,6 +132,13 @@ public sealed class WindowsCaptionActionTests
             }
             Assert.AreEqual(1, Frame(state, 1)["clicks"]!.GetValue<int>());
             WindowsNativeUi.Capture(process, second, Path.Combine(evidence, "independent-window.png"));
+            // Keyboard remains required. Run independent failure/recovery
+            // checks first so a menu failure does not hide their findings.
+            WindowsNativeUi.Shortcut(process, second, 0x12, 0x20); // Alt+Space
+            await WindowsNativeUi.WaitForSystemMenu(process, second, deadline.Token);
+            WindowsNativeUi.PressKey(process, second, 0x23); // End
+            WindowsNativeUi.PressKey(process, second, 0x0d); // Enter
+            state = await WaitClicks(2, index: 1);
             await File.WriteAllTextAsync(Path.Combine(evidence, "final-state.json"), state.ToJsonString(), deadline.Token);
             process.StandardInput.Close(); await process.WaitForExitAsync(deadline.Token); Assert.AreEqual(0, process.ExitCode);
             string receipt = Path.Combine(evidence, "result.json");
@@ -161,15 +161,15 @@ public sealed class WindowsCaptionActionTests
                 await process.StandardInput.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(command));
                 await process.StandardInput.FlushAsync(deadline.Token);
             }
-            async Task<JsonObject> WaitClicks(int expected)
+            async Task<JsonObject> WaitClicks(int expected, int index = 0)
             {
                 for (int attempt = 0; attempt < 30; ++attempt)
                 {
                     var result = await Command(new { op = "state" });
-                    if (Frame(result, 0)["clicks"]!.GetValue<int>() == expected) return result;
+                    if (Frame(result, index)["clicks"]!.GetValue<int>() == expected) return result;
                     await Task.Delay(50, deadline.Token);
                 }
-                throw new AssertFailedException("The actual caption pointer action did not reach its owner.");
+                throw new AssertFailedException($"The native action did not reach window {index}; expected {expected} callbacks.");
             }
             void Click(JsonObject result, int index, nint window, bool cancel = false)
             {

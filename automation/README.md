@@ -138,6 +138,41 @@ copy of the former resolver fails as expected. Full Apple Silicon retry
 `34493864978` uses exact source `9691937193936d257f96da31b825e20f00aa88d9`.
 No archive from the failed full run is promoted to a public package.
 
+### Integrated Mac Update-button verification
+
+Native run `34495577161` observed Accessibility and screen-capture access on both
+hosted Mac architectures without changing permissions. The compiled QA driver
+checks the process boot session, kernel start time and executable before native
+Accessibility actions, and requires a unique enabled button. Its external-control
+fixture is run `34498294011`; this is not itself the whole KiCad update journey.
+
+The `NativeMacIntegratedUpdate` test opens two real projects with unique unsaved
+schematic objects. It presses the actual Update and Cancel/Save controls, checks
+that Cancel preserves the in-memory object and UUID, then verifies saved bytes,
+object identity, new native epochs and isolation of the second project through
+both updates. It uses normal installed-helper discovery and an authentic HTTPS
+feed; it does not inject a replacement handler or bypass TLS verification.
+
+Run it on a Mac against explicitly selected, frozen release inputs:
+
+```sh
+KICAD_MAC_UI_BASELINE_ARCHIVE=/absolute/prior-mac-package.tar.gz \
+KICAD_MAC_UI_BASELINE_ENVELOPE=/absolute/prior-installed-envelope.json \
+KICAD_MAC_UI_PUBLISHER_SPKI=/absolute/trusted-preview-publisher.spki \
+KICAD_MAC_UI_ORIGIN=https://kicad.vr.ae/platforms/osx-arm64/ \
+KICAD_MAC_UI_EXPECTED_COMMIT=EXACT_CANDIDATE_COMMIT \
+dotnet test automation/KiCad.Automation.slnx --configuration Release \
+  --filter TestCategory=NativeMacIntegratedUpdate --logger trx \
+  --results-directory /absolute/new-evidence-directory
+```
+
+Use `platforms/osx-x64/` on Intel. The baseline must already contain native Mac
+Update-button integration; the older initial public Mac packages do not. The
+candidate must be a different actual source build, and its signed feed must stay
+unchanged during the journey. Missing inputs or unavailable native UI access are
+not successful qualification. This integrated journey is prepared but not yet
+executed at this checkpoint; `p4d6c4ee22fd8078d` remains open.
+
 ## Current source boundary
 
 The compiled C# service uses the official MCP SDK over STDIO and generated KiCad

@@ -782,6 +782,39 @@ tier = "development"
 requires = ["contracts"]
 command = ["dotnet", "publish", "automation/src/KiCad.Automation.Mcp", "--configuration", "Debug", "--runtime", "win-x64", "--self-contained", "true", "-p:RestoreLockedMode=true", "--output", "automation/artifacts/distribution/hosted-win-runtime"]
 
+[test.hosted-preview-import]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.hosted-preview-import.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.hosted-preview-import.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~ValidationEvidenceTests", "--logger", "trx", "--results-directory", "automation/artifacts/hosted-preview-import"]
+retained_artifacts = [{ name = "hosted-preview-import", path = "automation/artifacts/hosted-preview-import", max_bytes = 16777216 }]
+
+[test.hosted-mac-preview-stage]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.hosted-mac-preview-stage.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["stage"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.hosted-mac-preview-stage.check]]
+name = "stage"
+tier = "development"
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-hosted", "--candidate", "/mnt/build-storage/codex/kicad/evidence/github-34409695853-macos-arm64/kicad-delivery", "--commit", "f79a41ed7aae781715877ef6c52ccf3762846b84", "--platform", "osx-arm64", "--run-id", "34409695853", "--version", "preview-20260909-f79a41ed7aae", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000008", "--output", "/mnt/build-storage/codex/kicad/public-candidates/compiled-import-f79a41ed7aae"]
+
 [test.native-symbol-library-identity]
 timeout_seconds = 7200
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_RUN_FROM_BUILD_DIR = "1", KICAD_CONFIG_HOME = "/mnt/build-storage/codex/kicad/t/native-library-identity-config", KICAD_CACHE_HOME = "/mnt/build-storage/codex/kicad/t/native-library-identity-cache" }

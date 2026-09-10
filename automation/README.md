@@ -876,6 +876,26 @@ by this build workflow. GitHub artifacts require GitHub access; verified public
 downloads continue to be published separately through `https://kicad.vr.ae`.
 Do not replace that site's working Linux preview with an unverified CI artifact.
 
+After retrieving a successful GitHub artifact, stage its verified application and
+source archives with the compiled helper. `--candidate` identifies the directory
+containing the hosted `receipt.json` and `packages/` (artifact layouts may include
+a `kicad-delivery/` prefix). Supply the actual expected run, target and commit:
+
+```sh
+dotnet run --project automation/tools/KiCad.Automation.Validation -- stage-hosted \
+  --candidate ABSOLUTE_DOWNLOADED_CANDIDATE --commit FULL_COMMIT \
+  --platform osx-arm64 --run-id ACTUAL_GITHUB_RUN --version PREVIEW_VERSION \
+  --previous EXISTING_PUBLIC_DIRECTORY --output NEW_PUBLIC_DIRECTORY
+```
+
+The command verifies the external receipt and archive hashes, preserves existing
+declared downloads and update-feed bytes, and copies no private logs or diagnostic
+installs. It neither authenticates the originating CI run nor executes the native
+application: retrieve from the verified GitHub run first. A staged directory is
+not a live delivery. Apply it through the declared DevCoordinator download service
+and verify the public HTTPS download paths separately. A failed/cancelled partial
+staging directory remains unpublished; the command never clears existing trees.
+
 Existing personal Macs can use the command below without dependency bootstrap.
 The hosted bootstrap never runs a clean-slate setup against a personal Mac.
 

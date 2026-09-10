@@ -1,0 +1,134 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+using KiCad.Automation.Distribution;
+using KiCad.Automation.Validation;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace KiCad.Automation.Tests;
+
+[TestClass]
+public sealed class HostedPreviewStagingTests
+{
+    [TestMethod]
+    public async Task CopiesOnlyVerifiedArchivesAndExistingFeedsAndNeverClaimsNativeExecution()
+    {
+        using var fixture = await Fixture.Create();
+        await File.WriteAllTextAsync(Path.Combine(fixture.Previous, "private.txt"), "Synthetic private fixture.");
+        await File.WriteAllTextAsync(Path.Combine(fixture.Candidate, "diagnostic.txt"), "Synthetic diagnostic fixture.");
+        var result = await HostedPreviewStaging.RunAsync(fixture.Request, CancellationToken.None);
+        Assert.AreEqual("staged", result.Status);
+        Assert.IsFalse(result.QualifyingDelivery);
+        Assert.AreEqual(3, result.ArtifactCount);
+        Assert.AreEqual(Evidence.Hash(Path.Combine(fixture.Request.Output, "downloads.json")), result.CatalogueSha256);
+        Assert.IsFalse(File.Exists(Path.Combine(fixture.Request.Output, "private.txt")));
+        Assert.IsFalse(File.Exists(Path.Combine(fixture.Request.Output, "diagnostic.txt")));
+        Assert.AreEqual(await File.ReadAllTextAsync(Path.Combine(fixture.Previous, "updates/preview.json")),
+            await File.ReadAllTextAsync(Path.Combine(fixture.Request.Output, "updates/preview.json")));
+        Assert.AreEqual(fixture.OriginalCatalogue, await File.ReadAllTextAsync(Path.Combine(fixture.Previous, "downloads.json")));
+        var manifest = JsonSerializer.Deserialize<DownloadManifest>(await File.ReadAllTextAsync(Path.Combine(fixture.Request.Output, "downloads.json")),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.AreEqual("win-x64", manifest.Artifacts.Single(x => x.FileName.EndsWith("windows-x64.zip", StringComparison.Ordinal)).Platform);
+        Assert.AreEqual(fixture.Source.Sha256, manifest.Artifacts.Last().SourceSha256);
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => HostedPreviewStaging.RunAsync(fixture.Request, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task CorrectingAFailedReceiptRecoversWithoutReplacingExistingDownloads()
+    {
+        using var fixture = await Fixture.Create();
+        await fixture.WriteReceipt("failed");
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(() => HostedPreviewStaging.RunAsync(fixture.Request, CancellationToken.None));
+        Assert.IsFalse(Directory.Exists(fixture.Request.Output));
+        await fixture.WriteReceipt("");
+        var result = await HostedPreviewStaging.RunAsync(fixture.Request, CancellationToken.None);
+        Assert.AreEqual("staged", result.Status);
+        Assert.AreEqual(fixture.OriginalCatalogue, await File.ReadAllTextAsync(Path.Combine(fixture.Previous, "downloads.json")));
+    }
+
+    [TestMethod]
+    [DataRow("failed")]
+    [DataRow("wrong-run")]
+    [DataRow("wrong-commit")]
+    [DataRow("wrong-platform")]
+    [DataRow("failed-step")]
+    [DataRow("missing-step")]
+    [DataRow("duplicate-step")]
+    [DataRow("changed-package")]
+    [DataRow("diagnostic")]
+    [DataRow("name-collision")]
+    [DataRow("cancelled")]
+    public async Task RejectsUnprovenOrChangedCandidatesBeforeCreatingPublicOutput(string mode)
+    {
+        using var fixture = await Fixture.Create();
+        if (mode == "changed-package") await File.AppendAllTextAsync(Path.Combine(fixture.Candidate, "packages", fixture.App.Path), "changed");
+        else if (mode == "name-collision")
+        {
+            var collision = new DownloadArtifact(fixture.App.Path, "win-x64", "other-version", Fixture.Commit,
+                fixture.Source.Sha256, fixture.App.Bytes, fixture.App.Sha256);
+            File.Copy(Path.Combine(fixture.Candidate, "packages", fixture.App.Path), Path.Combine(fixture.Previous, fixture.App.Path));
+            await File.WriteAllTextAsync(Path.Combine(fixture.Previous, "downloads.json"),
+                JsonSerializer.Serialize(new DownloadManifest(1, [collision]), new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        }
+        else await fixture.WriteReceipt(mode);
+        if (mode == "cancelled")
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => HostedPreviewStaging.RunAsync(fixture.Request, new CancellationToken(true)));
+        else await Assert.ThrowsExactlyAsync<InvalidDataException>(() => HostedPreviewStaging.RunAsync(fixture.Request, CancellationToken.None));
+        Assert.IsFalse(Directory.Exists(fixture.Request.Output));
+    }
+
+    private sealed class Fixture : IDisposable
+    {
+        public const string Commit = "1111111111111111111111111111111111111111";
+        private readonly string root = Directory.CreateTempSubdirectory("kicad-hosted-import-").FullName;
+        public string Candidate => Path.Combine(root, "candidate");
+        public string Previous => Path.Combine(root, "previous");
+        public HostedPreviewRequest Request => new(Candidate, Commit, "win-x64", "123", "synthetic-preview", Previous, Path.Combine(root, "output"));
+        public EvidenceFile App { get; private set; } = null!;
+        public EvidenceFile Source { get; private set; } = null!;
+        public string OriginalCatalogue { get; private set; } = "";
+        private static readonly string[] Names = ["source-commit", "pinned-ancestry", "native-build", "native-tests", "native-install",
+            "installed-native-commit", "managed-runtime", "managed-contracts", "package-source", "source-still-clean"];
+
+        public static async Task<Fixture> Create()
+        {
+            var value = new Fixture();
+            Directory.CreateDirectory(Path.Combine(value.Candidate, "packages"));
+            Directory.CreateDirectory(Path.Combine(value.Previous, "updates"));
+            byte[] bytes = "Synthetic archive bytes for staging-code tests; not a native application."u8.ToArray();
+            byte[] sourceBytes = "Distinct synthetic source archive bytes; no native source execution evidence."u8.ToArray();
+            string hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
+            value.App = new("kicad-codex-" + Commit + "-windows-x64.zip", bytes.Length, hash);
+            value.Source = new("kicad-codex-" + Commit + "-source.tar.gz", sourceBytes.Length,
+                Convert.ToHexStringLower(SHA256.HashData(sourceBytes)));
+            await File.WriteAllBytesAsync(Path.Combine(value.Candidate, "packages", value.App.Path), bytes);
+            await File.WriteAllBytesAsync(Path.Combine(value.Candidate, "packages", value.Source.Path), sourceBytes);
+            await File.WriteAllBytesAsync(Path.Combine(value.Previous, "existing.zip"), bytes);
+            await File.WriteAllTextAsync(Path.Combine(value.Previous, "updates/preview.json"), "{\"fixture\":\"unchanged bytes, not a signed feed\"}");
+            value.OriginalCatalogue = JsonSerializer.Serialize(new DownloadManifest(1,
+                [new("existing.zip", "linux-x64", "synthetic-existing", new string('2', 40), hash, bytes.Length, hash)]),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            await File.WriteAllTextAsync(Path.Combine(value.Previous, "downloads.json"), value.OriginalCatalogue);
+            await value.WriteReceipt("");
+            return value;
+        }
+
+        public async Task WriteReceipt(string mode)
+        {
+            ValidationStep[] steps = Names.Select(name => new ValidationStep(name,
+                mode == "failed-step" && name == "native-build" ? 1 : 0,
+                DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "synthetic.stdout", "synthetic.stderr")).ToArray();
+            if (mode == "missing-step") steps = steps.Skip(1).ToArray();
+            if (mode == "duplicate-step") steps = [.. steps, steps[0]];
+            await File.WriteAllTextAsync(Path.Combine(Candidate, "receipt.json"), JsonSerializer.Serialize(new
+            {
+                SchemaVersion = 1, SourceCommit = mode == "wrong-commit" ? new string('3', 40) : Commit,
+                Platform = mode == "wrong-platform" ? "macos" : "windows", Architecture = "x64",
+                RunId = mode == "wrong-run" ? "456" : "123", Status = mode == "failed" ? "failed" : "candidate_built",
+                Steps = steps, Artifacts = new[] { App, Source },
+                DiagnosticArtifacts = mode == "diagnostic" ? new[] { App } : [],
+                QualifyingDelivery = false, CrossPlatformReady = false
+            }));
+        }
+        public void Dispose() => Directory.Delete(root, recursive: true);
+    }
+}

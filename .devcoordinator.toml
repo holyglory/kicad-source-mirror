@@ -151,7 +151,7 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.windows-native-ui.check]]
 name = "contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsUiDriverTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-native-ui"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsUiDriverTests|FullyQualifiedName~WindowsInstalledPackageTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-native-ui"]
 retained_artifacts = [{ name = "windows-native-ui", path = "automation/artifacts/windows-native-ui", max_bytes = 16777216 }]
 
 [test.native-endpoint-contracts]

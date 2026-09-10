@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Buffers.Binary;
+using System.IO.Compression;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace KiCad.Automation.Tests;
@@ -7,6 +9,29 @@ namespace KiCad.Automation.Tests;
 public sealed class WindowsUiDriverTests
 {
     public TestContext TestContext { get; set; } = null!;
+
+    [TestMethod]
+    public void PngEvidencePreservesNativeColorsAndBottomUpRowOrder()
+    {
+        string scratch = Directory.CreateTempSubdirectory("kwpng-").FullName;
+        try
+        {
+            string path = Path.Combine(scratch, "capture.png");
+            WindowsNativeUi.WritePng(path, 1, 2, [255, 0, 0, 0, 0, 0, 255, 0]);
+            byte[] png = File.ReadAllBytes(path);
+            CollectionAssert.AreEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, png[..8]);
+            Assert.AreEqual(1, BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(16)));
+            Assert.AreEqual(2, BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(20)));
+            int size = BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(33));
+            using var encoded = new MemoryStream(png, 41, size);
+            using var zlib = new ZLibStream(encoded, CompressionMode.Decompress);
+            using var pixels = new MemoryStream(); zlib.CopyTo(pixels);
+            CollectionAssert.AreEqual(new byte[] { 0, 255, 0, 0, 0, 0, 0, 255 }, pixels.ToArray());
+            CollectionAssert.AreEqual(new byte[] { 0xae, 0x42, 0x60, 0x82 }, png[^4..]);
+            Assert.ThrowsExactly<ArgumentException>(() => WindowsNativeUi.WritePng(path, 2, 2, []));
+        }
+        finally { Directory.Delete(scratch, true); }
+    }
 
     [TestMethod]
     public async Task CaptureSaveAndCloseAnExactExternalNativeWindow()
@@ -26,6 +51,7 @@ public sealed class WindowsUiDriverTests
             "windows-native-ui")).FullName;
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         Process? windowProcess = null;
+        using var job = new WindowsProcessJob();
         try
         {
             string executable = Path.Combine(scratch, "window.exe");
@@ -51,14 +77,17 @@ public sealed class WindowsUiDriverTests
             var start = new ProcessStartInfo(executable) { WorkingDirectory = scratch, UseShellExecute = false };
             start.ArgumentList.Add(saved);
             windowProcess = Process.Start(start)!;
+            job.Attach(windowProcess);
+            Assert.IsTrue(job.Contains(windowProcess));
             nint window = await WindowsNativeUi.WaitForWindow(windowProcess, "KiCad native UI fixture", deadline.Token);
             using (var cancelledWait = new CancellationTokenSource(100))
                 await Assert.ThrowsAsync<OperationCanceledException>(() =>
                     WindowsNativeUi.WaitForWindow(windowProcess, "No such fixture window", cancelledWait.Token));
             using var wrongOwner = Process.GetCurrentProcess();
+            Assert.IsFalse(job.Contains(wrongOwner));
             Assert.ThrowsExactly<InvalidOperationException>(() => WindowsNativeUi.Save(wrongOwner, window));
             Assert.IsFalse(File.Exists(saved), "A wrong process target must not send keyboard input.");
-            string before = Path.Combine(evidence, "before.bmp"), after = Path.Combine(evidence, "after.bmp");
+            string before = Path.Combine(evidence, "before.png"), after = Path.Combine(evidence, "after.png");
             WindowsNativeUi.Capture(windowProcess, window, before);
             WindowsNativeUi.Save(windowProcess, window);
             Assert.AreEqual(window, await WindowsNativeUi.WaitForWindow(windowProcess, "fixture - Saved", deadline.Token));
@@ -69,15 +98,23 @@ public sealed class WindowsUiDriverTests
                 "The captured native window must reflect the saved state.");
             WindowsNativeUi.Shortcut(windowProcess, window, 0x11, 0x42); // Fixture Ctrl+B makes its client area blank.
             await WindowsNativeUi.WaitForWindow(windowProcess, "fixture - Blank", deadline.Token);
-            string blank = Path.Combine(evidence, "rejected-blank.bmp");
+            string blank = Path.Combine(evidence, "rejected-blank.png");
             Assert.ThrowsExactly<InvalidDataException>(() => WindowsNativeUi.Capture(windowProcess, window, blank));
             Assert.IsFalse(File.Exists(blank));
+            Assert.IsTrue(File.Exists(blank + ".rejected.png"));
             WindowsNativeUi.Shortcut(windowProcess, window, 0x11, 0x42);
             await WindowsNativeUi.WaitForWindow(windowProcess, "fixture - Saved", deadline.Token);
             WindowsNativeUi.Close(windowProcess, window);
             await windowProcess.WaitForExitAsync(deadline.Token);
             Assert.AreEqual(0, windowProcess.ExitCode);
             Assert.ThrowsExactly<InvalidOperationException>(() => WindowsNativeUi.Save(windowProcess, window));
+            windowProcess.Dispose();
+            windowProcess = Process.Start(start)!;
+            job.Attach(windowProcess);
+            await WindowsNativeUi.WaitForWindow(windowProcess, "KiCad native UI fixture", deadline.Token);
+            job.Dispose();
+            await windowProcess.WaitForExitAsync(deadline.Token);
+            Assert.IsFalse(wrongOwner.HasExited, "Owned-job recovery must leave the test host alive.");
             await File.WriteAllTextAsync(Path.Combine(evidence, "result.json"),
                 "{\"schemaVersion\":1,\"nativeInputAndCaptureVerified\":true,\"kicadPackageJourneyVerified\":false,\"permissionsChanged\":false}");
             TestContext.AddResultFile(before); TestContext.AddResultFile(after);

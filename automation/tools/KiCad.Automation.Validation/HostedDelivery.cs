@@ -226,6 +226,9 @@ public static class HostedDelivery
             await Run("managed-contracts", "dotnet", ["test", "automation/KiCad.Automation.slnx", "--configuration", "Release",
                 "--filter", "FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~RuntimeInfoTests|FullyQualifiedName~NngTransportTests|FullyQualifiedName~NativeIpcEndpointTests",
                 "--logger", "trx", "--results-directory", Path.Combine(evidence, "managed-tests")]);
+            await Run("installed-editor-journey", "dotnet", ["test", "automation/KiCad.Automation.slnx", "--configuration", "Release",
+                "--filter", "TestCategory=NativeWindowsPackage", "--logger", "trx",
+                "--results-directory", Path.Combine(evidence, "installed-editor-tests")]);
             Directory.CreateDirectory(packages);
             ZipFile.CreateFromDirectory(install, Path.Combine(packages, Name("windows-x64", ".zip")), CompressionLevel.Fastest, false);
             await PackageSource();
@@ -257,6 +260,11 @@ public static class HostedDelivery
             foreach (string argument in arguments) start.ArgumentList.Add(argument);
             string windowsNng = Path.Combine(output, "install", "bin", "nng.dll");
             if (!mac) ConfigureWindowsTransportCheck(start.Environment, name, windowsNng);
+            if (!mac && name == "installed-editor-journey")
+            {
+                start.Environment["KICAD_TEST_WINDOWS_INSTALL"] = Path.Combine(output, "install");
+                start.Environment["KICAD_HOSTED_FIXTURE_EVIDENCE"] = Path.Combine(evidence, "installed-editor-tests");
+            }
             // The official ngspice source uses git://; use its same HTTPS origin
             // on hosted runners that do not permit the unauthenticated git port.
             start.Environment["GIT_CONFIG_COUNT"] = "1";

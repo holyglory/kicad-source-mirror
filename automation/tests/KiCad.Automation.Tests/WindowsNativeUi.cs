@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.Buffers.Binary;
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -36,6 +38,17 @@ internal static class WindowsNativeUi
 
     public static void Save(Process owner, nint window) => Shortcut(owner, window, 0x11, 0x53); // Ctrl+S
     public static void Close(Process owner, nint window) => Shortcut(owner, window, 0x12, 0x73); // Alt+F4
+
+    public static async Task WaitForClosedWindow(Process owner, nint window, CancellationToken token)
+    {
+        RequireWindows();
+        while (!owner.HasExited && IsWindow(window))
+        {
+            GetWindowThreadProcessId(window, out uint pid);
+            if (pid != owner.Id) return; // The original window closed; never act on a reused handle.
+            await Task.Delay(250, token);
+        }
+    }
 
     public static void Shortcut(Process owner, nint window, ushort modifier, ushort key)
     {
@@ -88,12 +101,8 @@ internal static class WindowsNativeUi
                     if (pixels[p] != pixels[first] || pixels[p + 1] != pixels[first + 1] || pixels[p + 2] != pixels[first + 2])
                     { varied = true; break; }
                 }
-            if (!varied) throw new InvalidDataException("Native capture has a uniform client area; rendering is unproven.");
-            using var writer = new BinaryWriter(File.Create(path));
-            writer.Write((ushort)0x4d42); writer.Write(checked(54 + pixels.Length)); writer.Write(0); writer.Write(54);
-            writer.Write(40); writer.Write(width); writer.Write(height); writer.Write((ushort)1); writer.Write((ushort)32);
-            writer.Write(0); writer.Write(pixels.Length); writer.Write(0); writer.Write(0); writer.Write(0); writer.Write(0);
-            writer.Write(pixels);
+            WritePng(varied ? path : path + ".rejected.png", width, height, pixels);
+            if (!varied) throw new InvalidDataException("Native capture has a uniform client area; rejected pixels were retained for diagnosis.");
         }
         finally
         {
@@ -102,6 +111,54 @@ internal static class WindowsNativeUi
             if (memoryDc != 0) DeleteDC(memoryDc);
             if (windowDc != 0) ReleaseDC(window, windowDc);
             if (previousDpi != 0) SetThreadDpiAwarenessContext(previousDpi);
+        }
+    }
+
+    // Encode the unmodified bottom-up GDI pixels as ordinary RGB PNG so the
+    // evidence can be inspected in the same viewers as native MCP renders.
+    internal static void WritePng(string path, int width, int height, byte[] bottomUpBgra)
+    {
+        if (width <= 0 || height <= 0 || bottomUpBgra.Length != checked(width * height * 4))
+            throw new ArgumentException("Invalid native capture dimensions.");
+        using var file = File.Create(path);
+        file.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+        byte[] header = new byte[13];
+        BinaryPrimitives.WriteInt32BigEndian(header, width);
+        BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(4), height);
+        header[8] = 8; header[9] = 2;
+        Chunk("IHDR"u8, header);
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            byte[] row = new byte[checked(width * 3 + 1)];
+            for (int y = height - 1; y >= 0; y--)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int source = (y * width + x) * 4, target = x * 3 + 1;
+                    row[target] = bottomUpBgra[source + 2]; row[target + 1] = bottomUpBgra[source + 1];
+                    row[target + 2] = bottomUpBgra[source];
+                }
+                zlib.Write(row);
+            }
+        }
+        Chunk("IDAT"u8, compressed.ToArray());
+        Chunk("IEND"u8, []);
+
+        void Chunk(ReadOnlySpan<byte> type, byte[] data)
+        {
+            Span<byte> number = stackalloc byte[4];
+            BinaryPrimitives.WriteInt32BigEndian(number, data.Length); file.Write(number);
+            file.Write(type); file.Write(data);
+            uint crc = 0xffffffff;
+            foreach (byte value in type) Append(value);
+            foreach (byte value in data) Append(value);
+            BinaryPrimitives.WriteUInt32BigEndian(number, ~crc); file.Write(number);
+            void Append(byte value)
+            {
+                crc ^= value;
+                for (int bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ ((crc & 1) == 0 ? 0U : 0xedb88320U);
+            }
         }
     }
 

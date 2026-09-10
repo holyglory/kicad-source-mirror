@@ -27,6 +27,14 @@
 #include <wx/nonownedwnd.h>
 #include <wx/window.h>
 #include <wx/msw/registry.h>
+#include <wx/toplevel.h>
+#include "caption_action.h"
+
+std::function<void( bool, bool )> KIPLATFORM::UI::AddCaptionAction( wxTopLevelWindow* aWindow,
+        const wxString& aLabel, std::function<void()> aAction )
+{
+    return AddWindowsCaptionAction( aWindow->GetHWND(), aLabel.ToStdWstring(), std::move( aAction ) );
+}
 
 
 bool KIPLATFORM::UI::IsDarkTheme()

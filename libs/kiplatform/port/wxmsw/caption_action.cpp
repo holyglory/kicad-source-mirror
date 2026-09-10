@@ -267,7 +267,14 @@ LRESULT CALLBACK Subclass( HWND window, UINT message, WPARAM wParam, LPARAM lPar
         bool inside = PtInRect( &action->button, point ); action->pressed = false;
         ReleaseCapture(); action->Paint(); if( inside ) action->Invoke(); return 0;
     }
-    if( message == WM_CANCELMODE || message == WM_CAPTURECHANGED ) { action->pressed = false; action->Paint(); }
+    if( message == WM_KEYDOWN && wParam == VK_ESCAPE && action->pressed )
+    { action->pressed = false; ReleaseCapture(); action->Paint(); return 0; }
+    if( message == WM_CANCELMODE || message == WM_CAPTURECHANGED )
+    {
+        action->pressed = false;
+        if( message == WM_CANCELMODE && GetCapture() == window ) ReleaseCapture();
+        action->Paint();
+    }
     if( message == WM_SYSCOMMAND && action->menuId && ( wParam & 0xfff0 ) == action->menuId )
     { action->Invoke(); return 0; }
     auto result = DefSubclassProc( window, message, wParam, lParam );

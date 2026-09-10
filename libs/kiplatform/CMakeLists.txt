@@ -12,6 +12,7 @@ elseif( KICAD_WX_PORT STREQUAL msw )
     set( PLATFORM_SRCS
         port/wxmsw/touchpad.cpp
         port/wxmsw/ui.cpp
+        port/wxmsw/caption_action.cpp
         port/wxmsw/webview.cpp
         )
 elseif( KICAD_WX_PORT STREQUAL gtk )
@@ -80,6 +81,12 @@ elseif( WIN32 )
         "wintrust"
         "imm32"
         "windowsapp"
+        "comctl32"
+        "oleacc"
+        "oleaut32"
+        "ole32"
+        "uuid"
+        "dwmapi"
         )
 elseif( UNIX )
     list( APPEND PLATFORM_SRCS

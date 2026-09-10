@@ -52,15 +52,23 @@ public sealed class WindowsCaptionActionTests
             Assert.AreEqual(0x2b, Frame(state, 0)["role"]!.GetValue<int>()); // Native MSAA push button.
             Assert.AreEqual(1, Frame(state, 0)["menuActions"]!.GetValue<int>());
             WindowsNativeUi.Capture(process, first, Path.Combine(evidence, "available.png"));
+            using (var wrongOwner = Process.GetCurrentProcess())
+                Assert.ThrowsExactly<InvalidOperationException>(() => WindowsNativeUi.Click(wrongOwner, first, 0, 0));
             Click(state, 0, first);
             state = await WaitClicks(1);
             Assert.AreEqual(0, Frame(state, 1)["clicks"]!.GetValue<int>());
             WindowsNativeUi.Capture(process, first, Path.Combine(evidence, "clicked.png"));
+            // Open the actual native system menu and choose its appended action
+            // using keyboard input, not a synthetic WM_SYSCOMMAND or handler call.
+            WindowsNativeUi.Shortcut(process, first, 0x12, 0x20); // Alt+Space
+            WindowsNativeUi.PressKey(process, first, 0x23); // End
+            WindowsNativeUi.PressKey(process, first, 0x0d); // Enter
+            state = await WaitClicks(2);
 
             state = await Command(new { op = "set", visible = true, enabled = false });
             Assert.IsTrue(Unavailable(state, 0)); Click(state, 0, first);
             state = await Command(new { op = "invoke" }); Assert.IsTrue(state["invokeResult"]!.GetValue<int>() < 0);
-            Assert.AreEqual(1, Frame(state, 0)["clicks"]!.GetValue<int>());
+            Assert.AreEqual(2, Frame(state, 0)["clicks"]!.GetValue<int>());
             state = await Command(new { op = "set", visible = false, enabled = true });
             Assert.IsTrue(Invisible(state, 0)); Assert.IsTrue(Unavailable(state, 0));
             Assert.AreEqual(0, Frame(state, 0)["menuActions"]!.GetValue<int>());
@@ -69,13 +77,17 @@ public sealed class WindowsCaptionActionTests
             state = await Command(new { op = "resize", width = 160 }); Assert.IsTrue(Invisible(state, 0));
             state = await Command(new { op = "invoke" }); Assert.IsTrue(state["invokeResult"]!.GetValue<int>() < 0);
             state = await Command(new { op = "resize", width = 760 }); Assert.IsFalse(Invisible(state, 0));
+            state = await Command(new { op = "enable", enabled = false });
+            Assert.IsTrue(Unavailable(state, 0));
+            state = await Command(new { op = "invoke" }); Assert.IsTrue(state["invokeResult"]!.GetValue<int>() < 0);
+            state = await Command(new { op = "enable", enabled = true }); Assert.IsFalse(Unavailable(state, 0));
             Assert.IsTrue((await Command(new { op = "duplicate" }))["duplicateRefused"]!.GetValue<bool>());
             Assert.IsTrue((await Command(new { op = "wrong-thread" }))["wrongThreadRefused"]!.GetValue<bool>());
             state = await Command(new { op = "show", visible = false }); Assert.IsTrue(Invisible(state, 0));
             state = await Command(new { op = "invoke" }); Assert.IsTrue(state["invokeResult"]!.GetValue<int>() < 0);
             state = await Command(new { op = "show", visible = true });
             state = await Command(new { op = "invoke" }); Assert.AreEqual(0, state["invokeResult"]!.GetValue<int>());
-            Assert.AreEqual(2, Frame(state, 0)["clicks"]!.GetValue<int>());
+            Assert.AreEqual(3, Frame(state, 0)["clicks"]!.GetValue<int>());
             state = await Command(new { op = "destroy" });
             Assert.IsFalse(Frame(state, 0)["alive"]!.GetValue<bool>());
             Assert.IsTrue(state["staleInvokeResult"]!.GetValue<int>() < 0);
@@ -92,13 +104,14 @@ public sealed class WindowsCaptionActionTests
             await File.WriteAllTextAsync(Path.Combine(evidence, "final-state.json"), state.ToJsonString(), deadline.Token);
             process.StandardInput.Close(); await process.WaitForExitAsync(deadline.Token); Assert.AreEqual(0, process.ExitCode);
             string receipt = Path.Combine(evidence, "result.json");
-            await File.WriteAllTextAsync(receipt, "{\"schemaVersion\":1,\"status\":\"passed\",\"nativeMouseClick\":true,\"accessibleAction\":true,\"hiddenAndDisabledRefused\":true,\"independentOwners\":true,\"destroyedOwnerRefused\":true,\"actualKiCadUpdateJourney\":false}", deadline.Token);
+            await File.WriteAllTextAsync(receipt, "{\"schemaVersion\":1,\"status\":\"passed\",\"nativeMouseClick\":true,\"nativeKeyboardMenu\":true,\"accessibleAction\":true,\"hiddenAndDisabledRefused\":true,\"independentOwners\":true,\"destroyedOwnerRefused\":true,\"actualKiCadUpdateJourney\":false}", deadline.Token);
             TestContext.AddResultFile(receipt);
 
             async Task<JsonObject> Read()
             {
                 string? line = await process.StandardOutput.ReadLineAsync(deadline.Token);
                 if (line is null) Assert.Fail(await stderr);
+                await File.AppendAllTextAsync(Path.Combine(evidence, "states.jsonl"), line + "\n", deadline.Token);
                 var result = JsonNode.Parse(line!)!.AsObject(); Assert.AreEqual("ok", result["status"]!.GetValue<string>(), result.ToJsonString()); return result;
             }
             async Task<JsonObject> Command(object command)

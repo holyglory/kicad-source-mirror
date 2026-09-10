@@ -86,6 +86,19 @@ internal static class WindowsNativeUi
         finally { if (previousDpi != 0) SetThreadDpiAwarenessContext(previousDpi); }
     }
 
+    public static void PressKey(Process owner, nint window, ushort key)
+    {
+        Validate(owner, window);
+        if (GetForegroundWindow() != window) throw new InvalidOperationException("The owned window must have keyboard focus.");
+        INPUT[] inputs = [Key(key, false), Key(key, true)];
+        uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        if (sent != inputs.Length)
+        {
+            if (sent > 0) SendInput(1, [inputs[1]], Marshal.SizeOf<INPUT>());
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "The native key was not fully delivered.");
+        }
+    }
+
     public static void Capture(Process owner, nint window, string path)
     {
         Focus(owner, window);

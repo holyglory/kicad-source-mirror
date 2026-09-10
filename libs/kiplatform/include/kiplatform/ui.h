@@ -35,7 +35,7 @@ namespace KIPLATFORM
 {
     namespace UI
     {
-#if ( defined( __WXGTK__ ) && defined( __linux__ ) ) || defined( __WXMAC__ )
+#if ( defined( __WXGTK__ ) && defined( __linux__ ) ) || defined( __WXMAC__ ) || defined( __WXMSW__ )
         /** Add a toolkit-native caption action before showing the window.
          * Returned visibility/enabled setter is valid only while the owner lives. */
         std::function<void( bool, bool )> AddCaptionAction( wxTopLevelWindow* aWindow,

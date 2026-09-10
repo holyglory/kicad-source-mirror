@@ -830,7 +830,7 @@ to the runners.
 
 ```sh
 gh workflow run native-delivery.yml --repo holyglory/kicad-source-mirror \
-  --ref master -f source_commit=FULL_40_CHARACTER_FEATURE_COMMIT -f target=all
+  --ref feature/codex-kicad-automation -f source_commit=FULL_40_CHARACTER_FEATURE_COMMIT -f target=all
 gh run list --repo holyglory/kicad-source-mirror --workflow native-delivery.yml
 gh run watch RUN_ID --repo holyglory/kicad-source-mirror --exit-status
 gh run download RUN_ID --repo holyglory/kicad-source-mirror --dir NEW_EVIDENCE_DIRECTORY
@@ -839,9 +839,9 @@ gh run download RUN_ID --repo holyglory/kicad-source-mirror --dir NEW_EVIDENCE_D
 Use `target=mac`, `target=mac-arm64`, `target=mac-x64` or `target=windows` for a
 focused repair run. Individual Mac selections let an unaffected sibling finish
 without starting a second build of that target. The workflow must
-be registered on the default branch; that branch contains the dispatch workflow
-without upgrading the pinned native source. The checkout and compiled runner
-come from the explicit requested commit, not the default branch.
+be registered on the default branch. The command above selects its newer
+feature-branch definition without changing `master`; the native checkout and
+compiled runner still come from the explicit requested source commit.
 
 The compiled `hosted` command refuses other execution platforms and non-hosted
 environments, checks source identity and pinned ancestry, prepares dependencies
@@ -880,6 +880,12 @@ For Windows, `target=windows -f checks_only=true` runs the small compiled delive
 and checkpoint fixtures on the native Windows runner without building KiCad.
 It checks the orchestration contracts, not a completed native package or the
 full preparation/upload/compilation sequence.
+
+Signed update metadata recognizes Linux TAR.GZ/DEB, Mac TAR.GZ/ZIP and Windows
+x64 ZIP archives with exact target and format selection. That compatibility
+does not enable Mac/Windows update installation: their verified staging,
+activation, native caption action and recovery journeys remain unfinished.
+Existing signed feeds are not rewritten by a metadata-code change.
 
 Artifacts and `receipt.json` are retained even after ordinary failures. A failed
 receipt is not a usable delivery; archive hashes alone are not native execution

@@ -151,7 +151,7 @@ public static partial class UpdateManifestCodec
 
     internal static void RequirePlatform(string platform)
     {
-        if (platform is not ("linux-x64" or "osx-arm64" or "osx-x64"))
+        if (platform is not ("linux-x64" or "osx-arm64" or "osx-x64" or "win-x64"))
             throw new InvalidDataException("Unsupported update platform.");
     }
 
@@ -161,7 +161,13 @@ public static partial class UpdateManifestCodec
     }
 
     internal static bool CompatibleFormat(string platform, string format, string name) =>
-        (platform == "linux-x64" ? format is "tar.gz" or "deb" : format == "zip")
+        (platform switch
+        {
+            "linux-x64" => format is "tar.gz" or "deb",
+            "osx-arm64" or "osx-x64" => format is "tar.gz" or "zip",
+            "win-x64" => format == "zip",
+            _ => false
+        })
         && name.EndsWith("." + format, StringComparison.Ordinal);
 
     private static void RequireKey(ECDsa publisher)

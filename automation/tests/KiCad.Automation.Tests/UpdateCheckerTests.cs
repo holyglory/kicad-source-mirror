@@ -48,10 +48,14 @@ public sealed class UpdateCheckerTests
     }
 
     [TestMethod]
-    public async Task MissingPlatformDoesNotOfferAnotherArchitecturesPackage()
+    [DataRow("osx-arm64", "zip")]
+    [DataRow("osx-arm64", "tar.gz")]
+    [DataRow("osx-x64", "tar.gz")]
+    [DataRow("win-x64", "zip")]
+    public async Task MissingPlatformDoesNotOfferAnotherArchitecturesPackage(string platform, string format)
     {
         using var fixture = new FeedFixture();
-        fixture.Payload = fixture.Envelope(3, platform: "osx-arm64", format: "zip");
+        fixture.Payload = fixture.Envelope(3, platform: platform, format: format);
         var result = await fixture.Checker().CheckAsync();
         Assert.AreEqual(UpdateAvailability.TargetUnavailable, result.Availability);
         Assert.IsNull(result.Manifest.ForInstallation("linux-x64", "tar.gz"));

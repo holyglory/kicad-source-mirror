@@ -37,6 +37,30 @@ public sealed class UpdateManifestTests
     }
 
     [TestMethod]
+    [DataRow("osx-arm64", "tar.gz")]
+    [DataRow("osx-x64", "tar.gz")]
+    [DataRow("osx-arm64", "zip")]
+    [DataRow("osx-x64", "zip")]
+    [DataRow("win-x64", "zip")]
+    public void NativeArchiveFormatsRetainExactSignedTargetSelection(string platform, string format)
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var artifact = new UpdateArtifact(platform, format, platform + "." + format, 12, new string('5', 64));
+        var release = Fixture() with { Artifacts = [artifact] };
+        byte[] envelope = UpdateManifestCodec.Sign(release, key);
+        var verified = UpdateManifestCodec.Verify(envelope, key.ExportSubjectPublicKeyInfo(), "preview");
+        Assert.AreEqual(artifact, verified.ForInstallation(platform, format));
+        foreach (string other in new[] { "osx-arm64", "osx-x64", "win-x64" }.Where(x => x != platform))
+            Assert.IsNull(verified.ForInstallation(other, other == "win-x64" ? "zip" : "tar.gz"));
+        Assert.IsNull(verified.ForInstallation("linux-x64", "tar.gz"));
+        Assert.ThrowsExactly<InvalidDataException>(() => verified.ForInstallation(platform, "deb"));
+        Assert.ThrowsExactly<InvalidDataException>(() => verified.ForInstallation("win-arm64", "zip"));
+        // Correct publisher does not make a wrong-platform/format instruction valid.
+        var invalid = release with { Artifacts = [artifact with { Platform = "win-x64", Format = "tar.gz", FileName = "windows.tar.gz" }] };
+        Assert.ThrowsExactly<InvalidDataException>(() => UpdateManifestCodec.Sign(invalid, key));
+    }
+
+    [TestMethod]
     public void WrongPublisherTamperingAndKeySubstitutionAreRejected()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -93,7 +117,7 @@ public sealed class UpdateManifestTests
             valid with { Artifacts = [valid.Artifacts[0] with { Bytes = 0 }] },
             valid with { Artifacts = [valid.Artifacts[0] with { Bytes = UpdateManifestCodec.MaximumArtifactBytes + 1 }] },
             valid with { Artifacts = [valid.Artifacts[0] with { Sha256 = "unknown" }] },
-            valid with { Artifacts = [valid.Artifacts[0] with { Platform = "osx-x64" }] }
+            valid with { Artifacts = [valid.Artifacts[0] with { Platform = "win-x64" }] }
         })
         {
             string json = JsonSerializer.Serialize(invalid, new JsonSerializerOptions(JsonSerializerDefaults.Web));

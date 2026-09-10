@@ -6,6 +6,11 @@ using Kiapi.Common.Commands;
 using Kiapi.Common.Types;
 using KiCad.Automation.Native;
 
+if (args.Length == 2 && args[0] == "--nng-binding-lifetime")
+    return await NngBindingLifetimeProbe.RunAsync(args[1]);
+if (args.Length == 3 && args[0] == "--nng-binding-lifetime" && args[2] == "--reopen-path")
+    return await NngBindingLifetimeProbe.RunAsync(args[1], reopenPath: true);
+
 if (args.Length == 2 && args[0] == "--verify")
 {
     using var result = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(args[1], "result.json")));

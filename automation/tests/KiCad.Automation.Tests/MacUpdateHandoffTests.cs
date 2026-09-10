@@ -64,6 +64,7 @@ public sealed class MacUpdateHandoffTests
             var next = UpdateManifestCodec.Verify(nextBytes, publicKey, "preview");
             _ = await MacVerifiedInstallation.RegisterAsync(installation, target, download.Path, nextBytes, deadline.Token);
             Environment.SetEnvironmentVariable("KICAD_AUTOMATION_NNG_LIBRARY", Path.Combine(installed.VersionDirectory, "managed/libnng.dylib"));
+            await NngBindingLifetimeTests.RunProbe(Path.Combine(installed.VersionDirectory, "managed/libnng.dylib"), deadline.Token);
             var environment = new Dictionary<string, string?>
             {
                 ["KICAD_CONFIG_HOME"] = Path.Combine(root, "config"), ["KICAD_CACHE_HOME"] = Path.Combine(root, "cache"),

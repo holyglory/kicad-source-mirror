@@ -99,8 +99,16 @@ internal static class Nng
         if (library is null) return;
         if (!Path.IsPathFullyQualified(library) || !File.Exists(library))
             throw new InvalidDataException("KICAD_AUTOMATION_NNG_LIBRARY must name an existing absolute native library.");
-        NativeLibrary.SetDllImportResolver(typeof(Nng).Assembly, (name, _, _) =>
-            name == "nng" ? NativeLibrary.Load(library) : IntPtr.Zero);
+        // Every P/Invoke can be bound lazily, long after the first call. Keep
+        // one process-lifetime handle instead of reopening a possibly removed
+        // installation pathname for each newly used function.
+        IntPtr handle = NativeLibrary.Load(library);
+        try
+        {
+            NativeLibrary.SetDllImportResolver(typeof(Nng).Assembly, (name, _, _) =>
+                name == "nng" ? handle : IntPtr.Zero);
+        }
+        catch { NativeLibrary.Free(handle); throw; }
     }
 
     [StructLayout(LayoutKind.Sequential)]

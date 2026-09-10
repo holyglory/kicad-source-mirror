@@ -49,6 +49,7 @@ public sealed class MacUpdateStagerTests
             var staged = await MacUpdateStager.StageAsync(manifest, download, root, deadline.Token);
             Assert.AreEqual(target, staged.Platform);
             Assert.AreEqual(manifest.PayloadSha256, staged.ManifestSha256);
+            await NngBindingLifetimeTests.RunProbe(Path.Combine(staged.Directory, "managed/libnng.dylib"), deadline.Token);
             string receipt = Path.Combine(Path.GetDirectoryName(staged.Directory)!, "staging.json");
             using (var json = JsonDocument.Parse(await File.ReadAllTextAsync(receipt, deadline.Token)))
             {

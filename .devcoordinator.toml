@@ -29,7 +29,7 @@ command = ["dotnet", "automation/artifacts/download-host/kicad-downloads.dll"]
 port = true
 route = true
 health = { path = "/healthz", timeout_seconds = 60 }
-env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/mac-arm64-f79a41ed7aae", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
+env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/mac-both-4c6a88502a4c", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
 
 [test]
 default = "automation"
@@ -325,7 +325,7 @@ retained_artifacts = [{ name = "native-updater-tests", path = "automation/artifa
 
 [test.public-downloads]
 timeout_seconds = 600
-env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/mac-arm64-f79a41ed7aae", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/home/holyglory/kicad/automation/artifacts/public-mac-arm64-evidence", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/mac-both-4c6a88502a4c", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/home/holyglory/kicad/automation/artifacts/public-mac-both-evidence", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
 
 [[test.public-downloads.check]]
 name = "build"
@@ -337,8 +337,8 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.public-downloads.check]]
 name = "https"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=PublicDownloads", "--logger", "trx", "--results-directory", "automation/artifacts/public-mac-arm64-tests"]
-retained_artifacts = [{ name = "public-download-tests", path = "automation/artifacts/public-mac-arm64-tests", max_bytes = 16777216 }, { name = "public-download-evidence", path = "automation/artifacts/public-mac-arm64-evidence", max_bytes = 16777216 }]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=PublicDownloads", "--logger", "trx", "--results-directory", "automation/artifacts/public-mac-both-tests"]
+retained_artifacts = [{ name = "public-download-tests", path = "automation/artifacts/public-mac-both-tests", max_bytes = 16777216 }, { name = "public-download-evidence", path = "automation/artifacts/public-mac-both-evidence", max_bytes = 16777216 }]
 
 [test.update-contracts]
 timeout_seconds = 600
@@ -814,6 +814,22 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 name = "stage"
 tier = "development"
 command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-hosted", "--candidate", "/mnt/build-storage/codex/kicad/evidence/github-34409695853-macos-arm64/kicad-delivery", "--commit", "f79a41ed7aae781715877ef6c52ccf3762846b84", "--platform", "osx-arm64", "--run-id", "34409695853", "--version", "preview-20260909-f79a41ed7aae", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000008", "--output", "/mnt/build-storage/codex/kicad/public-candidates/compiled-import-f79a41ed7aae"]
+
+[test.hosted-intel-preview-stage]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.hosted-intel-preview-stage.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["stage"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.hosted-intel-preview-stage.check]]
+name = "stage"
+tier = "development"
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-hosted", "--candidate", "/mnt/build-storage/codex/kicad/evidence/github-34427874672-macos-x64/kicad-delivery", "--commit", "4c6a88502a4c84da7ff1cf4ae9ca54bd266a106d", "--platform", "osx-x64", "--run-id", "34427874672", "--version", "preview-20260910-4c6a88502a4c", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/mac-arm64-f79a41ed7aae", "--output", "/mnt/build-storage/codex/kicad/public-candidates/mac-both-4c6a88502a4c"]
 
 [test.native-symbol-library-identity]
 timeout_seconds = 7200

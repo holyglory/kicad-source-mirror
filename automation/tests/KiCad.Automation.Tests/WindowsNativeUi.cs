@@ -204,6 +204,11 @@ internal static class WindowsNativeUi
         Validate(owner, window);
         if (IsIconic(window)) ShowWindow(window, 9);
         SetForegroundWindow(window);
+        // Cross-input-queue foreground activation completes asynchronously.
+        // A bounded no-op message waits for that window to process the nudge;
+        // never attach input queues or weaken the final ownership/focus check.
+        if (SendMessageTimeoutW(window, 0, 0, 0, 2, 5000, out _) == 0)
+            throw new InvalidOperationException("The owned native window did not acknowledge foreground activation.");
         Validate(owner, window);
         if (GetForegroundWindow() != window)
             throw new InvalidOperationException("The owned native window could not receive foreground input.");
@@ -252,6 +257,8 @@ internal static class WindowsNativeUi
     [DllImport("user32")] private static extern bool ShowWindow(nint window, int command);
     [DllImport("user32")] private static extern bool SetForegroundWindow(nint window);
     [DllImport("user32")] private static extern nint GetForegroundWindow();
+    [DllImport("user32", SetLastError = true)] private static extern nint SendMessageTimeoutW(nint window, uint message,
+        nuint wParam, nint lParam, uint flags, uint timeout, out nuint result);
     [DllImport("user32", SetLastError = true)] private static extern uint SendInput(uint count, INPUT[] inputs, int size);
     [DllImport("user32", SetLastError = true)] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32")] private static extern nint WindowFromPoint(POINT point);

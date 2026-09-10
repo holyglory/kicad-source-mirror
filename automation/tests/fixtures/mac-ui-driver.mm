@@ -31,7 +31,7 @@ int main( int argc, char** argv )
     {
         if( argc == 2 && strcmp( argv[1], "capabilities" ) == 0 )
         {
-            emit( @{ @"schemaVersion": @1, @"accessibilityTrusted": @(AXIsProcessTrusted()),
+            emit( @{ @"schemaVersion": @1, @"accessibilityTrusted": @((bool)AXIsProcessTrusted()),
                 @"screenCaptureAllowed": @(CGPreflightScreenCaptureAccess()), @"permissionsChanged": @NO } );
             return 0;
         }
@@ -107,7 +107,17 @@ int main( int argc, char** argv )
         if( queue.size() > 4096 )
         { emit( @{ @"schemaVersion": @1, @"status": @"tree_limit_exceeded" } ); result = 4; }
         else if( strcmp( argv[1], "inspect" ) == 0 )
-            emit( @{ @"schemaVersion": @1, @"status": @"observed", @"processId": @(pid), @"buttons": controls } );
+        {
+            NSMutableArray* windows = [NSMutableArray array];
+            CFArrayRef list = CGWindowListCopyWindowInfo( kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID );
+            for( NSDictionary* window in (NSArray*)list )
+                if( [window[(NSString*)kCGWindowOwnerPID] intValue] == pid && [window[(NSString*)kCGWindowLayer] intValue] == 0 )
+                    [windows addObject:@{ @"id": window[(NSString*)kCGWindowNumber],
+                        @"title": window[(NSString*)kCGWindowName] ?: @"" }];
+            if( list ) CFRelease( list );
+            emit( @{ @"schemaVersion": @1, @"status": @"observed", @"processId": @(pid),
+                @"buttons": controls, @"windows": windows } );
+        }
         else if( matches.size() != 1 )
         { emit( @{ @"schemaVersion": @1, @"status": @"no_unique_enabled_target", @"matches": @(matches.size()) } ); result = 5; }
         else if( !matchesProcess() )

@@ -1,6 +1,8 @@
 #include "caption_action.h"
 #include <stdio.h>
 #include <stdexcept>
+#include <unistd.h>
+#include <string.h>
 
 static void require( bool condition, const char* message )
 {
@@ -11,10 +13,34 @@ int main( int argc, char** argv )
 {
     @autoreleasepool
     {
-        if( argc != 2 ) return 2;
+        bool external = argc == 3 && strcmp( argv[1], "--external-ui" ) == 0;
+        if( argc != 2 && !external ) return 2;
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         [NSApp finishLaunching];
+        if( external )
+        {
+            NSString* directory = [NSString stringWithUTF8String:argv[2]];
+            NSWindow* window = [[NSWindow alloc] initWithContentRect:NSMakeRect( 100, 100, 600, 350 )
+                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
+                backing:NSBackingStoreBuffered defer:NO];
+            [window setReleasedWhenClosed:NO];
+            [window setTitle:@"KiCad external UI driver fixture"];
+            auto state = KIPLATFORM::UI::AddMacCaptionAction( window, @"Update", [directory]
+            {
+                [@"{\"schemaVersion\":1,\"pressed\":true,\"applicationUpdateJourneyVerified\":false}"
+                    writeToFile:[directory stringByAppendingPathComponent:@"pressed.json"] atomically:YES
+                    encoding:NSUTF8StringEncoding error:nil];
+            } );
+            state( true, true );
+            [window makeKeyAndOrderFront:nil];
+            [window displayIfNeeded];
+            [@"ready" writeToFile:[directory stringByAppendingPathComponent:@"ready"] atomically:YES
+                encoding:NSUTF8StringEncoding error:nil];
+            [NSApp run];
+            [window release];
+            return 0;
+        }
         try
         {
             int clicks = 0, otherClicks = 0;

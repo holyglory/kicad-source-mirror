@@ -12,6 +12,53 @@ public sealed class MacRuntimePathTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    public async Task LoadCommandParserDoesNotConfuseALibraryIdentifierWithAnImport()
+    {
+        string root = Directory.CreateTempSubdirectory("kicad-load-parser-").FullName;
+        try
+        {
+            DirectoryInfo? repository = new(AppContext.BaseDirectory);
+            while (repository is not null && !File.Exists(Path.Combine(repository.FullName, "cmake/InstallSteps/RefixupMacOS.cmake")))
+                repository = repository.Parent;
+            Assert.IsNotNull(repository);
+            string script = "cmake_minimum_required(VERSION 3.21)\ninclude(" + MacValidation.CmakeLiteral(
+                Path.Combine(repository.FullName, "cmake/InstallSteps/RefixupMacOS.cmake").Replace('\\', '/')) + ")\n";
+            const string self = "sample.dylib:\n@rpath/libsample.dylib\n";
+            const string ownLoad = "sample.dylib:\n\t@rpath/libsample.dylib (compatibility version 1.0.0, current version 1.0.0)\n";
+            const string systemLoad = "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1351.0.0)\n";
+            foreach (var (loads, id, expected) in new[]
+            {
+                (ownLoad + systemLoad, self, "FALSE"),
+                ("module.so:\n" + systemLoad, "module.so:\n", "FALSE"),
+                (ownLoad + "\t@rpath/libother.dylib (compatibility version 1.0.0, current version 1.0.0)\n", self, "TRUE")
+            })
+                script += "mac_image_needs_rpath(" + MacValidation.CmakeLiteral(loads) + " " + MacValidation.CmakeLiteral(id)
+                    + " actual)\nif(NOT actual STREQUAL " + expected + ")\nmessage(FATAL_ERROR \"Incorrect dependency classification\")\nendif()\n";
+            string path = Path.Combine(root, "parser.cmake");
+            await File.WriteAllTextAsync(path, script);
+            var start = new ProcessStartInfo("cmake") { UseShellExecute = false,
+                RedirectStandardOutput = true, RedirectStandardError = true };
+            start.ArgumentList.Add("-P"); start.ArgumentList.Add(path);
+            using var process = Process.Start(start)!;
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            Task<string> stdout = process.StandardOutput.ReadToEndAsync();
+            Task<string> stderr = process.StandardError.ReadToEndAsync();
+            try
+            {
+                await process.WaitForExitAsync(deadline.Token);
+                Assert.AreEqual(0, process.ExitCode, await stdout + await stderr);
+            }
+            finally
+            {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+                await Task.WhenAll(stdout, stderr);
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
     public async Task NativeImagesRelocateWithTransitiveDependenciesAndRejectAMissingLibrary()
     {
         if (!OperatingSystem.IsMacOS())

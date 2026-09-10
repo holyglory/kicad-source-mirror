@@ -28,6 +28,7 @@
 #include <api/api_handler.h>
 #include <api/api_utils.h> // traceApi
 #include <api/api_server.h>
+#include <api/api_socket_url.h>
 #include <kiid.h>
 #include <kinng.h>
 #include <kinng_publisher.h>
@@ -96,7 +97,7 @@ wxFileName KICAD_API_SERVER::StandardSocketPath()
 
 std::string KICAD_API_SERVER::StandardSocketUrl()
 {
-    return fmt::format( "ipc://{}", StandardSocketPath().GetFullPath().ToUTF8().data() );
+    return KiApiSocketUrl( StandardSocketPath().GetFullPath().ToUTF8().data() );
 }
 
 
@@ -167,7 +168,7 @@ void KICAD_API_SERVER::Start()
     }
 
     m_server = std::make_unique<KINNG_REQUEST_SERVER>(
-            fmt::format( "ipc://{}", socket.GetFullPath().ToStdString() ) );
+            KiApiSocketUrl( socket.GetFullPath().ToUTF8().data() ) );
     m_server->SetCallback( [&]( std::string* aRequest ) { onApiRequest( aRequest ); } );
 
     if( IsAutomation() )
@@ -181,7 +182,7 @@ void KICAD_API_SERVER::Start()
         // full stream UUID travels in discovery and every packet; a filename
         // collision fails listen without removing another publisher's socket.
         wxFileName events( socket.GetPath(), wxString( m_eventEpoch.substr( 0, 8 ) ) );
-        m_eventEndpoint = "ipc://" + events.GetFullPath().ToStdString();
+        m_eventEndpoint = KiApiSocketUrl( events.GetFullPath().ToUTF8().data() );
         kiapi::automation::v1::AutomationEvent heartbeat;
         heartbeat.set_protocol_version( 1 );
         heartbeat.set_instance_id( m_automationInstanceId );

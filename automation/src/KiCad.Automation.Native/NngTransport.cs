@@ -37,8 +37,13 @@ public sealed class NngTransport : INativeTransport
     public static void ValidateEndpoint(string endpoint)
     {
         // SA-02: execution and KiCad are co-located. Never silently use TCP.
-        if (!endpoint.StartsWith("ipc:///", StringComparison.Ordinal) || endpoint.IndexOf('\0') >= 0)
-            throw new ArgumentException("An explicit absolute ipc:/// endpoint is required.", nameof(endpoint));
+        bool unixPath = endpoint.StartsWith("ipc:///", StringComparison.Ordinal) && endpoint.Length > 7;
+        bool windowsPath = OperatingSystem.IsWindows() && endpoint.Length > 9
+            && endpoint.StartsWith("ipc://", StringComparison.Ordinal)
+            && char.IsAsciiLetter(endpoint[6]) && endpoint[7] == ':' && endpoint[8] == '/';
+        if ((!unixPath && !windowsPath) || endpoint.IndexOf('\0') >= 0
+            || (OperatingSystem.IsWindows() && endpoint.Contains('\\')))
+            throw new ArgumentException("An explicit absolute local ipc:// endpoint is required.", nameof(endpoint));
     }
 
     private static byte[] Exchange(string endpoint, byte[] request, int timeoutMs,

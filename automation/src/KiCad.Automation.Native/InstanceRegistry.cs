@@ -92,12 +92,10 @@ public sealed partial class InstanceRegistry(INativeTransport transport, string 
         try
         {
             string id = Guid.NewGuid().ToString("D");
-            // macOS's per-user TMPDIR can exhaust the Unix-domain socket path
-            // limit before the UUID is appended. Both supported hosts have /tmp.
-            string runtime = Path.Combine("/tmp", "kicad-automation", id);
-            Directory.CreateDirectory(runtime);
+            string runtime = NativeIpcEndpoint.RuntimeDirectory(id);
             string socket = Path.Combine(runtime, "api.sock");
-            string endpoint = "ipc://" + socket;
+            string endpoint = NativeIpcEndpoint.FromSocketPath(socket);
+            Directory.CreateDirectory(runtime);
             var start = new ProcessStartInfo(executable)
             {
                 WorkingDirectory = Path.GetDirectoryName(projectPath)!,

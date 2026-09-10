@@ -14,7 +14,7 @@ public sealed class NngTransportTests
     public async Task NativeRequestReplyPreservesBinaryBytes(int payloadSize)
     {
         string directory = Directory.CreateTempSubdirectory("kng-").FullName;
-        string endpoint = "ipc://" + Path.Combine(directory, "peer.sock");
+        string endpoint = NativeIpcEndpoint.FromSocketPath(Path.Combine(directory, "peer.sock"));
         Nng.Check(Nng.nng_rep0_open(out var socket));
         Task? server = null;
         bool exchangeCompleted = false;
@@ -59,7 +59,7 @@ public sealed class NngTransportTests
     public async Task CancellationAfterPeerReceivesRequestAllowsNextExchange()
     {
         string directory = Directory.CreateTempSubdirectory("kng-").FullName;
-        string endpoint = "ipc://" + Path.Combine(directory, "peer.sock");
+        string endpoint = NativeIpcEndpoint.FromSocketPath(Path.Combine(directory, "peer.sock"));
         Nng.Check(Nng.nng_rep0_open(out var socket));
         var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseReply = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -128,7 +128,7 @@ public sealed class NngTransportTests
         string directory = Directory.CreateTempSubdirectory("kng-").FullName;
         try
         {
-            string endpoint = "ipc://" + Path.Combine(directory, "absent.sock");
+            string endpoint = NativeIpcEndpoint.FromSocketPath(Path.Combine(directory, "absent.sock"));
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));

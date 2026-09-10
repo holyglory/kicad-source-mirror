@@ -137,6 +137,23 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~PlatformUpdateFeedTests|FullyQualifiedName~SignedUpdateServerTests|FullyQualifiedName~DownloadServerTests|FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~SignedLinuxPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/platform-update-feeds"]
 retained_artifacts = [{ name = "platform-update-feeds", path = "automation/artifacts/platform-update-feeds", max_bytes = 16777216 }]
 
+[test.native-endpoint-contracts]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_TEST_NNG_LIBRARY = "/usr/lib/x86_64-linux-gnu/libnng.so" }
+
+[[test.native-endpoint-contracts.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.native-endpoint-contracts.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NativeIpcEndpointTests|FullyQualifiedName~NngTransportTests|FullyQualifiedName~NativeClientTests|FullyQualifiedName~InstanceRegistryTests", "--logger", "trx", "--results-directory", "automation/artifacts/native-endpoint-contracts"]
+retained_artifacts = [{ name = "native-endpoint-contracts", path = "automation/artifacts/native-endpoint-contracts", max_bytes = 16777216 }]
+
 [test.nng-binding-lifetime]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_TEST_NNG_LIBRARY = "/usr/lib/x86_64-linux-gnu/libnng.so" }

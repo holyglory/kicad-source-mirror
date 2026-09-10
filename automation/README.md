@@ -28,12 +28,18 @@ preliminary package, not full updater, Codex Desktop or engineering qualificatio
 
 The native run also exposed unavailable caption-button actionability and duplicate
 Objective-C callback class registrations across editor modules. Fixes in
-`ef3f0f1140` are under focused native checks on both architectures (`34521984823`):
+`ef3f0f1140` were checked in `34521984823`; its UI driver needed an explicit
+Accessibility enum conversion. Corrected source `c3b4b7ece7` passed all seven
+executed Apple Silicon checks in `34522786172`, including:
 bounded cancellable registration waiting, actual button visibility/hit-testing,
 and one runtime callback class with independent per-window callbacks. These fixes
 are not present in the published `969193`/`cd4934` pair. A fixed package pair and
 the real two-project journey remain required; the concrete gaps are tracked as
 `p90e20f6eae915471`, `p75f1ac017c017371`, and `p2e0d3607542a597b`.
+Intel checks remain separate. Full fixed-baseline Apple Silicon build
+`34523682888` at `2149b1d482` is running. That source also refreshes a background
+registration's internal selection snapshot after download; user activation and
+native document stale checks are not relaxed.
 
 ### Previous Apple Silicon update baseline
 
@@ -164,8 +170,14 @@ managed launch and dismissal of a real launch-error dialog. The test reader was
 corrected to decode UTF-8 protocol bytes instead of the Windows default code
 page. The payload is synthetic: actual installed KiCad/editor/update qualification
 remains open. A caller-working-directory refinement is under native check in
-`34519626858`. Windows caption Update and exact restart/recovery are not yet
-implemented.
+`34519626858`, which passed 91 native checks. Windows kernel identity and
+query-only pinned process-handle waiting passed native run `34520881553`.
+Source `2149b1d482` now implements the Windows handoff/verified replacement path,
+including durable old-version intent, cancellation before activation, selection
+rollback after definite launch failure and preservation of uncertain live
+replacements. Native preflight/cancellation verification is running separately
+(`34523685492`); real restart/recovery and Windows caption Update integration
+remain unqualified and incomplete.
 
 ### Mac installation and restart checkpoints
 

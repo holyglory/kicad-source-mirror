@@ -192,6 +192,17 @@ The compiled Windows `--restart-update` command now uses schema version 3 and
 stops depending on the original window's stdout after acknowledgment. Native
 caption Update integration and full dirty-document update qualification remain open.
 
+Windows inspection and explicit interrupted-update recovery are now implemented
+at source `cc3d606493`: `--inspect-update --installation ABSOLUTE_ROOT --operation
+UUID` reads existing journals and live native identities without mutation;
+`--recover-update --installation ABSOLUTE_ROOT --operation UUID --attempt UUID`
+requires the original editor to be confirmed gone and persisted proof that no
+replacement launch was reached. It reopens the exact verified previous version
+without changing the shared selection. Repeating an attempt does not launch
+another editor. Cancelled, legacy, live or ambiguous histories are not guessed.
+The expanded real Windows journey is under native verification in `34528431709`;
+this is not yet full dirty-document or caption-update qualification.
+
 ### Mac installation and restart checkpoints
 
 Helper `062db56c9231fdf3662b81a4bade9b34a3aec2d5` passed native registration,

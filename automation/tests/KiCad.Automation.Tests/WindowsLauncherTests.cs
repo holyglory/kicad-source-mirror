@@ -23,6 +23,8 @@ public sealed class WindowsLauncherTests
         CollectionAssert.AreEqual(arguments, launch.ArgumentList.ToArray());
         Assert.AreEqual(version.McpExecutable, launch.FileName); Assert.IsFalse(launch.UseShellExecute);
         Assert.AreEqual(Environment.CurrentDirectory, launch.WorkingDirectory);
+        Assert.AreEqual(Path.GetFullPath(version.NativeExecutable), version.NativeExecutable);
+        Assert.AreEqual(Path.GetFullPath(version.McpExecutable), version.McpExecutable);
         Assert.AreEqual(version.UpdateConfiguration, launch.Environment["KICAD_AUTOMATION_UPDATE_CONFIG"]);
         Assert.IsFalse(launch.Environment.ContainsKey("KICAD_AUTOMATION_NNG_LIBRARY"));
         Assert.AreEqual(version.NativeExecutable, WindowsLaunchCommand.StartInfo(version, "native", []).FileName);

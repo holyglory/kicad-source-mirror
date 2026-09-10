@@ -6,8 +6,8 @@ namespace KiCad.Automation.Distribution;
 
 public sealed record VerifiedWindowsVersion(string Root, string VersionDirectory, string ManifestSha256, string Commit)
 {
-    public string NativeExecutable => Path.Combine(VersionDirectory, "bin/kicad.exe");
-    public string McpExecutable => Path.Combine(VersionDirectory, "bin/kicad-mcp.exe");
+    public string NativeExecutable => Path.Combine(VersionDirectory, "bin", "kicad.exe");
+    public string McpExecutable => Path.Combine(VersionDirectory, "bin", "kicad-mcp.exe");
     public string UpdateConfiguration => Path.Combine(Path.GetDirectoryName(VersionDirectory)!, "update-config.json");
 }
 public sealed record RegisteredWindowsVersion(VerifiedWindowsVersion Version, string ExpectedSelectionId, bool Reused);

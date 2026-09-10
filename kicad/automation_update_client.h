@@ -8,7 +8,7 @@
 #include <wx/process.h>
 #include <wx/stopwatch.h>
 #include <wx/timer.h>
-#include <nlohmann/json.hpp>
+#include <json_common.h>
 #include <functional>
 #include <memory>
 #include <string>

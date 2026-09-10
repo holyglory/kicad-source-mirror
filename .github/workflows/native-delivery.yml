@@ -140,7 +140,7 @@ jobs:
         shell: pwsh
         run: |
           dotnet test KiCad.Automation.slnx --configuration Release `
-            --filter 'FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedWindowsCheckpointTests' `
+            --filter 'FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~WindowsJsonLinkTests' `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
           if ($LASTEXITCODE -ne 0) { throw 'Windows delivery preflight failed.' }
           $split = Test-Path 'tools/KiCad.Automation.Validation/HostedWindowsCheckpoint.cs'

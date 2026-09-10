@@ -813,8 +813,19 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.windows-delivery-checkpoint.check]]
 name = "contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-delivery-checkpoint"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~WindowsJsonLinkTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-delivery-checkpoint"]
 retained_artifacts = [{ name = "windows-delivery-checkpoint", path = "automation/artifacts/windows-delivery-checkpoint", max_bytes = 16777216 }]
+
+[[test.windows-delivery-checkpoint.check]]
+name = "native-link"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "qa_automation_update_client"]
+
+[[test.windows-delivery-checkpoint.check]]
+name = "native-helper"
+tier = "development"
+requires = ["native-link"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_automation_update_client$", "--output-on-failure", "--no-tests=error"]
 
 [test.native-update-metadata]
 timeout_seconds = 600

@@ -101,6 +101,7 @@ public sealed class WindowsVerifiedVersionsTests
                 CollectionAssert.AreEqual(secondEnvelope, await File.ReadAllBytesAsync(checkpoint, deadline.Token));
             }
             Assert.IsEmpty(Directory.GetDirectories(Path.Combine(root, "versions"), ".prepare-*"));
+            Assert.IsEmpty(Directory.GetDirectories(Path.Combine(root, "staging"), "windows-stage-*"));
             string receipt = Path.Combine(evidence, "result.json");
             await File.WriteAllTextAsync(receipt, JsonSerializer.Serialize(new
             {
@@ -111,6 +112,17 @@ public sealed class WindowsVerifiedVersionsTests
             }), deadline.Token);
             TestContext.AddResultFile(receipt);
         }
-        finally { await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(scratch); }
+        finally
+        {
+            // Version-store failures retain the native probe diagnostics outside
+            // the failed candidate. Carry those into the CI evidence as well.
+            foreach (string file in Directory.GetFiles(scratch, "*", SearchOption.AllDirectories)
+                .Where(path => Path.GetFileName(path) == "failure.json" || Path.GetExtension(path) == ".log"))
+            {
+                string target = Path.Combine(evidence, "retained", Path.GetRelativePath(scratch, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!); File.Copy(file, target, overwrite: false);
+            }
+            await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(scratch);
+        }
     }
 }

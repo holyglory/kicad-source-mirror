@@ -42,7 +42,7 @@ public static partial class WindowsVerifiedVersions
         {
             await WriteNew(Path.Combine(work, "publisher.json"), policy, token);
             foreach (string name in new[] { "versions", "state", "staging" }) Directory.CreateDirectory(Path.Combine(work, name));
-            await Prepare(Path.Combine(work, "versions", manifest.PayloadSha256), archive, signed, manifest, token);
+            await Prepare(Path.Combine(work, "versions", manifest.PayloadSha256), Path.Combine(work, "staging"), archive, signed, manifest, token);
             var selection = await WindowsVersionSelection.InitializeAsync(Path.Combine(work, "manager"), manifest.PayloadSha256, token);
             await WriteNew(Path.Combine(work, "store.json"), new
             { schemaVersion = 1, status = "verified_version_store", installationReady = false, nativeEditorRestarted = false }, token);
@@ -79,7 +79,7 @@ public static partial class WindowsVerifiedVersions
         bool published = false;
         try
         {
-            await Prepare(work, archive, signed, candidate, token);
+            await Prepare(work, Path.Combine(root, "staging"), archive, signed, candidate, token);
             using var selectionLock = Lock(Path.Combine(root, "manager/activation.lock"));
             using var checkpoint = Lock(Path.Combine(root, "state/check.lock"));
             if (WindowsVersionSelection.Inspect(Path.Combine(root, "manager")) != selected)
@@ -113,20 +113,26 @@ public static partial class WindowsVerifiedVersions
         return Describe(root, await ReadVersion(root, parts[0], await Policy(root, token), token));
     }
 
-    private static async Task Prepare(string version, string archive, byte[] envelope, VerifiedUpdateManifest manifest, CancellationToken token)
+    private static async Task Prepare(string version, string stagingRoot, string archive, byte[] envelope, VerifiedUpdateManifest manifest, CancellationToken token)
     {
         Absent(version); Directory.CreateDirectory(version);
         var artifact = manifest.ForInstallation("win-x64", "zip") ?? throw new InvalidDataException("Windows archive missing.");
-        var staged = await WindowsUpdateStager.StageAsync(manifest, new(archive, artifact, manifest.PayloadSha256), version, token);
+        // Native Windows launch paths must not accumulate temporary UUIDs below
+        // a 64-character version digest. Staging is a sibling on this volume.
+        var staged = await WindowsUpdateStager.StageAsync(manifest, new(archive, artifact, manifest.PayloadSha256), stagingRoot, token);
         string stage = Path.GetDirectoryName(staged.Directory)!;
-        string payload = Path.Combine(version, "payload");
-        Directory.Move(staged.Directory, payload);
-        File.Move(Path.Combine(stage, "staging.json"), Path.Combine(version, "staging.json"));
-        File.Delete(Path.Combine(stage, "verified.zip")); // Private verified duplicate; never the caller's archive.
-        Directory.Move(stage, Path.Combine(version, "diagnostics"));
-        await WriteBytes(Path.Combine(version, "installed-envelope.json"), envelope, token);
-        await WriteNew(Path.Combine(version, "version.json"), new WindowsVersionRegistration(1, manifest.PayloadSha256,
-            manifest.PublisherKeySha256, await WindowsPayloadFingerprint.ComputeAsync(payload, token)), token);
+        try
+        {
+            string payload = Path.Combine(version, "payload");
+            Directory.Move(staged.Directory, payload);
+            File.Move(Path.Combine(stage, "staging.json"), Path.Combine(version, "staging.json"));
+            File.Delete(Path.Combine(stage, "verified.zip")); // Private verified duplicate; never the caller's archive.
+            Directory.Move(stage, Path.Combine(version, "diagnostics"));
+            await WriteBytes(Path.Combine(version, "installed-envelope.json"), envelope, token);
+            await WriteNew(Path.Combine(version, "version.json"), new WindowsVersionRegistration(1, manifest.PayloadSha256,
+                manifest.PublisherKeySha256, await WindowsPayloadFingerprint.ComputeAsync(payload, token)), token);
+        }
+        finally { if (Directory.Exists(stage)) await RetainFailureAndRemove(stage, stagingRoot, CancellationToken.None); }
     }
 
     private static async Task<VerifiedUpdateManifest> ReadVersion(string root, string digest, WindowsPublisherPolicy policy, CancellationToken token)

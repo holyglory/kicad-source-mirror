@@ -22,6 +22,7 @@ public sealed class WindowsLauncherTests
         var launch = WindowsLaunchCommand.StartInfo(version, "mcp", arguments);
         CollectionAssert.AreEqual(arguments, launch.ArgumentList.ToArray());
         Assert.AreEqual(version.McpExecutable, launch.FileName); Assert.IsFalse(launch.UseShellExecute);
+        Assert.AreEqual(Environment.CurrentDirectory, launch.WorkingDirectory);
         Assert.AreEqual(version.UpdateConfiguration, launch.Environment["KICAD_AUTOMATION_UPDATE_CONFIG"]);
         Assert.IsFalse(launch.Environment.ContainsKey("KICAD_AUTOMATION_NNG_LIBRARY"));
         Assert.AreEqual(version.NativeExecutable, WindowsLaunchCommand.StartInfo(version, "native", []).FileName);
@@ -87,6 +88,9 @@ public sealed class WindowsLauncherTests
             }
             await File.WriteAllTextAsync(metadata, record, deadline.Token);
             Assert.AreEqual(17, (await Invoke(Path.Combine(root, "kicad-mcp.exe"), ["recovered"], root, deadline.Token)).ExitCode);
+            string caller = Directory.CreateDirectory(Path.Combine(scratch, "project working directory")).FullName;
+            Assert.AreEqual(17, (await Invoke(Path.Combine(root, "kicad-mcp.exe"), ["relative.kicad_pro"], caller, deadline.Token)).ExitCode);
+            Assert.IsTrue(File.Exists(Path.Combine(caller, "bootstrap-probe.json")), "A launcher must preserve the caller's working directory for relative project paths.");
             await File.WriteAllTextAsync(metadata, "{}", deadline.Token);
             using (var failedGui = Process.Start(new ProcessStartInfo(Path.Combine(root, "kicad.exe")) { UseShellExecute = false, WorkingDirectory = root })!)
             {

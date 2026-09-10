@@ -126,7 +126,7 @@ static int Launch()
     startup.hStdError = GetStdHandle( STD_ERROR_HANDLE );
 #endif
     if( !CreateProcessW( helper.c_str(), command.data(), nullptr, nullptr, TRUE, flags,
-                        nullptr, root.c_str(), &startup, &child ) )
+                        nullptr, nullptr, &startup, &child ) )
         throw std::runtime_error( "Cannot start the verified installation helper" );
     CloseHandle( child.hThread );
     DWORD wait = WaitForSingleObject( child.hProcess, INFINITE ), result = 1;

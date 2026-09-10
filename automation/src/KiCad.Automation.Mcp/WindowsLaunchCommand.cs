@@ -63,7 +63,7 @@ public static class WindowsLaunchCommand
     {
         if (target is not ("native" or "mcp")) throw new ArgumentException("Unknown Windows launch target.");
         var start = new ProcessStartInfo(target == "native" ? version.NativeExecutable : version.McpExecutable)
-        { UseShellExecute = false, WorkingDirectory = version.Root };
+        { UseShellExecute = false, WorkingDirectory = Environment.CurrentDirectory };
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
         foreach (string key in new[] { "KICAD_AUTOMATION_NNG_LIBRARY", "KICAD_RUN_FROM_BUILD_DIR", "APPDIR" }) start.Environment.Remove(key);
         start.Environment["KICAD_AUTOMATION_UPDATE_HELPER"] = version.McpExecutable;

@@ -799,6 +799,29 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~ValidationEvidenceTests", "--logger", "trx", "--results-directory", "automation/artifacts/hosted-preview-import"]
 retained_artifacts = [{ name = "hosted-preview-import", path = "automation/artifacts/hosted-preview-import", max_bytes = 16777216 }]
 
+[test.signed-preview-publication]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.signed-preview-publication.check]]
+name = "restore"
+tier = "development"
+role = "preflight"
+invalidates = ["build", "contracts"]
+command = ["dotnet", "restore", "automation/KiCad.Automation.slnx", "--locked-mode"]
+
+[[test.signed-preview-publication.check]]
+name = "build"
+tier = "development"
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.signed-preview-publication.check]]
+name = "contracts"
+tier = "development"
+requires = ["build"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~SignedLinuxPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/signed-preview-publication"]
+retained_artifacts = [{ name = "signed-preview-publication", path = "automation/artifacts/signed-preview-publication", max_bytes = 16777216 }]
+
 [test.windows-delivery-checkpoint]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

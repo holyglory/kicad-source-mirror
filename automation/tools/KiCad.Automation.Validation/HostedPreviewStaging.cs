@@ -64,6 +64,28 @@ public static partial class HostedPreviewStaging
         EvidenceFile app = SingleArtifact(prefix + suffix), source = SingleArtifact(prefix + "source.tar.gz");
         foreach (EvidenceFile file in receipt.Artifacts)
             await VerifyFile(Path.Combine(candidate, "packages", file.Path), file.Bytes, file.Sha256, token);
+        var incoming = new[] { (app, request.Platform), (source, "source") }.Select(pair =>
+            new PublicPreviewArtifact(new DownloadArtifact(pair.Item1.Path, pair.Item2, request.Version,
+                request.Commit, source.Sha256, pair.Item1.Bytes, pair.Item1.Sha256),
+                Path.Combine(candidate, "packages", pair.Item1.Path))).ToArray();
+        var staged = await StagePublicAsync(previous, output, incoming, null, token);
+        return new("staged", output, request.Commit, request.Platform, request.RunId, staged.Count, staged.Hash);
+
+        EvidenceFile SingleArtifact(string name)
+        {
+            EvidenceFile[] matches = receipt.Artifacts.Where(x => x is not null && x.Path == name).ToArray();
+            if (matches.Length != 1) throw new InvalidDataException("Missing or ambiguous native/source archive: " + name);
+            return matches[0];
+        }
+    }
+
+    internal sealed record PublicPreviewArtifact(DownloadArtifact Artifact, string Source);
+    internal sealed record PublicPreviewFeed(string Channel, byte[] Envelope, string PreviousHash);
+
+    internal static async Task<(int Count, string Hash)> StagePublicAsync(string previous, string output,
+        IReadOnlyList<PublicPreviewArtifact> incoming, PublicPreviewFeed? replacement, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
         DownloadManifest old = JsonSerializer.Deserialize<DownloadManifest>(await Metadata(Path.Combine(previous, "downloads.json"), token), CatalogueJson)
             ?? throw new InvalidDataException("Missing previous public catalogue.");
         if (old.SchemaVersion != 1 || old.Artifacts is null || old.Artifacts.Count == 0)
@@ -80,20 +102,25 @@ public static partial class HostedPreviewStaging
             await VerifyFile(Path.Combine(previous, item.FileName), item.Bytes, item.Sha256, token);
             copies.Add((Path.Combine(previous, item.FileName), item.FileName, item.Bytes, item.Sha256));
         }
-        foreach (var (file, target) in new[] { (app, request.Platform), (source, "source") })
+        foreach (var addition in incoming)
         {
-            var item = new DownloadArtifact(file.Path, target, request.Version, request.Commit, source.Sha256, file.Bytes, file.Sha256);
-            if (merged.TryGetValue(file.Path, out var existing))
+            var item = addition.Artifact;
+            if (item is null || item.FileName is null || !ArtifactPattern().IsMatch(item.FileName)
+                || !HashPattern().IsMatch(item.SourceSha256 ?? ""))
+                throw new InvalidDataException("Invalid incoming public artifact.");
+            await VerifyFile(addition.Source, item.Bytes, item.Sha256, token);
+            if (merged.TryGetValue(item.FileName, out var existing))
             {
-                if (existing != item) throw new InvalidDataException("An existing download has a conflicting identity: " + file.Path);
+                if (existing != item) throw new InvalidDataException("An existing download has a conflicting identity: " + item.FileName);
             }
             else
             {
-                merged.Add(file.Path, item);
-                copies.Add((Path.Combine(candidate, "packages", file.Path), file.Path, file.Bytes, file.Sha256));
+                merged.Add(item.FileName, item);
+                copies.Add((addition.Source, item.FileName, item.Bytes, item.Sha256));
             }
         }
         string updates = Path.Combine(previous, "updates");
+        bool previousFeedFound = replacement is null;
         if (Directory.Exists(updates))
         {
             _ = AbsoluteDirectory(updates);
@@ -101,10 +128,18 @@ public static partial class HostedPreviewStaging
             {
                 if (!ChannelPattern().IsMatch(Path.GetFileName(path))) throw new InvalidDataException("Unexpected update-feed name.");
                 byte[] bytes = await Metadata(path, token);
+                if (replacement is not null && Path.GetFileName(path) == replacement.Channel + ".json")
+                {
+                    if (Convert.ToHexStringLower(SHA256.HashData(bytes)) != replacement.PreviousHash)
+                        throw new InvalidDataException("The previous feed changed during staging.");
+                    previousFeedFound = true;
+                    continue;
+                }
                 copies.Add((path, "updates/" + Path.GetFileName(path), bytes.Length,
                     Convert.ToHexStringLower(SHA256.HashData(bytes))));
             }
         }
+        if (!previousFeedFound) throw new InvalidDataException("The previous feed disappeared during staging.");
         token.ThrowIfCancellationRequested();
         // Inputs were validated before creating output. No caller-owned tree is
         // deleted on failure; without downloads.json partial output cannot serve.
@@ -119,18 +154,17 @@ public static partial class HostedPreviewStaging
                 await from.CopyToAsync(to, token);
             await VerifyFile(destination, copy.Bytes, copy.Hash, token);
         }
+        if (replacement is not null)
+        {
+            string directory = Directory.CreateDirectory(Path.Combine(output, "updates")).FullName;
+            await using var feed = new FileStream(Path.Combine(directory, replacement.Channel + ".json"),
+                FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            await feed.WriteAsync(replacement.Envelope, token);
+        }
         byte[] catalogue = JsonSerializer.SerializeToUtf8Bytes(new DownloadManifest(1, merged.Values.ToArray()), CatalogueJson);
         await using (var stream = new FileStream(Path.Combine(output, "downloads.json"), FileMode.CreateNew, FileAccess.Write, FileShare.None))
             await stream.WriteAsync(catalogue, token);
-        return new("staged", output, request.Commit, request.Platform, request.RunId, merged.Count,
-            Convert.ToHexStringLower(SHA256.HashData(catalogue)));
-
-        EvidenceFile SingleArtifact(string name)
-        {
-            EvidenceFile[] matches = receipt.Artifacts.Where(x => x is not null && x.Path == name).ToArray();
-            if (matches.Length != 1) throw new InvalidDataException("Missing or ambiguous native/source archive: " + name);
-            return matches[0];
-        }
+        return (merged.Count, Convert.ToHexStringLower(SHA256.HashData(catalogue)));
     }
 
     private static async Task VerifyFile(string path, long bytes, string hash, CancellationToken token)
@@ -143,7 +177,7 @@ public static partial class HostedPreviewStaging
         if (actual != hash) throw new InvalidDataException("Artifact checksum failed: " + Path.GetFileName(path));
     }
 
-    private static async Task<byte[]> Metadata(string path, CancellationToken token)
+    internal static async Task<byte[]> Metadata(string path, CancellationToken token)
     {
         var info = new FileInfo(path);
         if (!info.Exists || info.LinkTarget is not null || info.Length is <= 0 or > 4 * 1024 * 1024)
@@ -151,14 +185,14 @@ public static partial class HostedPreviewStaging
         return await File.ReadAllBytesAsync(path, token);
     }
 
-    private static string AbsoluteDirectory(string path)
+    internal static string AbsoluteDirectory(string path)
     {
         if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("Input directories must be absolute.");
         var info = new DirectoryInfo(path);
         if (!info.Exists || info.LinkTarget is not null) throw new ArgumentException("Use an existing ordinary input directory.");
         return Path.TrimEndingDirectorySeparator(info.FullName);
     }
-    private static bool Inside(string path, string root) => path == root || path.StartsWith(root + Path.DirectorySeparatorChar,
+    internal static bool Inside(string path, string root) => path == root || path.StartsWith(root + Path.DirectorySeparatorChar,
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
     [GeneratedRegex(@"\A[a-zA-Z0-9][a-zA-Z0-9._-]*\z")] private static partial Regex VersionPattern();
     [GeneratedRegex(@"\A[a-zA-Z0-9][a-zA-Z0-9._-]*\.(tar\.gz|zip|dmg|pkg|deb|sha256|sig)\z")] private static partial Regex ArtifactPattern();

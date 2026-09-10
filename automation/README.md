@@ -45,8 +45,8 @@ This build includes the Mac staging, installation and restart code described
 below. Unpacking alone does not configure managed updates: the verified
 `--install-package` bootstrap remains separate. The full dirty-document caption
 update and actual Codex Desktop journeys are not yet qualified. A distinct
-candidate at `cd4934ad7b` is building for both Mac architectures in run
-`34507122230`; it is not a published or verified replacement yet.
+candidate at `cd4934ad7b` is now published for Apple Silicon above; the Intel
+job in `34507122230` remains in progress.
 
 ## Latest preliminary Linux update — September 10, 2026
 
@@ -138,9 +138,8 @@ Source `d0441539dd` adds authenticated retained-version storage and selection:
 create a new store, register without switching, verify retained payloads, identify
 an old executable independently of the current selection, and bind activation
 or rollback to exact selection/operation identities. Rollback retains the failed
-candidate and preserves the accepted network checkpoint. Native store tests are
-running separately; compilation alone does not qualify these operations. This
-store and configuration checks passed natively at `70ad68d505` in run
+candidate and preserves the accepted network checkpoint. Store and configuration
+checks passed natively at `70ad68d505` in run
 `34515993302`. These use a synthetic native payload and do not qualify an
 installed KiCad update.
 

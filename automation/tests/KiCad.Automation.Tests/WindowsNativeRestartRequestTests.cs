@@ -63,7 +63,8 @@ public sealed class WindowsNativeRestartRequestTests
                     WindowsUpdateHandoff.Validate(request);
                     var expectedIdentity = WindowsProcessIdentity.Read(process.Id);
                     Assert.AreEqual(expectedIdentity, request.OldProcess);
-                    Assert.AreEqual(selection, request.ExpectedSelectionId);
+                    string actualSelection = request.ExpectedSelectionId;
+                    Assert.AreEqual(selection, actualSelection);
                     Assert.AreEqual(operation, request.OperationId); Assert.AreEqual(instance, request.InstanceId);
                     Assert.AreEqual(projectPath, request.ProjectPath); Assert.AreEqual(installation, request.InstallationRoot);
                     Assert.IsTrue(request.SoftwareRendering);

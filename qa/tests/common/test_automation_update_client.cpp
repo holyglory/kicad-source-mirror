@@ -256,10 +256,10 @@ BOOST_AUTO_TEST_CASE( RestartRequestCanCancelAndRetryWithoutLosingCandidate )
 bool initTests() { return true; }
 int main( int argc, char** argv )
 {
+    executable = wxFileName( wxString::FromUTF8( argv[0] ) ).GetAbsolutePath().ToStdString();
     if( argc > 1 && ( std::string( argv[1] ) == "--check-update" || std::string( argv[1] ) == "--prepare-update"
                       || std::string( argv[1] ) == "--restart-update" ) )
         return fixture( argc, argv );
-    executable = wxFileName( wxString::FromUTF8( argv[0] ) ).GetAbsolutePath().ToStdString();
     wxApp::SetInstance( new wxApp );
     if( !wxInitialize( argc, argv ) ) return 2;
     wxLog::SetActiveTarget( new wxLogStderr );

@@ -30,14 +30,14 @@ The native run also exposed unavailable caption-button actionability and duplica
 Objective-C callback class registrations across editor modules. Fixes in
 `ef3f0f1140` were checked in `34521984823`; its UI driver needed an explicit
 Accessibility enum conversion. Corrected source `c3b4b7ece7` passed all seven
-executed Apple Silicon checks in `34522786172`, including:
+executed checks on each Mac architecture in `34522786172`, including:
 bounded cancellable registration waiting, actual button visibility/hit-testing,
 and one runtime callback class with independent per-window callbacks. These fixes
 are not present in the published `969193`/`cd4934` pair. A fixed package pair and
 the real two-project journey remain required; the concrete gaps are tracked as
 `p90e20f6eae915471`, `p75f1ac017c017371`, and `p2e0d3607542a597b`.
-Intel checks remain separate. Full fixed-baseline Apple Silicon build
-`34523682888` at `2149b1d482` is running. That source also refreshes a background
+Full fixed-baseline Apple Silicon build `34523682888` and Intel build
+`34524407792` at `2149b1d482` are running. That source also refreshes a background
 registration's internal selection snapshot after download; user activation and
 native document stale checks are not relaxed.
 
@@ -175,9 +175,11 @@ query-only pinned process-handle waiting passed native run `34520881553`.
 Source `2149b1d482` now implements the Windows handoff/verified replacement path,
 including durable old-version intent, cancellation before activation, selection
 rollback after definite launch failure and preservation of uncertain live
-replacements. Native preflight/cancellation verification is running separately
-(`34523685492`); real restart/recovery and Windows caption Update integration
-remain unqualified and incomplete.
+replacements. Native preflight/cancellation verification passed in `34523685492`
+using an explicitly synthetic payload and a real Windows process. It verified
+persisted intent before acknowledgment, no original-process signal, unchanged
+selection on cancellation, and no duplicate handoff execution. Real replacement/
+recovery and Windows caption Update integration remain unqualified and incomplete.
 
 ### Mac installation and restart checkpoints
 

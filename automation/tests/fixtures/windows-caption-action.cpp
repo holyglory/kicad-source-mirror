@@ -13,6 +13,19 @@ using json = nlohmann::json;
 struct FRAME { HWND window = nullptr; int index = 0, clicks = 0, escapes = 0;
     WPARAM systemCommand = 0, command = 0, menuSelection = 0; std::function<void( bool, bool )> set; };
 std::array<FRAME, 2> frames;
+json keyMessages = json::array();
+
+LRESULT CALLBACK ObserveKeys( int code, WPARAM removed, LPARAM data )
+{
+    if( code >= 0 && removed == PM_REMOVE && keyMessages.size() < 128 )
+    {
+        auto& message = *reinterpret_cast<MSG*>( data );
+        if( message.message == WM_KEYDOWN || message.message == WM_KEYUP
+            || message.message == WM_SYSKEYDOWN || message.message == WM_SYSKEYUP || message.message == WM_SYSCHAR )
+            keyMessages.push_back( { { "message", message.message }, { "key", message.wParam }, { "flags", message.lParam } } );
+    }
+    return CallNextHookEx( nullptr, code, removed, data );
+}
 
 std::string Utf8( const std::wstring& value )
 {
@@ -38,7 +51,7 @@ struct ACCESS
 
 json Snapshot()
 {
-    json result = { { "status", "ok" }, { "frames", json::array() } };
+    json result = { { "status", "ok" }, { "frames", json::array() }, { "keys", keyMessages } };
     for( auto& frame : frames )
     {
         json item = { { "index", frame.index }, { "clicks", frame.clicks }, { "escapes", frame.escapes }, { "alive", frame.window != nullptr } };
@@ -199,6 +212,8 @@ int main()
         // bare thread messages are not dispatched there.
         HWND control = CreateWindowW( type.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, type.hInstance, nullptr );
         if( !control ) throw std::runtime_error( "Cannot create the test-only command receiver." );
+        HHOOK keyHook = SetWindowsHookExW( WH_GETMESSAGE, ObserveKeys, nullptr, GetCurrentThreadId() );
+        if( !keyHook ) throw std::runtime_error( "Cannot observe input on the fixture's own thread." );
         auto initial = Snapshot();
         std::thread input( [control]
         {
@@ -216,6 +231,7 @@ int main()
         while( GetMessageW( &message, nullptr, 0, 0 ) > 0 )
         { TranslateMessage( &message ); DispatchMessageW( &message ); }
         input.join();
+        UnhookWindowsHookEx( keyHook );
         DestroyWindow( control );
         for( auto& frame : frames ) if( frame.window ) DestroyWindow( frame.window );
         CoUninitialize(); return 0;

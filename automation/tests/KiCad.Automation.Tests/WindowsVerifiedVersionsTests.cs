@@ -85,6 +85,21 @@ public sealed class WindowsVerifiedVersionsTests
             await Assert.ThrowsAsync<OperationCanceledException>(() => WindowsVerifiedVersions.RegisterAsync(root, before.SelectionId, path,
                 UpdateManifestCodec.Sign(Release(3), key), new CancellationToken(true)));
             Assert.AreEqual(before, await WindowsVerifiedVersions.InspectCurrentAsync(root, deadline.Token));
+            using (var waitZip = WindowsUpdateStagerTests.Zip(executable, "wait"))
+            {
+                byte[] waitBytes = waitZip.ToArray(); string waitingPath = Path.Combine(scratch, "waiting.zip");
+                await File.WriteAllBytesAsync(waitingPath, waitBytes, deadline.Token);
+                var waitingArtifact = artifact with { FileName = "waiting.zip", Bytes = waitBytes.LongLength,
+                    Sha256 = Convert.ToHexStringLower(SHA256.HashData(waitBytes)) };
+                using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await Assert.ThrowsAsync<OperationCanceledException>(() => WindowsVerifiedVersions.RegisterAsync(root, before.SelectionId,
+                    waitingPath, UpdateManifestCodec.Sign(Release(3) with { Artifacts = [waitingArtifact] }, key), cancel.Token));
+                Assert.AreEqual(before, await WindowsVerifiedVersions.InspectCurrentAsync(root, deadline.Token));
+                using var failure = JsonDocument.Parse(await File.ReadAllTextAsync(Directory.GetFiles(Path.Combine(root, "staging"),
+                    "failure.json", SearchOption.AllDirectories).Single(), deadline.Token));
+                Assert.AreEqual("cancelled", failure.RootElement.GetProperty("status").GetString());
+                CollectionAssert.AreEqual(secondEnvelope, await File.ReadAllBytesAsync(checkpoint, deadline.Token));
+            }
             Assert.IsEmpty(Directory.GetDirectories(Path.Combine(root, "versions"), ".prepare-*"));
             string receipt = Path.Combine(evidence, "result.json");
             await File.WriteAllTextAsync(receipt, JsonSerializer.Serialize(new

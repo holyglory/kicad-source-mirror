@@ -288,7 +288,8 @@ target_link_libraries( qa_document_change_journal PRIVATE Boost::headers Boost::
 kicad_add_boost_test( qa_document_change_journal qa_document_change_journal )
 
 add_executable( qa_automation_update_client test_automation_update_client.cpp
-    ${CMAKE_SOURCE_DIR}/kicad/automation_update_client.cpp )
+    ${CMAKE_SOURCE_DIR}/kicad/automation_update_client.cpp
+    ${CMAKE_SOURCE_DIR}/kicad/automation_update_windows.cpp )
 target_link_libraries( qa_automation_update_client PRIVATE Boost::headers Boost::unit_test_framework
     kicommon nlohmann_json ${wxWidgets_LIBRARIES} )
 if( UNIX AND NOT APPLE )

@@ -2,6 +2,9 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "automation_update_client.h"
+#ifdef __WXMSW__
+#include "automation_update_windows.h"
+#endif
 #include <wx/filename.h>
 #include <wx/stream.h>
 #include <wx/utils.h>
@@ -95,13 +98,13 @@ void AUTOMATION_UPDATE_CLIENT::Check()
 bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std::string& aInstanceId,
                                        bool aSoftwareRendering )
 {
-#if defined( __linux__ ) || defined( __WXMAC__ )
+#if defined( __linux__ ) || defined( __WXMAC__ ) || defined( __WXMSW__ )
     if( m_process || !m_candidate.is_object() )
         return false;
     try
     {
         m_invalid = false;
-        std::ifstream file( m_configuration.ToStdString() );
+        std::ifstream file( std::filesystem::u8path( m_configuration.ToUTF8().data() ) );
         nlohmann::json configuration;
         file >> configuration;
         std::string root = configuration.at( "installationRoot" ).get<std::string>();
@@ -111,6 +114,11 @@ bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std:
             throw std::runtime_error( "Invalid installation or project path." );
         const auto operation = boost::uuids::to_string( boost::uuids::random_generator()() );
         const auto instance = aInstanceId.empty() ? boost::uuids::to_string( boost::uuids::random_generator()() ) : aInstanceId;
+#ifdef __WXMSW__
+        nlohmann::json request = AUTOMATION_WINDOWS_UPDATE::RestartRequest( root,
+                aProjectPath.ToUTF8().data(), m_candidate.at( "manifestSha256" ).get<std::string>(),
+                operation, instance, aSoftwareRendering );
+#else
         // Another live project may have selected this same candidate already.
         // Snapshot the current selection for this click, not for the earlier
         // background download. The helper still rejects changes after this point.
@@ -146,14 +154,15 @@ bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std:
 #endif
         wxString socket = wxStandardPaths::Get().GetTempDir() + wxFILE_SEP_PATH
                           + wxString::FromUTF8( "kcu-" + operation.substr( 0, 12 ) + ".sock" );
-        m_restartConfiguration = wxString::FromUTF8( root ) + wxFILE_SEP_PATH + "state"
-                                 + wxFILE_SEP_PATH + wxString::FromUTF8( "restart-" + operation + ".json" );
         nlohmann::json request = { { "schemaVersion", schemaVersion }, { "request", {
             { "installationRoot", root }, { "expectedTarget", selection },
             { "manifestSha256", m_candidate.at( "manifestSha256" ) }, { "operationId", operation },
             { "oldProcess", identity },
             { "projectPath", aProjectPath.ToStdString() }, { "instanceId", instance },
             { "socketPath", socket.ToStdString() }, { "softwareRendering", aSoftwareRendering } } } };
+#endif
+        m_restartConfiguration = wxString::FromUTF8( root ) + wxFILE_SEP_PATH + "state"
+                                 + wxFILE_SEP_PATH + wxString::FromUTF8( "restart-" + operation + ".json" );
         wxFFile output( m_restartConfiguration, "wx" );
         if( !output.IsOpened() || !output.Write( wxString::FromUTF8( request.dump() ) ) || !output.Flush() )
             throw std::runtime_error( "Cannot write the update restart request." );

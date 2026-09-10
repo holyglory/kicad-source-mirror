@@ -428,6 +428,19 @@ timeout_seconds = 1200
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
 
 [[test.native-updater-objects.check]]
+name = "managed-build"
+tier = "development"
+role = "preflight"
+invalidates = ["managed-contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.native-updater-objects.check]]
+name = "managed-contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsRestartCommandTests|FullyQualifiedName~WindowsNativeRestartRequestTests", "--logger", "trx", "--results-directory", "automation/artifacts/native-restart-contracts"]
+retained_artifacts = [{ name = "native-restart-contracts", path = "automation/artifacts/native-restart-contracts", max_bytes = 16777216 }]
+
+[[test.native-updater-objects.check]]
 name = "configure"
 tier = "development"
 role = "preflight"

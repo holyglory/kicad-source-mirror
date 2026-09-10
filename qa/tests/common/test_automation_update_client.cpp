@@ -68,7 +68,7 @@ int fixture( int argc, char** argv )
     if( mode == "missing-id" ) message.erase( "manifestSha256" );
     if( prepare )
     {
-        message["directory"] = "/synthetic/registered/payload";
+        message["directory"] = std::filesystem::path( executable ).parent_path().string();
         message["expectedTarget"] = "selections/fixture";
     }
     std::string line = message.dump() + "\n";
@@ -93,7 +93,11 @@ struct Scenario
         file << mode;
         file.close();
         client = std::make_unique<AUTOMATION_UPDATE_CLIENT>( wxString::FromUTF8( executable ), configuration,
-                    [this]( const auto& message ) { messages.push_back( message ); } );
+                    [this]( const auto& message )
+                    {
+                        messages.push_back( message );
+                        BOOST_TEST_MESSAGE( "Fixture updater response: " << message.dump() );
+                    } );
     }
     ~Scenario() { client.reset(); wxRemoveFile( configuration ); }
     size_t Count( const std::string& status ) const
@@ -127,6 +131,8 @@ BOOST_AUTO_TEST_CASE( StartsPreparesAndDoesNotRepeatRegisteredCandidate )
 {
     for( const std::string mode : { "success", "chunked" } )
     {
+        BOOST_TEST_CONTEXT( "helper output mode=" << mode )
+        {
         Scenario scenario( mode );
         scenario.client->Start( 3600000 );
         awaitCondition( [&] { return scenario.client->Candidate().is_object() && !scenario.client->IsRunning(); } );
@@ -136,6 +142,7 @@ BOOST_AUTO_TEST_CASE( StartsPreparesAndDoesNotRepeatRegisteredCandidate )
         BOOST_CHECK_EQUAL( scenario.Count( "helper_started" ), 3 );
         BOOST_CHECK_EQUAL( scenario.Count( "candidate_registered" ), 1 );
         BOOST_CHECK_EQUAL( scenario.Count( "failed" ), 0 );
+        }
     }
 }
 
@@ -186,7 +193,19 @@ BOOST_AUTO_TEST_CASE( RestartRequestCanCancelAndRetryWithoutLosingCandidate )
     wxRemoveFile( root );
     std::filesystem::create_directories( root.ToStdString() + "/state" );
     std::filesystem::create_directories( root.ToStdString() + "/manager" );
-    std::filesystem::create_symlink( "selections/fixture", root.ToStdString() + "/manager/current" );
+    auto select = [&]( bool refreshed )
+    {
+#ifdef __WXMSW__
+        std::ofstream output( root.ToStdString() + "/manager/current.json" );
+        output << nlohmann::json( { { "schemaVersion", 1 },
+            { "selectionId", refreshed ? "33333333-3333-4333-8333-333333333333" : "22222222-2222-4222-8222-222222222222" },
+            { "versionTarget", "versions/" + std::string( 64, 'b' ) + "/payload" } } ).dump();
+#else
+        std::filesystem::remove( root.ToStdString() + "/manager/current" );
+        std::filesystem::create_symlink( refreshed ? "selections/refreshed" : "selections/fixture", root.ToStdString() + "/manager/current" );
+#endif
+    };
+    select( false );
     struct Cleanup { std::string path; ~Cleanup() { std::filesystem::remove_all( path ); } } cleanup{ root.ToStdString() };
     std::string project = root.ToStdString() + "/fixture.kicad_pro";
     { std::ofstream output( project ); output << "{}"; }
@@ -203,14 +222,20 @@ BOOST_AUTO_TEST_CASE( RestartRequestCanCancelAndRetryWithoutLosingCandidate )
     auto request = nlohmann::json::parse( requestFile ).at( "request" );
     BOOST_CHECK_EQUAL( request.at( "projectPath" ).get<std::string>(), project );
     BOOST_CHECK_EQUAL( request.at( "oldProcess" ).at( "processId" ).get<long>(), wxGetProcessId() );
+#ifdef __WXMSW__
+    BOOST_CHECK( request.at( "oldProcess" ).at( "creationFileTime" ).is_string() );
+    BOOST_CHECK( std::stoull( request.at( "oldProcess" ).at( "creationFileTime" ).get<std::string>() ) > 0 );
+#elif defined( __WXMAC__ )
+    BOOST_CHECK( request.at( "oldProcess" ).at( "startSeconds" ).get<uint64_t>() > 0 );
+#else
     BOOST_CHECK( request.at( "oldProcess" ).at( "startTicks" ).get<uint64_t>() > 0 );
+#endif
     BOOST_CHECK_EQUAL( request.at( "instanceId" ).get<std::string>(), "c9adf9b5-3070-43e4-90c1-c701123c6804" );
     scenario.client->Cancel();
     awaitCondition( [&] { return !scenario.client->IsRunning(); } );
     BOOST_CHECK_EQUAL( scenario.Count( "cancelled" ), 1 );
     BOOST_CHECK( scenario.client->Candidate().is_object() );
-    std::filesystem::remove( root.ToStdString() + "/manager/current" );
-    std::filesystem::create_symlink( "selections/refreshed", root.ToStdString() + "/manager/current" );
+    select( true );
     { std::ofstream mode( root.ToStdString() + "/restart-mode" ); mode << "reject"; }
     BOOST_REQUIRE( scenario.client->Restart( wxString::FromUTF8( project ), "c9adf9b5-3070-43e4-90c1-c701123c6804", true ) );
     awaitCondition( [&] { return scenario.Count( "failed" ) > 0 && !scenario.client->IsRunning(); } );
@@ -219,7 +244,11 @@ BOOST_AUTO_TEST_CASE( RestartRequestCanCancelAndRetryWithoutLosingCandidate )
     for( const auto& entry : std::filesystem::directory_iterator( root.ToStdString() + "/state" ) )
     {
         std::ifstream file( entry.path() );
+#ifdef __WXMSW__
+        if( nlohmann::json::parse( file ).at( "request" ).at( "expectedSelectionId" ) == "33333333-3333-4333-8333-333333333333" ) refreshed = true;
+#else
         if( nlohmann::json::parse( file ).at( "request" ).at( "expectedTarget" ) == "selections/refreshed" ) refreshed = true;
+#endif
     }
     BOOST_CHECK( refreshed );
 }

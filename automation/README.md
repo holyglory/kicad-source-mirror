@@ -312,6 +312,7 @@ Run it on a Mac against explicitly selected, frozen release inputs:
 ```sh
 KICAD_MAC_UI_BASELINE_ARCHIVE=/absolute/prior-mac-package.tar.gz \
 KICAD_MAC_UI_BASELINE_ENVELOPE=/absolute/prior-installed-envelope.json \
+KICAD_MAC_UI_BASELINE_COMMIT=EXACT_BASELINE_COMMIT \
 KICAD_MAC_UI_PUBLISHER_SPKI=/absolute/trusted-preview-publisher.spki \
 KICAD_MAC_UI_ORIGIN=https://kicad.vr.ae/platforms/osx-arm64/ \
 KICAD_MAC_UI_EXPECTED_COMMIT=EXACT_CANDIDATE_COMMIT \
@@ -324,8 +325,20 @@ Use `platforms/osx-x64/` on Intel. The baseline must already contain native Mac
 Update-button integration; the older initial public Mac packages do not. The
 candidate must be a different actual source build, and its signed feed must stay
 unchanged during the journey. Missing inputs or unavailable native UI access are
-not successful qualification. This integrated journey is prepared but not yet
-executed at this checkpoint; `p4d6c4ee22fd8078d` remains open.
+not successful qualification. The first Apple Silicon pair failed the second
+project update; the concurrency and native-caption fixes have focused native
+evidence but still require a complete fixed-pair journey. `p4d6c4ee22fd8078d`
+remains open.
+
+GitHub's manually dispatched `integrated-update` fixture accepts
+`mac_update_baseline_commit` and `mac_update_candidate_commit`. Use `target=mac`
+for both architectures, or select either architecture explicitly. The signed
+baseline envelopes must already be retained in trusted source as
+`automation/distribution/releases/baseline-osx-ARCH-COMMIT.signed.json`, where
+`ARCH` is `arm64` or `x64`. The fixture verifies the declared baseline commit,
+then the candidate commit and signed feed on that native architecture. Missing
+envelopes fail before an editor starts. Its `source_commit` identifies the test
+harness; it does not replace helpers inside either signed application package.
 
 ## Current source boundary
 

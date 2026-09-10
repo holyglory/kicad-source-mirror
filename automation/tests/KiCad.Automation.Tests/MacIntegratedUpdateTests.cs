@@ -32,11 +32,14 @@ public sealed class MacIntegratedUpdateTests
             throw new AssertFailedException("Supply an explicit baseline archive or opt into its authenticated download.");
         string baselineEnvelopePath = Required("KICAD_MAC_UI_BASELINE_ENVELOPE");
         string keyPath = Required("KICAD_MAC_UI_PUBLISHER_SPKI");
+        string expectedBaselineCommit = Required("KICAD_MAC_UI_BASELINE_COMMIT");
         string expectedCommit = Required("KICAD_MAC_UI_EXPECTED_COMMIT");
+        MacUpdatePair.Validate(expectedBaselineCommit, expectedCommit);
         var origin = new Uri(Required("KICAD_MAC_UI_ORIGIN"));
         string platform = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "osx-arm64" : "osx-x64";
         byte[] key = await File.ReadAllBytesAsync(keyPath), baselineEnvelope = await File.ReadAllBytesAsync(baselineEnvelopePath);
         var baseline = UpdateManifestCodec.Verify(baselineEnvelope, key, "preview");
+        Assert.AreEqual(expectedBaselineCommit, baseline.Release.Commit);
         using var downloads = new UpdateDownloader(origin);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(20));
         byte[] candidateEnvelope = await downloads.FetchManifestAsync("preview", deadline.Token);

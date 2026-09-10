@@ -103,10 +103,36 @@ dependency after adopting KiCad's JSON import wrapper. Source `84359da19e3b`
 adds that dependency and a missing-provider negative link fixture; the repaired
 delivery is run `34487042181`, not a published Windows package yet.
 
-Platform feed compatibility remains open in `pe405c1d3374a315a`: old published
-Linux helpers cannot parse the new Mac TAR.GZ and Windows feed records. The
-root Linux-compatible feed must remain readable while native platform updates
-gain separate base paths on the same download-only site.
+Platform feed routing is implemented and published. Mac update origins are
+`https://kicad.vr.ae/platforms/osx-arm64/` and
+`https://kicad.vr.ae/platforms/osx-x64/`; each serves `updates/preview.json` and
+only matching platform archives under `artifacts/`. Both initial sequence-1
+feeds reference the existing published Mac builds, not newly compiled binaries.
+Windows routing is implemented, but its real feed remains absent until a package
+is available. This remaining delivery is tracked in `pe405c1d3374a315a`.
+
+The root Linux feed remains byte-for-byte unchanged at sequence 9. Public run
+`t20260910T143946Z-2b1ab9` verified both native feed downloads at
+`2026-09-10T14:41:26.4166281Z`, all 27 archive downloads, and the real older Linux
+`8c88184d3333` Update-button Save/Cancel/restart journey into `9b748bcdb3c5`.
+The download server is generation 16; release `vd8776e3a2dacf0ae` records this
+preliminary feed delivery. It is not a new native package or updater qualification.
+
+Use `kicad-validate stage-platform-feeds --previous PUBLIC_ROOT --output NEW_ROOT
+--publisher TRUSTED_PUBLIC_SPKI --sources DECLARATION_JSON` to publish a verified
+set of feed changes. The declaration has `schemaVersion: 1` and `feeds`, each
+with `platform`, `channel` and an absolute `envelopePath`. The command verifies
+already-published target bytes, signatures and sequence advancement before
+staging a new tree. Unchanged payloads preserve existing signature bytes without
+file churn; other feeds and downloads are retained. It never loads a private key
+or publishes the live server itself.
+
+Full Apple Silicon build `34484262464` compiled and installed the native app,
+but its final managed tests exposed NNG's resolver reopening a deleted temporary
+library path for later function bindings. Its retained diagnostic archive is
+unqualified. Source `a82a87fc53` pins the selected native handle for the process
+lifetime; `9691937193` makes the isolated compiled regression helper a declared
+test dependency. Native regression `34493490753` is pending at this checkpoint.
 
 ## Current source boundary
 

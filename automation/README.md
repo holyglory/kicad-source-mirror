@@ -4,6 +4,30 @@ Implementation branch: `feature/codex-kicad-automation`, based on
 `f638a860a05b3e48d1074314a656ad9b8f597466`. This is an incomplete implementation
 of the approved six-milestone program, not a release.
 
+## Latest preliminary Apple Silicon build — September 10, 2026
+
+[Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-9691937193936d257f96da31b825e20f00aa88d9-macos-arm64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-9691937193936d257f96da31b825e20f00aa88d9-source.tar.gz)
+identify `9691937193936d257f96da31b825e20f00aa88d9`, version
+`preview-20260910-969193719393`. Extract the archive, open `install/KiCad.app`
+for the native application, or launch `./kicad-mcp` for STDIO tools. macOS 15.7+
+is required; the application is ad-hoc signed, not notarized.
+
+Native Mac run `34493864978` passed its build, installation, signatures,
+dependencies, runtime probes and selected native/managed checks. Publication
+run `b903fd` retained that native evidence and signed platform feed sequence 2.
+Public run `t20260910T173315Z-1c8eb6` verified all 29 downloads and platform feeds;
+download observation was `2026-09-10T17:34:27.7285857Z`. Generation 17 preserves
+the existing Linux and Intel feed bytes and all older archives. The public
+archive SHA-256 is `833668210a23e2570565a30e4b2f4754f5ea54b52cea088e6e7ac00e9786bbc3`.
+
+This build includes the Mac staging, installation and restart code described
+below. Unpacking alone does not configure managed updates: the verified
+`--install-package` bootstrap remains separate. The full dirty-document caption
+update and actual Codex Desktop journeys are not yet qualified. A distinct
+candidate at `cd4934ad7b` is building for both Mac architectures in run
+`34507122230`; it is not a published or verified replacement yet.
+
 ## Latest preliminary Linux update — September 10, 2026
 
 [Linux application](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260910T105342Z-9b748bcdb3c5-debian13-x64.tar.gz)
@@ -21,7 +45,8 @@ the real caption action, including Save/Cancel, two project sessions and the
 empty manager. Public download observation was `2026-09-10T11:17:08.608667Z`;
 the later management delivery receipt is not that observation time.
 Both existing Mac downloads remain available. No Windows package is part of
-this delivery; its repaired candidate is tracked in GitHub run `34467734029`.
+this delivery; the corrected installed-editor candidate is tracked in GitHub run
+`34505726568`.
 
 This remains preliminary. Receipt qualification flags have not been promoted.
 Mac updating (`p4d6c4ee22fd8078d`), Windows updating (`p67f11d25763f499e`) and
@@ -50,9 +75,10 @@ publisher was isolated test material; the persistent preview private key was
 not sent to GitHub. Linux run `t20260910T121612Z-dc5cfd` supplies supporting
 archive and existing-updater regression evidence, not native Mac execution.
 
-This staging code is not yet included in the older Mac downloads. A staged
-directory alone is not a ready update; the subsequent installation and lifecycle
-checkpoints below remain separate from final updater qualification.
+The Apple Silicon build above includes this staging code; the older Intel
+download predates it. A staged directory alone is not a ready update; the
+installation and lifecycle checkpoints below remain separate from final updater
+qualification.
 
 ### Mac installation and restart checkpoints
 
@@ -90,9 +116,10 @@ interrupted-recovery journeys; the non-Mac refusal control was not executed
 on Mac. Retained receipts confirm that a live original is not duplicated,
 recovery retries reuse their recorded outcome and shared selection is preserved.
 
-Same-source preliminary Mac builds at `3c0699fc4f` are running separately:
-Apple Silicon `34484262464` and Intel `34485572638`. They do not include the
-later explicit-recovery helper changes. No newer Mac download is claimed here.
+The older `3c0699fc4f` builds, Apple Silicon `34484262464` and Intel
+`34485572638`, completed native compilation but failed the later NNG binding
+tests. Their diagnostic archives are not releases. The fixed Apple Silicon
+build is now published above; the new Intel candidate is still building.
 The integrated dirty-document Update-button journey, final recovery coverage,
 same-candidate packaging and actual Codex Desktop operation remain open under
 `p4d6c4ee22fd8078d` and `p8bf96f1c4b709a28`.
@@ -106,8 +133,9 @@ delivery is run `34487042181`, not a published Windows package yet.
 Platform feed routing is implemented and published. Mac update origins are
 `https://kicad.vr.ae/platforms/osx-arm64/` and
 `https://kicad.vr.ae/platforms/osx-x64/`; each serves `updates/preview.json` and
-only matching platform archives under `artifacts/`. Both initial sequence-1
-feeds reference the existing published Mac builds, not newly compiled binaries.
+only matching platform archives under `artifacts/`. Apple Silicon feed sequence 2
+references the new `969193719393` build; Intel remains on its existing sequence-1
+feed while its corrected candidate builds.
 Windows routing is implemented, but its real feed remains absent until a package
 is available. This remaining delivery is tracked in `pe405c1d3374a315a`.
 
@@ -115,8 +143,9 @@ The root Linux feed remains byte-for-byte unchanged at sequence 9. Public run
 `t20260910T143946Z-2b1ab9` verified both native feed downloads at
 `2026-09-10T14:41:26.4166281Z`, all 27 archive downloads, and the real older Linux
 `8c88184d3333` Update-button Save/Cancel/restart journey into `9b748bcdb3c5`.
-The download server is generation 16; release `vd8776e3a2dacf0ae` records this
-preliminary feed delivery. It is not a new native package or updater qualification.
+That earlier generation-16 check is recorded by release `vd8776e3a2dacf0ae`.
+The current generation-17 package delivery is described above. Neither record
+establishes full updater qualification.
 
 Use `kicad-validate stage-platform-feeds --previous PUBLIC_ROOT --output NEW_ROOT
 --publisher TRUSTED_PUBLIC_SPKI --sources DECLARATION_JSON` to publish a verified
@@ -1575,7 +1604,7 @@ The preserved 38b65981e64b preview does not contain these later
 repairs; older running instances of that preview may require manual restart
 after another instance changes the shared installation selection.
 
-### Public preliminary downloads
+### Initial Linux download publication (historical)
 
 The download-only catalogue is at [kicad.vr.ae](https://kicad.vr.ae/downloads.json).
 It serves the frozen 8c88184d3333 Debian 13 x64 application archive and matching
@@ -1585,7 +1614,8 @@ archives and older Debian installer. Public GET/hash, HEAD, range, private/contr
 path rejection and upload rejection for all twenty-one files passed in
 `t20260909T112737Z-903032`.
 No engineering repository, native control, credentials or private evidence is
-served there. Native-Mac packages are not yet available.
+served there. That older verification covered Linux only; current Mac downloads
+and their evidence are listed at the top of this document.
 
 Extract the newer Linux archive and run `./kicad-codex` for the native application
 or `./kicad-mcp` for STDIO tools. Its caption-update flow requires a verified

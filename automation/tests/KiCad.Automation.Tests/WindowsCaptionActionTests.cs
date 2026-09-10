@@ -98,16 +98,20 @@ public sealed class WindowsCaptionActionTests
 
             state = await Command(new { op = "set", visible = true, enabled = false });
             Assert.IsTrue(Unavailable(state, 0)); Click(state, 0, first);
+            WindowsNativeUi.Capture(process, first, Path.Combine(evidence, "disabled.png"));
             state = await Command(new { op = "invoke" }); Assert.IsTrue(state["invokeResult"]!.GetValue<int>() < 0);
             Assert.AreEqual(1, Frame(state, 0)["clicks"]!.GetValue<int>());
             state = await Command(new { op = "set", visible = false, enabled = true });
             Assert.IsTrue(Invisible(state, 0)); Assert.IsTrue(Unavailable(state, 0));
             Assert.AreEqual(0, Frame(state, 0)["menuActions"]!.GetValue<int>());
+            WindowsNativeUi.Capture(process, first, Path.Combine(evidence, "hidden.png"));
             state = await Command(new { op = "invoke" }); Assert.IsTrue(state["invokeResult"]!.GetValue<int>() < 0);
             state = await Command(new { op = "set", visible = true, enabled = true });
             state = await Command(new { op = "resize", width = 160 }); Assert.IsTrue(Invisible(state, 0));
+            WindowsNativeUi.Capture(process, first, Path.Combine(evidence, "narrow.png"));
             state = await Command(new { op = "invoke" }); Assert.IsTrue(state["invokeResult"]!.GetValue<int>() < 0);
             state = await Command(new { op = "resize", width = 760 }); Assert.IsFalse(Invisible(state, 0));
+            WindowsNativeUi.Capture(process, first, Path.Combine(evidence, "restored-width.png"));
             state = await Command(new { op = "enable", enabled = false });
             Assert.IsTrue(Unavailable(state, 0));
             state = await Command(new { op = "invoke" }); Assert.IsTrue(state["invokeResult"]!.GetValue<int>() < 0);

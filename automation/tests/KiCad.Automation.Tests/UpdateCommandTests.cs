@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Runtime.InteropServices;
+using KiCad.Automation.Distribution;
 using KiCad.Automation.Mcp;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -8,6 +10,33 @@ namespace KiCad.Automation.Tests;
 [TestClass]
 public sealed class UpdateCommandTests
 {
+    [TestMethod]
+    [DataRow("windows", Architecture.X64, "win-x64")]
+    [DataRow("linux", Architecture.X64, "linux-x64")]
+    [DataRow("macos", Architecture.X64, "osx-x64")]
+    [DataRow("macos", Architecture.Arm64, "osx-arm64")]
+    public void RuntimeSelectionPreservesEachSupportedTarget(string system, Architecture architecture, string expected) =>
+        Assert.AreEqual(expected, UpdatePreparationCommand.RuntimeTarget(system, architecture));
+
+    [TestMethod]
+    [DataRow("windows", Architecture.Arm64)]
+    [DataRow("windows", Architecture.X86)]
+    [DataRow("linux", Architecture.Arm64)]
+    [DataRow("unknown", Architecture.X64)]
+    public void UnsupportedRuntimeCannotBorrowAnotherPlatform(string system, Architecture architecture) =>
+        Assert.ThrowsExactly<PlatformNotSupportedException>(() => UpdatePreparationCommand.RuntimeTarget(system, architecture));
+
+    [TestMethod]
+    public void WindowsPreparationCannotPretendToRegisterOrActivateAnInstallation()
+    {
+        var config = new UpdatePreparationConfiguration(1, "https://fixture.invalid/", "unused", "/receipt", "/state", "/stage", "preview", "win-x64", "zip");
+        UpdatePreparationCommand.ValidateRuntimeConfiguration(config, "win-x64");
+        Assert.ThrowsExactly<PlatformNotSupportedException>(() => UpdatePreparationCommand.ValidateRuntimeConfiguration(config with { InstallationRoot = "/installation" }, "win-x64"));
+        Assert.ThrowsExactly<InvalidDataException>(() => UpdatePreparationCommand.ValidateRuntimeConfiguration(config, "linux-x64"));
+        foreach (string platform in new[] { "linux-x64", "osx-arm64", "osx-x64" })
+            UpdatePreparationCommand.ValidateRuntimeConfiguration(config with { Platform = platform, InstallationRoot = "/installation", Format = "tar.gz" }, platform);
+    }
+
     [TestMethod]
     public void KernelStartCounterHandlesParenthesizedNamesAndRejectsMalformedValues()
     {

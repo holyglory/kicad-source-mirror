@@ -24,15 +24,9 @@ public static class UpdatePreparationCommand
                 || !Path.IsPathFullyQualified(args[2]))
                 throw new ArgumentException("Use --check-update or --prepare-update, then --configuration and an absolute installed configuration path.");
             var configuration = await ReadConfigurationAsync(args[2], token);
-            string runtime = (OperatingSystem.IsLinux(), OperatingSystem.IsMacOS(), RuntimeInformation.ProcessArchitecture) switch
-            {
-                (true, _, Architecture.X64) => "linux-x64",
-                (_, true, Architecture.Arm64) => "osx-arm64",
-                (_, true, Architecture.X64) => "osx-x64",
-                _ => throw new PlatformNotSupportedException("This updater runtime target is unsupported.")
-            };
-            if (configuration.Platform != runtime)
-                throw new InvalidDataException("The installed updater configuration targets a different architecture.");
+            string runtime = RuntimeTarget(OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos"
+                : OperatingSystem.IsLinux() ? "linux" : "unsupported", RuntimeInformation.ProcessArchitecture);
+            ValidateRuntimeConfiguration(configuration, runtime);
             byte[] publisherKey = Convert.FromBase64String(configuration.PublisherKeySpki);
             byte[] installed;
             await using (var file = new FileStream(configuration.InstalledEnvelope, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -70,7 +64,7 @@ public static class UpdatePreparationCommand
                 });
                 return 0;
             }
-            if (configuration.Format != "tar.gz")
+            if (configuration.Format != (runtime == "win-x64" ? "zip" : "tar.gz"))
             {
                 await Emit(new { schemaVersion = 1, status = "preparation_unavailable", installationReady = false });
                 return 0;
@@ -78,6 +72,20 @@ public static class UpdatePreparationCommand
             var progress = new TransferProgress(output);
             var download = await source.DownloadAsync(result.Manifest, runtime, configuration.Format,
                 configuration.StagingDirectory, progress, token);
+            if (runtime == "win-x64")
+            {
+                await Emit(new { schemaVersion = 1, status = "staging", installationReady = false });
+                var windows = await WindowsUpdateStager.StageAsync(result.Manifest, download, configuration.StagingDirectory, token);
+                await Emit(new
+                {
+                    schemaVersion = 1, status = "archive_staged", installationReady = false,
+                    directory = windows.Directory, manifestSha256 = windows.ManifestSha256,
+                    version = result.Manifest.Release.Version, commit = result.Manifest.Release.Commit,
+                    nativeIdentityVerified = true, nativeCommit = result.Manifest.Release.Commit,
+                    authenticodeVerified = false
+                });
+                return 0;
+            }
             if (runtime.StartsWith("osx-", StringComparison.Ordinal))
             {
                 if (configuration.InstallationRoot is { } macRoot)
@@ -151,6 +159,23 @@ public static class UpdatePreparationCommand
             await output.WriteLineAsync(JsonSerializer.Serialize(value, Json));
             await output.FlushAsync();
         }
+    }
+
+    internal static string RuntimeTarget(string operatingSystem, Architecture architecture) => (operatingSystem, architecture) switch
+    {
+        ("windows", Architecture.X64) => "win-x64",
+        ("linux", Architecture.X64) => "linux-x64",
+        ("macos", Architecture.Arm64) => "osx-arm64",
+        ("macos", Architecture.X64) => "osx-x64",
+        _ => throw new PlatformNotSupportedException("This updater runtime target is unsupported.")
+    };
+
+    internal static void ValidateRuntimeConfiguration(UpdatePreparationConfiguration configuration, string runtime)
+    {
+        if (configuration.Platform != runtime)
+            throw new InvalidDataException("The installed updater configuration targets a different architecture.");
+        if (runtime == "win-x64" && configuration.InstallationRoot is not null)
+            throw new PlatformNotSupportedException("Windows installation registration is not implemented; only independent archive staging is available.");
     }
 
     private static async Task<UpdatePreparationConfiguration> ReadConfigurationAsync(string path, CancellationToken token)

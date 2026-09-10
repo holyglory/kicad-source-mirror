@@ -151,7 +151,7 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.windows-archive-preflight.check]]
 name = "contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsArchivePreflightTests|FullyQualifiedName~WindowsUpdateStagerTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-archive-preflight"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsArchivePreflightTests|FullyQualifiedName~WindowsUpdateStagerTests|FullyQualifiedName~UpdateCommandTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-archive-preflight"]
 retained_artifacts = [{ name = "windows-archive-preflight", path = "automation/artifacts/windows-archive-preflight", max_bytes = 16777216 }]
 
 [test.windows-native-ui]

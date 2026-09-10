@@ -87,13 +87,16 @@ struct ACTION
         if( IsRectEmpty( &button ) ) return;
         RECT outer; if( !GetWindowRect( window, &outer ) ) return;
         RECT caption = title, control = button;
+        // Windows' title-bar accessibility rectangle can begin after the icon
+        // or the first title glyph. Repaint the complete caption strip from the
+        // frame inset, otherwise a prefix of the old title remains underneath.
+        caption.left = outer.left + GetSystemMetricsForDpi( SM_CXFRAME, GetDpiForWindow( window ) );
         OffsetRect( &caption, -outer.left, -outer.top ); OffsetRect( &control, -outer.left, -outer.top );
         HDC dc = GetWindowDC( window ); if( !dc ) return;
         // Retain native non-client sizing, system buttons, menus, dragging and
         // resizing. Only this caption strip is repainted to reserve title space.
-        // rcTitleBar begins after the separately rendered system-menu icon.
-        // Drawing DC_ICON here would duplicate it beside the native one.
-        UINT flags = DC_TEXT | DC_GRADIENT;
+        FillRect( dc, &caption, GetSysColorBrush( GetForegroundWindow() == window ? COLOR_ACTIVECAPTION : COLOR_INACTIVECAPTION ) );
+        UINT flags = DC_TEXT | DC_ICON | DC_GRADIENT;
         if( GetForegroundWindow() == window ) flags |= DC_ACTIVE;
         DrawCaption( window, dc, &caption, flags );
         DrawFrameControl( dc, &control, DFC_BUTTON,

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text;
 using KiCad.Automation.Mcp;
 using KiCad.Automation.Distribution;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -60,13 +61,15 @@ public sealed class WindowsLauncherTests
             string[] arguments = ["", "sp ace", "embedded\"quote", "trailing\\", "slash\\\"quote", "ユニコード", "%PATH%", "&no-shell"];
             var result = await Invoke(Path.Combine(root, "kicad-mcp.exe"), arguments, root, deadline.Token);
             Assert.AreEqual(17, result.ExitCode, result.Error);
+            File.Copy(Path.Combine(root, "bootstrap-probe.json"), Path.Combine(evidence, "console.json"));
+            Assert.AreEqual((await File.ReadAllTextAsync(Path.Combine(evidence, "console.json"), deadline.Token)).Trim(), result.Output.Trim(),
+                "The captured UTF-8 stream must match the native probe's UTF-8 argument record.");
             using (var json = JsonDocument.Parse(result.Output))
             {
                 string[] passed = json.RootElement.GetProperty("arguments").EnumerateArray().Select(a => a.GetString()!).ToArray();
                 CollectionAssert.AreEqual(new[] { "--launch-installed", "--installation", root, "--target", "mcp", "--" }.Concat(arguments).ToArray(), passed);
                 Assert.AreEqual("input over inherited stdin\n", json.RootElement.GetProperty("input").GetString());
             }
-            File.Copy(Path.Combine(root, "bootstrap-probe.json"), Path.Combine(evidence, "console.json"));
             File.Delete(Path.Combine(root, "bootstrap-probe.json"));
             result = await Invoke(Path.Combine(root, "kicad.exe"), ["project with spaces.kicad_pro"], root, deadline.Token);
             Assert.AreEqual(0, result.ExitCode, result.Error);
@@ -126,7 +129,9 @@ public sealed class WindowsLauncherTests
         CancellationToken token, string? input = "input over inherited stdin\n")
     {
         var start = new ProcessStartInfo(executable) { WorkingDirectory = directory, UseShellExecute = false,
-            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = new UTF8Encoding(false),
+            StandardErrorEncoding = new UTF8Encoding(false) };
         foreach (string argument in args) start.ArgumentList.Add(argument);
         using var process = Process.Start(start)!;
         Task<string> stdout = process.StandardOutput.ReadToEndAsync(), stderr = process.StandardError.ReadToEndAsync();

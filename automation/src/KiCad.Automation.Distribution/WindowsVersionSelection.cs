@@ -38,6 +38,18 @@ internal static class WindowsVersionSelection
         return selected;
     }
 
+    internal static WindowsSelectionIntent InspectIntent(string manager, Guid operationId)
+    {
+        RequireManager(manager);
+        if (operationId == Guid.Empty) throw new ArgumentException("An update operation identity is required.");
+        var intent = Read<WindowsSelectionIntent>(Path.Combine(manager, "operations", operationId.ToString("D") + ".json"));
+        if (intent.SchemaVersion != 1 || intent.OperationId != operationId.ToString("D") || intent.Previous is null || intent.Next is null
+            || intent.Next.SelectionId != intent.OperationId)
+            throw new InvalidDataException("Invalid Windows selection intent.");
+        ValidateSelection(manager, intent.Previous); ValidateSelection(manager, intent.Next);
+        return intent;
+    }
+
     public static async Task<WindowsSelectedVersion> SwitchAsync(string manager, WindowsSelectedVersion expected,
         string nextDigest, Guid operationId, CancellationToken token, Action? beforeSwitch = null)
     {

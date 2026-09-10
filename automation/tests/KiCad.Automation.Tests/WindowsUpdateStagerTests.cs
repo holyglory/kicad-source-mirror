@@ -164,7 +164,7 @@ public sealed class WindowsUpdateStagerTests
         finally { Directory.Delete(scratch, true); }
     }
 
-    private static MemoryStream Zip(byte[] executable, string mode, bool escaping = false)
+    internal static MemoryStream Zip(byte[] executable, string mode, bool escaping = false)
     {
         var input = new MemoryStream();
         using (var zip = new ZipArchive(input, ZipArchiveMode.Create, leaveOpen: true))
@@ -178,7 +178,7 @@ public sealed class WindowsUpdateStagerTests
         input.Position = 0; return input;
     }
 
-    private static async Task<byte[]> Compile(string scratch, string evidence, CancellationToken token)
+    internal static async Task<byte[]> Compile(string scratch, string evidence, CancellationToken token)
     {
         DirectoryInfo? source = new(AppContext.BaseDirectory);
         while (source is not null && !File.Exists(Path.Combine(source.FullName, "automation/tests/fixtures/windows-staging-probe.cpp"))) source = source.Parent;

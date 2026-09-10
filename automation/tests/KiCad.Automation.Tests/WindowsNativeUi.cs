@@ -273,9 +273,16 @@ internal static class WindowsNativeUi
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Native Windows UI execution is required.");
     }
 
-    private static INPUT Key(ushort key, bool up) => new()
-    { Type = 1, Data = new() { Keyboard = new() { VirtualKey = key,
-        Flags = (up ? 2U : 0U) | (key is >= 0x21 and <= 0x28 or 0x2d or 0x2e or 0xa3 or 0xa5 ? 1U : 0U) } } };
+    private static INPUT Key(ushort key, bool up)
+    {
+        // Native menu navigation needs an ordinary physical-key packet, not a
+        // virtual-key-only message with a zero scan code. Preserve E0 prefixes.
+        uint scan = MapVirtualKeyW(key, 4); // MAPVK_VK_TO_VSC_EX
+        if ((scan & 0xff) == 0 || (scan >> 8) is not (0 or 0xe0))
+            throw new ArgumentException("This key has no supported native scan-code mapping.", nameof(key));
+        return new() { Type = 1, Data = new() { Keyboard = new() { ScanCode = (ushort)(scan & 0xff),
+            Flags = 8U | (up ? 2U : 0U) | ((scan >> 8) == 0xe0 ? 1U : 0U) } } };
+    }
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
@@ -310,6 +317,7 @@ internal static class WindowsNativeUi
     [DllImport("user32", SetLastError = true)] private static extern nint SendMessageTimeoutW(nint window, uint message,
         nuint wParam, nint lParam, uint flags, uint timeout, out nuint result);
     [DllImport("user32", SetLastError = true)] private static extern uint SendInput(uint count, INPUT[] inputs, int size);
+    [DllImport("user32")] private static extern uint MapVirtualKeyW(uint key, uint mode);
     [DllImport("user32", SetLastError = true)] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32")] private static extern nint WindowFromPoint(POINT point);
     [DllImport("user32")] private static extern nint SetThreadDpiAwarenessContext(nint context);

@@ -23,6 +23,11 @@ on:
         type: choice
         default: all
         options: [all, caption, handoff, staging, ui-access]
+      windows_fixture:
+        description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
+        type: choice
+        default: all
+        options: [all, package-staging]
 
 # SA-09: disposable public-source builds; no publisher key, engineering
 # repository, persistent runner or live editor-control endpoint.
@@ -115,6 +120,10 @@ jobs:
 
   windows:
     if: inputs.target == 'all' || inputs.target == 'windows'
+    permissions:
+      contents: read
+      # SA-09: read this public fork's retained build; never upload a signing key.
+      actions: read
     runs-on: windows-2022
     timeout-minutes: 350
     env:
@@ -156,6 +165,7 @@ jobs:
         with:
           global-json-file: automation/global.json
       - name: Check Windows delivery contracts and select supported stages
+        if: inputs.windows_fixture != 'package-staging'
         id: stages
         working-directory: automation
         shell: pwsh
@@ -167,6 +177,26 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows delivery preflight failed.' }
           $split = Test-Path 'tools/KiCad.Automation.Validation/HostedWindowsCheckpoint.cs'
           "split=$($split.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - name: Stage and verify the exact retained Windows archive
+        if: inputs.windows_fixture == 'package-staging'
+        working-directory: automation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ($env:CHECKS_ONLY -ne 'true') { throw 'Package staging is a checks-only fixture.' }
+          gh run download 34487042181 --repo holyglory/kicad-source-mirror `
+            --name native-windows-x64-84359da19e3b168290b6199dc36077edbf03faf5-1 `
+            --dir "$env:RUNNER_TEMP/kicad-staging-archive"
+          if ($LASTEXITCODE -ne 0) { throw 'The retained Windows build artifact could not be downloaded.' }
+          $env:KICAD_TEST_WINDOWS_ARCHIVE = "$env:RUNNER_TEMP/kicad-staging-archive/kicad-delivery/packages/kicad-codex-84359da19e3b168290b6199dc36077edbf03faf5-windows-x64.zip"
+          $env:KICAD_TEST_WINDOWS_ARCHIVE_COMMIT = '84359da19e3b168290b6199dc36077edbf03faf5'
+          $env:KICAD_TEST_WINDOWS_ARCHIVE_SHA256 = '486557b4de48cb2baf7809e1c9411440c7eb0e6613d7d35adbdeb984db1ec655'
+          $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
+          dotnet test KiCad.Automation.slnx --configuration Release `
+            --filter 'TestCategory=WindowsArchivePayload|TestCategory=NativeWindowsPackageStaging' `
+            --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
+          if ($LASTEXITCODE -ne 0) { throw 'The actual Windows package staging fixture failed.' }
       - name: Prepare Windows dependencies and native build configuration
         if: steps.stages.outputs.split == 'true' && !inputs.checks_only
         id: prepare

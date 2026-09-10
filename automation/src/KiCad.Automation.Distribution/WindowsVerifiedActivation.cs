@@ -8,7 +8,7 @@ public static partial class WindowsVerifiedVersions
         root = Root(root); RequireId(expectedSelectionId);
         if (!Digest(candidateDigest)) throw new ArgumentException("An exact candidate digest is required.");
         var policy = await Policy(root, token);
-        using var registration = Lock(Path.Combine(root, "registration.lock"));
+        using var registration = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "registration.lock"), token);
         var current = WindowsVersionSelection.Inspect(Path.Combine(root, "manager"));
         if (current.SelectionId != expectedSelectionId) throw new InvalidDataException("Windows selection changed before update preflight.");
         var baseline = await ReadVersion(root, DigestOf(current), policy, token);
@@ -28,7 +28,7 @@ public static partial class WindowsVerifiedVersions
         root = Root(root); RequireId(expectedSelectionId);
         if (!Digest(candidateDigest) || operationId == Guid.Empty) throw new ArgumentException("An exact candidate and update operation are required.");
         var policy = await Policy(root, token);
-        using var registration = Lock(Path.Combine(root, "registration.lock"));
+        using var registration = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "registration.lock"), token);
         string manager = Path.Combine(root, "manager");
         var current = WindowsVersionSelection.Inspect(manager);
         WindowsSelectedVersion previous = current;
@@ -42,7 +42,7 @@ public static partial class WindowsVerifiedVersions
         }
         var baseline = await ReadVersion(root, DigestOf(previous), policy, token);
         var candidate = await ReadVersion(root, candidateDigest, policy, token);
-        using var checkpoint = Lock(Path.Combine(root, "state/check.lock"));
+        using var checkpoint = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "state/check.lock"), token);
         if (current.SelectionId != operationId.ToString("D"))
         {
             if (candidate.Release.Sequence < baseline.Release.Sequence
@@ -61,7 +61,7 @@ public static partial class WindowsVerifiedVersions
         if (originalOperationId == Guid.Empty || rollbackOperationId == Guid.Empty || originalOperationId == rollbackOperationId)
             throw new ArgumentException("Use distinct update and rollback operations.");
         var policy = await Policy(root, token);
-        using var registration = Lock(Path.Combine(root, "registration.lock"));
+        using var registration = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "registration.lock"), token);
         string manager = Path.Combine(root, "manager");
         var original = WindowsVersionSelection.InspectIntent(manager, originalOperationId);
         if (original.Next.SelectionId != expectedSelectionId)

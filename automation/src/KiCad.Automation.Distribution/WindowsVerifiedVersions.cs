@@ -68,7 +68,7 @@ public static partial class WindowsVerifiedVersions
         root = Root(root); RequireId(expectedSelectionId);
         if (!Path.IsPathFullyQualified(archive)) throw new ArgumentException("Use an absolute archive path.");
         var policy = await Policy(root, token);
-        using var registration = Lock(Path.Combine(root, "registration.lock"));
+        using var registration = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "registration.lock"), token);
         var selected = WindowsVersionSelection.Inspect(Path.Combine(root, "manager"));
         if (selected.SelectionId != expectedSelectionId) throw new InvalidDataException("Windows selection changed before registration.");
         var baseline = await ReadVersion(root, DigestOf(selected), policy, token);
@@ -87,8 +87,8 @@ public static partial class WindowsVerifiedVersions
         try
         {
             await Prepare(work, Path.Combine(root, "staging"), root, policy, archive, signed, candidate, token);
-            using var selectionLock = Lock(Path.Combine(root, "manager/activation.lock"));
-            using var checkpoint = Lock(Path.Combine(root, "state/check.lock"));
+            using var selectionLock = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "manager/activation.lock"), token);
+            using var checkpoint = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "state/check.lock"), token);
             if (WindowsVersionSelection.Inspect(Path.Combine(root, "manager")) != selected)
                 throw new InvalidDataException("Windows selection changed while the candidate was prepared.");
             await RequireAccepted(root, policy, baseline, candidate, token);
@@ -101,7 +101,7 @@ public static partial class WindowsVerifiedVersions
     public static async Task<SelectedWindowsVersion> InspectCurrentAsync(string root, CancellationToken token = default)
     {
         root = Root(root); var policy = await Policy(root, token);
-        using var registration = Lock(Path.Combine(root, "registration.lock"));
+        using var registration = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "registration.lock"), token);
         var selected = WindowsVersionSelection.Inspect(Path.Combine(root, "manager"));
         var version = await ReadVersion(root, DigestOf(selected), policy, token);
         if (WindowsVersionSelection.Inspect(Path.Combine(root, "manager")) != selected)
@@ -225,11 +225,6 @@ public static partial class WindowsVerifiedVersions
     {
         if (Directory.Exists(path) || File.Exists(path) || new FileInfo(path).LinkTarget is not null)
             throw new IOException("Existing Windows version-store data must not be overwritten: " + path);
-    }
-    private static FileStream Lock(string path)
-    {
-        if (File.Exists(path)) Ordinary(path, directory: false);
-        return new(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
     }
     private static async Task<byte[]> ReadBytes(string path, int maximum, CancellationToken token)
     {

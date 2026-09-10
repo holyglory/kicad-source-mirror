@@ -51,8 +51,24 @@ public sealed class WindowsVerifiedVersionsTests
                 config with { InstalledEnvelope = path }, deadline.Token));
             await Assert.ThrowsExactlyAsync<IOException>(() => WindowsVerifiedVersions.CreateAsync(root, path, firstEnvelope,
                 key.ExportSubjectPublicKeyInfo(), new Uri("https://fixture.invalid/"), "preview", deadline.Token));
-            var registered = await WindowsVerifiedVersions.RegisterAsync(root, initial.SelectionId, path, secondEnvelope, deadline.Token);
-            Assert.IsFalse(registered.Reused);
+            string registrationLock = Path.Combine(root, "registration.lock");
+            using (var held = await UpdateStoreLease.AcquireAsync(registrationLock, deadline.Token))
+            using (var cancel = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token))
+            {
+                var blocked = WindowsVerifiedVersions.RegisterAsync(root, initial.SelectionId, path, secondEnvelope, cancel.Token);
+                await Task.Delay(150, deadline.Token);
+                Assert.IsFalse(blocked.IsCompleted, "Another editor's preparation must wait, not fail on sharing violation.");
+                cancel.Cancel();
+                await Assert.ThrowsAsync<OperationCanceledException>(() => blocked);
+                Assert.AreEqual(initial.SelectionId, WindowsVerifiedVersions.InspectSelectionId(root));
+                Assert.AreEqual(1, Directory.GetDirectories(Path.Combine(root, "versions")).Length);
+            }
+            var registrations = await Task.WhenAll(
+                WindowsVerifiedVersions.RegisterAsync(root, initial.SelectionId, path, secondEnvelope, deadline.Token),
+                WindowsVerifiedVersions.RegisterAsync(root, initial.SelectionId, path, secondEnvelope, deadline.Token));
+            var registered = registrations.Single(result => !result.Reused);
+            Assert.AreEqual(1, registrations.Count(result => result.Reused));
+            Assert.AreEqual(registered.Version, registrations[1].Version);
             Assert.AreEqual(initial, await WindowsVerifiedVersions.InspectCurrentAsync(root, deadline.Token), "Registration cannot change selection.");
             Assert.IsTrue((await WindowsVerifiedVersions.RegisterAsync(root, initial.SelectionId, path, secondEnvelope, deadline.Token)).Reused);
             using (var wrongKey = ECDsa.Create(ECCurve.NamedCurves.nistP256))
@@ -61,8 +77,19 @@ public sealed class WindowsVerifiedVersionsTests
             string checkpoint = Path.Combine(root, "state/accepted-envelope.json");
             await File.WriteAllBytesAsync(checkpoint, secondEnvelope, deadline.Token);
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => WindowsVerifiedVersions.RegisterAsync(root, initial.SelectionId, path, firstEnvelope, deadline.Token));
-            Guid operation = Guid.NewGuid();
-            var selected = await WindowsVerifiedVersions.ActivateAsync(root, initial.SelectionId, registered.Version.ManifestSha256, operation, deadline.Token);
+            async Task<(Guid Operation, SelectedWindowsVersion? Selected, InvalidDataException? Error)> Activate(Guid id)
+            {
+                try { return (id, await WindowsVerifiedVersions.ActivateAsync(root, initial.SelectionId,
+                    registered.Version.ManifestSha256, id, deadline.Token), null); }
+                catch (InvalidDataException error) { return (id, null, error); }
+            }
+            // Waiting for the store never relaxes an explicit click's expected
+            // selection. Exactly one concurrent activation may commit.
+            var activations = await Task.WhenAll(Activate(Guid.NewGuid()), Activate(Guid.NewGuid()));
+            var winner = activations.Single(result => result.Selected is not null);
+            Assert.AreEqual(1, activations.Count(result => result.Error is not null));
+            Guid operation = winner.Operation;
+            var selected = winner.Selected!;
             Assert.AreEqual(selected, await WindowsVerifiedVersions.ActivateAsync(root, initial.SelectionId, registered.Version.ManifestSha256, operation, deadline.Token));
             Assert.AreEqual(selected, await WindowsVerifiedVersions.InspectCurrentAsync(root, deadline.Token));
             Assert.AreEqual(initial.Version, await WindowsVerifiedVersions.InspectExecutableAsync(root, initial.Version.NativeExecutable, deadline.Token));
@@ -123,6 +150,8 @@ public sealed class WindowsVerifiedVersionsTests
             {
                 schemaVersion = 1, status = "passed", syntheticExecutableFixture = true,
                 publisherAndPayloadVerified = true, registeredWithoutSwitching = true, previousExecutablePreserved = true,
+                concurrentRegistrationsReusedOneCandidate = true, cancelledWaitPreservedSelection = true,
+                concurrentActivationRejectedStaleSelection = true,
                 exactActivationRetry = true, rollbackPreservedCheckpoint = true, payloadDriftRejected = true,
                 installationReady = false, nativeEditorRestarted = false
             }), deadline.Token);

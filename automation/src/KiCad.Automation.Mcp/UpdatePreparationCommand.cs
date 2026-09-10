@@ -80,8 +80,10 @@ public static class UpdatePreparationCommand
                 if (configuration.InstallationRoot is { } windowsRoot)
                 {
                     await Emit(new { schemaVersion = 1, status = "registering_candidate", installationReady = false });
-                    var registered = await WindowsVerifiedVersions.RegisterAsync(windowsRoot, expectedTarget!, download.Path,
-                        result.Manifest.CopyEnvelope(), token);
+                    var registered = await UpdateRegistrationRetry.AgainstCurrentSelection(
+                        () => WindowsVerifiedVersions.InspectSelectionId(windowsRoot),
+                        current => WindowsVerifiedVersions.RegisterAsync(windowsRoot, current, download.Path,
+                            result.Manifest.CopyEnvelope(), token));
                     await Emit(new
                     {
                         schemaVersion = 1, status = "candidate_registered", installationReady = false,

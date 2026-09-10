@@ -39,6 +39,16 @@ public sealed class WindowsVerifiedVersionsTests
             string root = Path.Combine(scratch, "installation");
             var initial = await WindowsVerifiedVersions.CreateAsync(root, path, firstEnvelope, key.ExportSubjectPublicKeyInfo(), new Uri("https://fixture.invalid/"), "preview", deadline.Token);
             Assert.AreEqual(initial, await WindowsVerifiedVersions.InspectCurrentAsync(root, deadline.Token));
+            var config = JsonSerializer.Deserialize<UpdatePreparationConfiguration>(await File.ReadAllTextAsync(initial.Version.UpdateConfiguration, deadline.Token),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            Assert.AreEqual(root, config.InstallationRoot);
+            Assert.AreEqual(Path.Combine(root, "staging"), config.StagingDirectory);
+            Assert.AreEqual(initial.SelectionId, WindowsVerifiedVersions.InspectSelectionId(root));
+            await WindowsVerifiedVersions.ValidateUpdateConfigurationAsync(config, deadline.Token);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => WindowsVerifiedVersions.ValidateUpdateConfigurationAsync(
+                config with { Origin = "https://other.invalid/" }, deadline.Token));
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => WindowsVerifiedVersions.ValidateUpdateConfigurationAsync(
+                config with { InstalledEnvelope = path }, deadline.Token));
             await Assert.ThrowsExactlyAsync<IOException>(() => WindowsVerifiedVersions.CreateAsync(root, path, firstEnvelope,
                 key.ExportSubjectPublicKeyInfo(), new Uri("https://fixture.invalid/"), "preview", deadline.Token));
             var registered = await WindowsVerifiedVersions.RegisterAsync(root, initial.SelectionId, path, secondEnvelope, deadline.Token);
@@ -56,6 +66,12 @@ public sealed class WindowsVerifiedVersionsTests
             Assert.AreEqual(selected, await WindowsVerifiedVersions.ActivateAsync(root, initial.SelectionId, registered.Version.ManifestSha256, operation, deadline.Token));
             Assert.AreEqual(selected, await WindowsVerifiedVersions.InspectCurrentAsync(root, deadline.Token));
             Assert.AreEqual(initial.Version, await WindowsVerifiedVersions.InspectExecutableAsync(root, initial.Version.NativeExecutable, deadline.Token));
+            string configurationPath = initial.Version.UpdateConfiguration;
+            byte[] configurationBytes = await File.ReadAllBytesAsync(configurationPath, deadline.Token);
+            await File.WriteAllTextAsync(configurationPath, JsonSerializer.Serialize(config with { Origin = "https://other.invalid/" },
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)), deadline.Token);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => WindowsVerifiedVersions.InspectExecutableAsync(root, initial.Version.NativeExecutable, deadline.Token));
+            await File.WriteAllBytesAsync(configurationPath, configurationBytes, deadline.Token);
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => WindowsVerifiedVersions.ActivateAsync(root, selected.SelectionId, initial.Version.ManifestSha256, Guid.NewGuid(), deadline.Token));
             string damagedCandidate = Path.Combine(registered.Version.VersionDirectory, "bin/nng.dll");
             byte[] candidateBytes = await File.ReadAllBytesAsync(damagedCandidate, deadline.Token);

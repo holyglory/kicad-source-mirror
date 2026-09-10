@@ -27,6 +27,8 @@ public static class UpdatePreparationCommand
             string runtime = RuntimeTarget(OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos"
                 : OperatingSystem.IsLinux() ? "linux" : "unsupported", RuntimeInformation.ProcessArchitecture);
             ValidateRuntimeConfiguration(configuration, runtime);
+            if (runtime == "win-x64" && configuration.InstallationRoot is not null)
+                await WindowsVerifiedVersions.ValidateUpdateConfigurationAsync(configuration, token);
             byte[] publisherKey = Convert.FromBase64String(configuration.PublisherKeySpki);
             byte[] installed;
             await using (var file = new FileStream(configuration.InstalledEnvelope, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -43,6 +45,7 @@ public static class UpdatePreparationCommand
                 configuration.Channel, configuration.Platform, configuration.Format);
             string? expectedTarget = configuration.InstallationRoot is { } installationRoot
                 ? runtime == "linux-x64" ? LinuxUpdateActivation.InspectTarget(Path.Combine(installationRoot, "manager"))
+                    : runtime == "win-x64" ? WindowsVerifiedVersions.InspectSelectionId(installationRoot)
                     : MacVerifiedInstallation.InspectTarget(installationRoot)
                 : null;
             await Emit(new { schemaVersion = 1, status = "checking", installationReady = false });
@@ -74,6 +77,20 @@ public static class UpdatePreparationCommand
                 configuration.StagingDirectory, progress, token);
             if (runtime == "win-x64")
             {
+                if (configuration.InstallationRoot is { } windowsRoot)
+                {
+                    await Emit(new { schemaVersion = 1, status = "registering_candidate", installationReady = false });
+                    var registered = await WindowsVerifiedVersions.RegisterAsync(windowsRoot, expectedTarget!, download.Path,
+                        result.Manifest.CopyEnvelope(), token);
+                    await Emit(new
+                    {
+                        schemaVersion = 1, status = "candidate_registered", installationReady = false,
+                        directory = registered.Version.VersionDirectory, manifestSha256 = registered.Version.ManifestSha256,
+                        version = result.Manifest.Release.Version, commit = registered.Version.Commit,
+                        expectedTarget = registered.ExpectedSelectionId, reused = registered.Reused
+                    });
+                    return 0;
+                }
                 await Emit(new { schemaVersion = 1, status = "staging", installationReady = false });
                 var windows = await WindowsUpdateStager.StageAsync(result.Manifest, download, configuration.StagingDirectory, token);
                 await Emit(new
@@ -174,8 +191,6 @@ public static class UpdatePreparationCommand
     {
         if (configuration.Platform != runtime)
             throw new InvalidDataException("The installed updater configuration targets a different architecture.");
-        if (runtime == "win-x64" && configuration.InstallationRoot is not null)
-            throw new PlatformNotSupportedException("Windows installation registration is not implemented; only independent archive staging is available.");
     }
 
     private static async Task<UpdatePreparationConfiguration> ReadConfigurationAsync(string path, CancellationToken token)

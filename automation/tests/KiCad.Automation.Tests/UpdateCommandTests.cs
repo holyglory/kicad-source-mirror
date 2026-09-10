@@ -27,11 +27,11 @@ public sealed class UpdateCommandTests
         Assert.ThrowsExactly<PlatformNotSupportedException>(() => UpdatePreparationCommand.RuntimeTarget(system, architecture));
 
     [TestMethod]
-    public void WindowsPreparationCannotPretendToRegisterOrActivateAnInstallation()
+    public void PreparationRequiresMatchingRuntimeBeforeInspectingARegisteredStore()
     {
         var config = new UpdatePreparationConfiguration(1, "https://fixture.invalid/", "unused", "/receipt", "/state", "/stage", "preview", "win-x64", "zip");
         UpdatePreparationCommand.ValidateRuntimeConfiguration(config, "win-x64");
-        Assert.ThrowsExactly<PlatformNotSupportedException>(() => UpdatePreparationCommand.ValidateRuntimeConfiguration(config with { InstallationRoot = "/installation" }, "win-x64"));
+        UpdatePreparationCommand.ValidateRuntimeConfiguration(config with { InstallationRoot = "/installation" }, "win-x64");
         Assert.ThrowsExactly<InvalidDataException>(() => UpdatePreparationCommand.ValidateRuntimeConfiguration(config, "linux-x64"));
         foreach (string platform in new[] { "linux-x64", "osx-arm64", "osx-x64" })
             UpdatePreparationCommand.ValidateRuntimeConfiguration(config with { Platform = platform, InstallationRoot = "/installation", Format = "tar.gz" }, platform);

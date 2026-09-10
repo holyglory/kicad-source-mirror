@@ -8,6 +8,7 @@ public sealed record VerifiedWindowsVersion(string Root, string VersionDirectory
 {
     public string NativeExecutable => Path.Combine(VersionDirectory, "bin/kicad.exe");
     public string McpExecutable => Path.Combine(VersionDirectory, "bin/kicad-mcp.exe");
+    public string UpdateConfiguration => Path.Combine(Path.GetDirectoryName(VersionDirectory)!, "update-config.json");
 }
 public sealed record RegisteredWindowsVersion(VerifiedWindowsVersion Version, string ExpectedSelectionId, bool Reused);
 public sealed record SelectedWindowsVersion(VerifiedWindowsVersion Version, string SelectionId);
@@ -42,7 +43,8 @@ public static partial class WindowsVerifiedVersions
         {
             await WriteNew(Path.Combine(work, "publisher.json"), policy, token);
             foreach (string name in new[] { "versions", "state", "staging" }) Directory.CreateDirectory(Path.Combine(work, name));
-            await Prepare(Path.Combine(work, "versions", manifest.PayloadSha256), Path.Combine(work, "staging"), archive, signed, manifest, token);
+            await Prepare(Path.Combine(work, "versions", manifest.PayloadSha256), Path.Combine(work, "staging"), root,
+                policy, archive, signed, manifest, token);
             var selection = await WindowsVersionSelection.InitializeAsync(Path.Combine(work, "manager"), manifest.PayloadSha256, token);
             await WriteNew(Path.Combine(work, "store.json"), new
             { schemaVersion = 1, status = "verified_version_store", installationReady = false, nativeEditorRestarted = false }, token);
@@ -79,7 +81,7 @@ public static partial class WindowsVerifiedVersions
         bool published = false;
         try
         {
-            await Prepare(work, Path.Combine(root, "staging"), archive, signed, candidate, token);
+            await Prepare(work, Path.Combine(root, "staging"), root, policy, archive, signed, candidate, token);
             using var selectionLock = Lock(Path.Combine(root, "manager/activation.lock"));
             using var checkpoint = Lock(Path.Combine(root, "state/check.lock"));
             if (WindowsVersionSelection.Inspect(Path.Combine(root, "manager")) != selected)
@@ -102,6 +104,20 @@ public static partial class WindowsVerifiedVersions
         return new(Describe(root, version), selected.SelectionId);
     }
 
+    public static string InspectSelectionId(string root) => WindowsVersionSelection.Inspect(Path.Combine(Root(root), "manager")).SelectionId;
+
+    public static async Task ValidateUpdateConfigurationAsync(UpdatePreparationConfiguration configuration, CancellationToken token = default)
+    {
+        string root = Root(configuration.InstallationRoot ?? throw new InvalidDataException("The Windows configuration is not store-bound."));
+        if (!Path.IsPathFullyQualified(configuration.InstalledEnvelope)) throw new InvalidDataException("The Windows installed envelope path is not absolute.");
+        string[] parts = Path.GetRelativePath(Path.Combine(root, "versions"), configuration.InstalledEnvelope).Split(Path.DirectorySeparatorChar);
+        if (parts.Length != 2 || !Digest(parts[0]) || parts[1] != "installed-envelope.json")
+            throw new InvalidDataException("The Windows configuration does not identify a retained version.");
+        var policy = await Policy(root, token);
+        if (configuration != Configuration(root, parts[0], policy)) throw new InvalidDataException("The Windows update configuration changed after registration.");
+        _ = await ReadVersion(root, parts[0], policy, token);
+    }
+
     public static async Task<VerifiedWindowsVersion> InspectExecutableAsync(string root, string executable, CancellationToken token = default)
     {
         root = Root(root);
@@ -113,7 +129,8 @@ public static partial class WindowsVerifiedVersions
         return Describe(root, await ReadVersion(root, parts[0], await Policy(root, token), token));
     }
 
-    private static async Task Prepare(string version, string stagingRoot, string archive, byte[] envelope, VerifiedUpdateManifest manifest, CancellationToken token)
+    private static async Task Prepare(string version, string stagingRoot, string finalRoot, WindowsPublisherPolicy policy,
+        string archive, byte[] envelope, VerifiedUpdateManifest manifest, CancellationToken token)
     {
         Absent(version); Directory.CreateDirectory(version);
         var artifact = manifest.ForInstallation("win-x64", "zip") ?? throw new InvalidDataException("Windows archive missing.");
@@ -129,6 +146,7 @@ public static partial class WindowsVerifiedVersions
             File.Delete(Path.Combine(stage, "verified.zip")); // Private verified duplicate; never the caller's archive.
             Directory.Move(stage, Path.Combine(version, "diagnostics"));
             await WriteBytes(Path.Combine(version, "installed-envelope.json"), envelope, token);
+            await WriteNew(Path.Combine(version, "update-config.json"), Configuration(finalRoot, manifest.PayloadSha256, policy), token);
             await WriteNew(Path.Combine(version, "version.json"), new WindowsVersionRegistration(1, manifest.PayloadSha256,
                 manifest.PublisherKeySha256, await WindowsPayloadFingerprint.ComputeAsync(payload, token)), token);
         }
@@ -144,8 +162,10 @@ public static partial class WindowsVerifiedVersions
             Convert.FromBase64String(policy.PublisherKeySpki), policy.Channel);
         _ = manifest.ForInstallation("win-x64", "zip") ?? throw new InvalidDataException("Registered Windows target differs.");
         var registration = await ReadJson<WindowsVersionRegistration>(Path.Combine(version, "version.json"), 4096, token);
+        var configuration = await ReadJson<UpdatePreparationConfiguration>(Path.Combine(version, "update-config.json"), 65536, token);
         if (registration.SchemaVersion != 1 || manifest.PayloadSha256 != digest || registration.ManifestSha256 != digest
             || registration.PublisherKeySha256 != manifest.PublisherKeySha256
+            || configuration != Configuration(root, digest, policy)
             || registration.PayloadSha256 != await WindowsPayloadFingerprint.ComputeAsync(Path.Combine(version, "payload"), token))
             throw new InvalidDataException("The registered Windows version changed after verification.");
         return manifest;
@@ -166,6 +186,9 @@ public static partial class WindowsVerifiedVersions
 
     private static VerifiedWindowsVersion Describe(string root, VerifiedUpdateManifest manifest) =>
         new(root, Path.Combine(root, "versions", manifest.PayloadSha256, "payload"), manifest.PayloadSha256, manifest.Release.Commit);
+    private static UpdatePreparationConfiguration Configuration(string root, string digest, WindowsPublisherPolicy policy) => new(1,
+        policy.Origin, policy.PublisherKeySpki, Path.Combine(root, "versions", digest, "installed-envelope.json"),
+        Path.Combine(root, "state"), Path.Combine(root, "staging"), policy.Channel, "win-x64", "zip", root);
     private static string DigestOf(WindowsSelectedVersion selected) => selected.VersionTarget[9..73];
     private static bool Digest(string? value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigitLower);
     private static void RequireId(string id)

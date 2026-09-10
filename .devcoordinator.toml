@@ -137,6 +137,23 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~PlatformUpdateFeedTests|FullyQualifiedName~SignedUpdateServerTests|FullyQualifiedName~DownloadServerTests|FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~SignedLinuxPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/platform-update-feeds"]
 retained_artifacts = [{ name = "platform-update-feeds", path = "automation/artifacts/platform-update-feeds", max_bytes = 16777216 }]
 
+[test.windows-archive-preflight]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.windows-archive-preflight.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.windows-archive-preflight.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsArchivePreflightTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-archive-preflight"]
+retained_artifacts = [{ name = "windows-archive-preflight", path = "automation/artifacts/windows-archive-preflight", max_bytes = 16777216 }]
+
 [test.windows-native-ui]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

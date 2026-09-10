@@ -10,7 +10,7 @@ public static partial class MacVerifiedInstallation
         string root = RootPath(installationRoot);
         if (!Digest(manifestSha256)) throw new ArgumentException("Use a registered Mac manifest digest.");
         var policy = await Policy(root, token);
-        using var ownership = Lock(Path.Combine(root, "registration.lock"));
+        using var ownership = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "registration.lock"), token);
         if (InspectTarget(root) != expectedTarget) throw new InvalidDataException("Mac selection changed before activation preflight.");
         var baseline = await ReadVersion(CurrentVersion(root, expectedTarget), policy, token);
         var candidate = await ReadVersion(Path.Combine(root, "versions", manifestSha256), policy, token);
@@ -26,14 +26,14 @@ public static partial class MacVerifiedInstallation
         string root = RootPath(installationRoot);
         if (operationId == Guid.Empty || !Digest(manifestSha256)) throw new ArgumentException("Use an exact Mac candidate and non-empty operation ID.");
         var policy = await Policy(root, token);
-        using var ownership = Lock(Path.Combine(root, "registration.lock"));
+        using var ownership = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "registration.lock"), token);
         string manager = Path.Combine(root, "manager");
         string current = PosixUpdateActivation.InspectTarget(manager);
         string target = "selections/" + operationId.ToString("D");
         if (current != expectedTarget && current != target) throw new InvalidDataException("Mac selection changed before activation.");
         var baseline = await ReadVersion(CurrentVersion(root, expectedTarget), policy, token);
         var candidate = await ReadVersion(Path.Combine(root, "versions", manifestSha256), policy, token);
-        using var checkpoint = Lock(Path.Combine(root, "state/check.lock"));
+        using var checkpoint = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "state/check.lock"), token);
         if (current != target)
         {
             RequireForward(baseline, candidate);
@@ -51,7 +51,7 @@ public static partial class MacVerifiedInstallation
         if (updateOperationId == Guid.Empty || rollbackOperationId == Guid.Empty || updateOperationId == rollbackOperationId)
             throw new ArgumentException("Use distinct non-empty update and rollback IDs.");
         var policy = await Policy(root, token);
-        using var ownership = Lock(Path.Combine(root, "registration.lock"));
+        using var ownership = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "registration.lock"), token);
         string manager = Path.Combine(root, "manager");
         var original = await ReadJson<UpdateActivation>(Path.Combine(manager, "operations", updateOperationId.ToString("D") + ".json"), 16 * 1024, token);
         if (original.OperationId != updateOperationId.ToString("D") || original.Status != "prepared"

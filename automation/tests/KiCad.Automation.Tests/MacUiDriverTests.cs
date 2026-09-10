@@ -79,6 +79,15 @@ public sealed class MacUiDriverTests
             Assert.IsTrue(result.RootElement.GetProperty("pressed").GetBoolean());
             Assert.IsFalse(result.RootElement.GetProperty("applicationUpdateJourneyVerified").GetBoolean());
             File.Copy(Path.Combine(root, "pressed.json"), Path.Combine(evidence, "result.json"));
+            File.Delete(Path.Combine(root, "pressed.json"));
+            await ui.PressAsync(identity, "Hide", deadline.Token);
+            await ui.CaptureAsync(identity, "hidden-control", deadline.Token);
+            await Assert.ThrowsAsync<AssertFailedException>(() => ui.PressAsync(identity, "Update", deadline.Token));
+            Assert.IsFalse(File.Exists(Path.Combine(root, "pressed.json")), "Hidden controls must not trigger native actions.");
+            await ui.PressAsync(identity, "Show", deadline.Token);
+            await ui.WaitButtonAsync(identity, "Update", deadline.Token);
+            await ui.PressAsync(identity, "Update", deadline.Token);
+            while (!File.Exists(Path.Combine(root, "pressed.json"))) await Task.Delay(50, deadline.Token);
         }
         finally
         {

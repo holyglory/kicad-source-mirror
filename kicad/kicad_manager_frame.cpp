@@ -332,7 +332,8 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
 
 void KICAD_MANAGER_FRAME::beginAutomationUpdate()
 {
-    if( !m_automationUpdateClient || m_automationUpdateClient->IsRunning() || m_updateRequested ) return;
+    if( !m_automationUpdateClient || m_automationUpdateClient->IsRunning() || m_updateRequested
+        || !m_automationUpdateClient->Candidate().is_object() ) return;
     m_updateRequested = true;
     if( m_updateCaption ) m_updateCaption( true, false );
     const auto* api = Pgm().ApiServerOrNull();

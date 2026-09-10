@@ -86,8 +86,12 @@ public sealed class MacVerifiedInstallationTests
 
             byte[] nextEnvelope = UpdateManifestCodec.Sign(release with { Sequence = 2, Version = "mac-install-fixture-two" }, key);
             var next = UpdateManifestCodec.Verify(nextEnvelope, publicKey, "preview");
-            var registered = await MacVerifiedInstallation.RegisterAsync(installedRoot, originalTarget, download.Path, nextEnvelope, deadline.Token);
-            Assert.IsFalse(registered.Reused);
+            var registrations = await Task.WhenAll(
+                MacVerifiedInstallation.RegisterAsync(installedRoot, originalTarget, download.Path, nextEnvelope, deadline.Token),
+                MacVerifiedInstallation.RegisterAsync(installedRoot, originalTarget, download.Path, nextEnvelope, deadline.Token));
+            Assert.AreEqual(1, registrations.Count(result => !result.Reused));
+            Assert.AreEqual(registrations[0].Version, registrations[1].Version);
+            var registered = registrations[0];
             Assert.AreEqual(originalTarget, MacVerifiedInstallation.InspectTarget(installedRoot));
             await File.WriteAllBytesAsync(Path.Combine(installedRoot, "state/accepted-envelope.json"), nextEnvelope, deadline.Token);
             await using var live = File.OpenRead(Path.Combine(installed.ApplicationBundle, "Contents/Info.plist"));
@@ -108,8 +112,14 @@ public sealed class MacVerifiedInstallationTests
             var reused = await MacVerifiedInstallation.RegisterAsync(installedRoot, rollback.Activation.Target, download.Path, nextEnvelope, deadline.Token);
             Assert.IsTrue(reused.Reused);
             using (var held = new FileStream(Path.Combine(installedRoot, "registration.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
-                await Assert.ThrowsAsync<IOException>(() => MacVerifiedInstallation.RegisterAsync(installedRoot,
-                    rollback.Activation.Target, download.Path, nextEnvelope, deadline.Token));
+            {
+                using var cancelled = new CancellationTokenSource(100);
+                await Assert.ThrowsAsync<OperationCanceledException>(() => MacVerifiedInstallation.RegisterAsync(installedRoot,
+                    rollback.Activation.Target, download.Path, nextEnvelope, cancelled.Token));
+                var waiting = MacVerifiedInstallation.RegisterAsync(installedRoot, rollback.Activation.Target, download.Path, nextEnvelope, deadline.Token);
+                Assert.IsFalse(waiting.IsCompleted);
+                held.Dispose(); Assert.IsTrue((await waiting).Reused);
+            }
             string drift = Path.Combine(registered.Version.VersionDirectory, "unexpected-fixture-file");
             await File.WriteAllTextAsync(drift, "Synthetic drift", deadline.Token);
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => MacVerifiedInstallation.InspectActivationAsync(installedRoot,

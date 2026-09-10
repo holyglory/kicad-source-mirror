@@ -72,7 +72,7 @@ public static partial class MacVerifiedInstallation
         var policy = await Policy(root, token);
         if (!Path.IsPathFullyQualified(archivePath)) throw new ArgumentException("Use an absolute candidate archive path.");
         byte[] key = Convert.FromBase64String(policy.PublisherKeySpki), bytes = envelope.ToArray();
-        using var ownership = Lock(Path.Combine(root, "registration.lock"));
+        using var ownership = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "registration.lock"), token);
         string manager = Path.Combine(root, "manager");
         if (PosixUpdateActivation.InspectTarget(manager) != expectedTarget)
             throw new InvalidDataException("The Mac installation selection changed before registration.");
@@ -91,8 +91,8 @@ public static partial class MacVerifiedInstallation
         try
         {
             var result = await PrepareVersion(work, root, archivePath, bytes, candidate, policy, token);
-            using var selection = Lock(Path.Combine(manager, "activation.lock"));
-            using var checkpoint = Lock(Path.Combine(root, "state/check.lock"));
+            using var selection = await UpdateStoreLease.AcquireAsync(Path.Combine(manager, "activation.lock"), token);
+            using var checkpoint = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "state/check.lock"), token);
             if (PosixUpdateActivation.InspectTarget(manager) != expectedTarget)
                 throw new InvalidDataException("The Mac installation selection changed during registration.");
             await RequireAccepted(root, policy, baseline, candidate, token);

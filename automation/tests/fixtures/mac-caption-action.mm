@@ -33,6 +33,16 @@ int main( int argc, char** argv )
                     encoding:NSUTF8StringEncoding error:nil];
             } );
             state( true, true );
+            // Reproduce the old hidden-but-enabled state for the external AX
+            // verifier, independently of the corrected production setter.
+            auto hide = KIPLATFORM::UI::AddMacCaptionAction( window, @"Hide", [window]
+            {
+                auto* controller = [[window titlebarAccessoryViewControllers] firstObject];
+                NSButton* button = (NSButton*)[controller view];
+                [button setHidden:NO]; [button setEnabled:YES]; [controller setHidden:YES];
+            } );
+            auto show = KIPLATFORM::UI::AddMacCaptionAction( window, @"Show", [state] { state( true, true ); } );
+            hide( true, true ); show( true, true );
             [window makeKeyAndOrderFront:nil];
             [window displayIfNeeded];
             [@"ready" writeToFile:[directory stringByAppendingPathComponent:@"ready"] atomically:YES
@@ -58,6 +68,7 @@ int main( int argc, char** argv )
             auto* otherController = [[second titlebarAccessoryViewControllers] firstObject];
             NSButton* button = (NSButton*)[controller view];
             require( [controller isHidden], "A new caption control must be hidden" );
+            require( [button isHidden] && ![button isEnabled], "A hidden initial control must not be actionable" );
             require( [[button accessibilityLabel] isEqualToString:@"Update"], "Accessible action name changed" );
             [first makeKeyAndOrderFront:nil]; [second orderFront:nil];
             for( bool dark : { false, true } )
@@ -81,8 +92,10 @@ int main( int argc, char** argv )
                     [button performClick:nil];
                     require( clicks == before + 1, "Disabled caption action fired" );
                     require( [otherController isHidden], "Independent window visibility changed" );
-                    state( false, false );
-                    require( [controller isHidden], "Caption action failed to hide" );
+                    state( false, true );
+                    require( [controller isHidden] && [button isHidden] && ![button isEnabled], "Hidden caption action is still actionable" );
+                    [button performClick:nil];
+                    require( clicks == before + 1, "Hidden caption action fired" );
                     state( true, true );
                     [first displayIfNeeded];
                     if( width == 340 )

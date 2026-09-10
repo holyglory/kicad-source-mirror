@@ -25,6 +25,39 @@ static NSString* textAttribute( AXUIElementRef element, CFStringRef attribute )
     return [result autorelease];
 }
 
+static bool visibleButton( AXUIElementRef application, AXUIElementRef button )
+{
+    CFTypeRef hidden = nullptr;
+    if( AXUIElementCopyAttributeValue( button, CFSTR("AXHidden"), &hidden ) == kAXErrorSuccess )
+    {
+        bool value = CFGetTypeID( hidden ) == CFBooleanGetTypeID() && CFBooleanGetValue( (CFBooleanRef)hidden );
+        CFRelease( hidden ); if( value ) return false;
+    }
+    CFTypeRef position = nullptr, size = nullptr;
+    CGPoint point; CGSize dimensions;
+    bool geometry = AXUIElementCopyAttributeValue( button, kAXPositionAttribute, &position ) == kAXErrorSuccess
+        && AXUIElementCopyAttributeValue( button, kAXSizeAttribute, &size ) == kAXErrorSuccess
+        && CFGetTypeID( position ) == AXValueGetTypeID() && CFGetTypeID( size ) == AXValueGetTypeID()
+        && AXValueGetValue( (AXValueRef)position, kAXValueCGPointType, &point )
+        && AXValueGetValue( (AXValueRef)size, kAXValueCGSizeType, &dimensions );
+    if( position ) CFRelease( position ); if( size ) CFRelease( size );
+    if( !geometry || dimensions.width <= 0 || dimensions.height <= 0 ) return false;
+    AXUIElementRef hit = nullptr;
+    if( AXUIElementCopyElementAtPosition( application, point.x + dimensions.width / 2,
+                                        point.y + dimensions.height / 2, &hit ) != kAXErrorSuccess ) return false;
+    bool visible = false;
+    for( int depth = 0; hit && depth < 8; ++depth )
+    {
+        if( CFEqual( hit, button ) ) { visible = true; break; }
+        CFTypeRef parent = nullptr;
+        AXUIElementCopyAttributeValue( hit, kAXParentAttribute, &parent ); CFRelease( hit ); hit = nullptr;
+        if( parent && CFGetTypeID( parent ) == AXUIElementGetTypeID() ) hit = (AXUIElementRef)parent;
+        else if( parent ) CFRelease( parent );
+    }
+    if( hit ) CFRelease( hit );
+    return visible;
+}
+
 int main( int argc, char** argv )
 {
     @autoreleasepool
@@ -87,8 +120,9 @@ int main( int argc, char** argv )
                 bool enabled = AXUIElementCopyAttributeValue( element, kAXEnabledAttribute, &enabledValue ) == kAXErrorSuccess
                     && CFGetTypeID( enabledValue ) == CFBooleanGetTypeID() && CFBooleanGetValue( (CFBooleanRef)enabledValue );
                 if( enabledValue ) CFRelease( enabledValue );
-                [controls addObject:@{ @"role": role, @"title": title, @"enabled": @(enabled) }];
-                if( wanted && [title isEqualToString:wanted] && enabled ) matches.push_back( element );
+                bool visible = visibleButton( application, element );
+                [controls addObject:@{ @"role": role, @"title": title, @"enabled": @(enabled), @"visible": @(visible) }];
+                if( wanted && [title isEqualToString:wanted] && enabled && visible ) matches.push_back( element );
             }
             CFTypeRef children = nullptr;
             if( AXUIElementCopyAttributeValue( element, kAXChildrenAttribute, &children ) == kAXErrorSuccess )
@@ -122,6 +156,8 @@ int main( int argc, char** argv )
         { emit( @{ @"schemaVersion": @1, @"status": @"no_unique_enabled_target", @"matches": @(matches.size()) } ); result = 5; }
         else if( !matchesProcess() )
         { emit( @{ @"schemaVersion": @1, @"status": @"process_identity_mismatch" } ); result = 7; }
+        else if( !visibleButton( application, matches[0] ) )
+        { emit( @{ @"schemaVersion": @1, @"status": @"target_not_visible" } ); result = 5; }
         else
         {
             AXError error = AXUIElementPerformAction( matches[0], kAXPressAction );

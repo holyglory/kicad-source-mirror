@@ -42,7 +42,7 @@ internal sealed class MacUiAutomation(string executable, string scratch, string 
             var observation = await InspectAsync(process, deadline.Token);
             var buttons = observation.GetProperty("buttons");
             if (buttons.EnumerateArray().Count(x => x.GetProperty("title").GetString() == title
-                && x.GetProperty("enabled").GetBoolean()) == 1) return;
+                && x.GetProperty("enabled").GetBoolean() && x.GetProperty("visible").GetBoolean()) == 1) return;
             string current = buttons.GetRawText();
             delay = current == previous ? Math.Min(delay * 2, 250) : 50;
             previous = current;

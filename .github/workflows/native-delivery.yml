@@ -22,7 +22,7 @@ on:
         description: With checks_only, select all Mac checks or a focused native fixture
         type: choice
         default: all
-        options: [all, caption, handoff, staging, ui-access, integrated-update]
+        options: [all, caption, handoff, staging, ui-access, concurrency, integrated-update]
       windows_fixture:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
@@ -87,6 +87,9 @@ jobs:
           fi
           if [ "$CHECKS_ONLY" = true ] && [ "$MAC_FIXTURE" = ui-access ]; then
             kicad_mac_test_filter='FullyQualifiedName~MacUiDriverTests'
+          fi
+          if [ "$CHECKS_ONLY" = true ] && [ "$MAC_FIXTURE" = concurrency ]; then
+            kicad_mac_test_filter='FullyQualifiedName~UpdateStoreLeaseTests|FullyQualifiedName~MacCaptionActionTests|FullyQualifiedName~MacUiDriverTests|FullyQualifiedName~MacVerifiedInstallationTests'
           fi
           if [ "$MAC_FIXTURE" = integrated-update ]; then
             test "$CHECKS_ONLY" = true

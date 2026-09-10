@@ -64,6 +64,15 @@ public sealed class WindowsCaptionActionTests
             WindowsNativeUi.PressKey(process, first, 0x23); // End
             WindowsNativeUi.PressKey(process, first, 0x0d); // Enter
             state = await WaitClicks(2);
+            Click(state, 0, first, cancel: true);
+            for (int attempt = 0; attempt < 30; ++attempt)
+            {
+                state = await Command(new { op = "state" });
+                if (Frame(state, 0)["escapes"]!.GetValue<int>() > 0) break;
+                await Task.Delay(50, deadline.Token);
+            }
+            Assert.AreEqual(1, Frame(state, 0)["escapes"]!.GetValue<int>(), "The cancellation must reach the actual input queue.");
+            Assert.AreEqual(2, Frame(state, 0)["clicks"]!.GetValue<int>());
 
             state = await Command(new { op = "set", visible = true, enabled = false });
             Assert.IsTrue(Unavailable(state, 0)); Click(state, 0, first);
@@ -129,12 +138,12 @@ public sealed class WindowsCaptionActionTests
                 }
                 throw new AssertFailedException("The actual caption pointer action did not reach its owner.");
             }
-            void Click(JsonObject result, int index, nint window)
+            void Click(JsonObject result, int index, nint window, bool cancel = false)
             {
                 var rectangle = Frame(result, index)["rectangle"]!;
                 Assert.IsTrue(rectangle["width"]!.GetValue<int>() > 0);
                 WindowsNativeUi.Click(process, window, rectangle["x"]!.GetValue<int>() + rectangle["width"]!.GetValue<int>() / 2,
-                    rectangle["y"]!.GetValue<int>() + rectangle["height"]!.GetValue<int>() / 2);
+                    rectangle["y"]!.GetValue<int>() + rectangle["height"]!.GetValue<int>() / 2, cancel);
             }
         }
         finally

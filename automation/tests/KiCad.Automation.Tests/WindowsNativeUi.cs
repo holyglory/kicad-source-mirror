@@ -62,7 +62,7 @@ internal static class WindowsNativeUi
         }
     }
 
-    public static void Click(Process owner, nint window, int screenX, int screenY)
+    public static void Click(Process owner, nint window, int screenX, int screenY, bool cancelBeforeRelease = false)
     {
         Focus(owner, window);
         nint previousDpi = SetThreadDpiAwarenessContext(-4);
@@ -74,12 +74,13 @@ internal static class WindowsNativeUi
             if (!SetCursorPos(screenX, screenY)) throw new Win32Exception();
             if (WindowFromPoint(new POINT { X = screenX, Y = screenY }) != window)
                 throw new InvalidOperationException("Another window obscures the requested caption target.");
-            INPUT[] input = [new() { Data = new() { Mouse = new() { Flags = 2 } } },
-                new() { Data = new() { Mouse = new() { Flags = 4 } } }];
+            INPUT down = new() { Data = new() { Mouse = new() { Flags = 2 } } };
+            INPUT up = new() { Data = new() { Mouse = new() { Flags = 4 } } };
+            INPUT[] input = cancelBeforeRelease ? [down, Key(0x1b, false), Key(0x1b, true), up] : [down, up];
             uint sent = SendInput((uint)input.Length, input, Marshal.SizeOf<INPUT>());
             if (sent != input.Length)
             {
-                if (sent > 0) SendInput(1, [input[1]], Marshal.SizeOf<INPUT>());
+                if (sent > 0) SendInput(2, [Key(0x1b, true), up], Marshal.SizeOf<INPUT>());
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "The native pointer action was not fully delivered.");
             }
         }

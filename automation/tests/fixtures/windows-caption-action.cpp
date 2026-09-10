@@ -9,7 +9,7 @@
 #include <thread>
 
 using json = nlohmann::json;
-struct FRAME { HWND window = nullptr; int index = 0, clicks = 0; std::function<void( bool, bool )> set; };
+struct FRAME { HWND window = nullptr; int index = 0, clicks = 0, escapes = 0; std::function<void( bool, bool )> set; };
 std::array<FRAME, 2> frames;
 
 std::string Utf8( const std::wstring& value )
@@ -39,7 +39,7 @@ json Snapshot()
     json result = { { "status", "ok" }, { "frames", json::array() } };
     for( auto& frame : frames )
     {
-        json item = { { "index", frame.index }, { "clicks", frame.clicks }, { "alive", frame.window != nullptr } };
+        json item = { { "index", frame.index }, { "clicks", frame.clicks }, { "escapes", frame.escapes }, { "alive", frame.window != nullptr } };
         if( frame.window )
         {
             ACCESS accessible( frame.window );
@@ -68,14 +68,53 @@ json Snapshot()
     return result;
 }
 
+void HandleCommand( const std::string& line )
+{
+    try
+    {
+        auto command = json::parse( line ); auto& frame = frames.at( command.value( "index", 0 ) );
+        auto op = command.value( "op", "state" ); json extra = json::object();
+        if( op == "set" ) frame.set( command.at( "visible" ), command.at( "enabled" ) );
+        else if( op == "resize" ) SetWindowPos( frame.window, nullptr, 0, 0, command.at( "width" ), 420, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE );
+        else if( op == "show" ) ShowWindow( frame.window, command.at( "visible" ).get<bool>() ? SW_SHOW : SW_HIDE );
+        else if( op == "enable" ) EnableWindow( frame.window, command.at( "enabled" ) );
+        else if( op == "invoke" ) { ACCESS object( frame.window ); extra["invokeResult"] = object.value->accDoDefaultAction( object.child ); }
+        else if( op == "duplicate" )
+        {
+            try { KIPLATFORM::UI::AddWindowsCaptionAction( frame.window, L"Other", []{} ); extra["duplicateRefused"] = false; }
+            catch( const std::invalid_argument& ) { extra["duplicateRefused"] = true; }
+        }
+        else if( op == "wrong-thread" )
+        {
+            bool refused = false;
+            std::thread wrong( [&] { try { frame.set( true, true ); } catch( const std::logic_error& ) { refused = true; } } );
+            wrong.join(); extra["wrongThreadRefused"] = refused;
+        }
+        else if( op == "destroy" )
+        {
+            ACCESS retained( frame.window ); DestroyWindow( frame.window ); frame.set( true, true );
+            extra["staleInvokeResult"] = retained.value->accDoDefaultAction( retained.child );
+        }
+        auto response = Snapshot(); response.update( extra ); std::cout << response.dump() << '\n' << std::flush;
+    }
+    catch( const std::exception& error ) { std::cout << json( { { "status", "failed" }, { "error", error.what() } } ).dump() << '\n' << std::flush; }
+}
+
 LRESULT CALLBACK WindowProc( HWND window, UINT message, WPARAM wParam, LPARAM lParam )
 {
+    if( message == WM_APP )
+    {
+        std::unique_ptr<std::string> line( reinterpret_cast<std::string*>( lParam ) );
+        HandleCommand( *line ); return 0;
+    }
+    if( message == WM_APP + 1 ) { PostQuitMessage( 0 ); return 0; }
     auto* frame = reinterpret_cast<FRAME*>( GetWindowLongPtrW( window, GWLP_USERDATA ) );
     if( message == WM_NCCREATE )
     {
         frame = static_cast<FRAME*>( reinterpret_cast<CREATESTRUCTW*>( lParam )->lpCreateParams );
         SetWindowLongPtrW( window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>( frame ) );
     }
+    if( message == WM_KEYUP && wParam == VK_ESCAPE && frame ) ++frame->escapes;
     if( message == WM_PAINT || message == WM_PRINTCLIENT )
     {
         PAINTSTRUCT paint; HDC dc = message == WM_PAINT ? BeginPaint( window, &paint ) : reinterpret_cast<HDC>( wParam );
@@ -116,58 +155,28 @@ int main()
             } );
             ShowWindow( frame.window, SW_SHOW ); UpdateWindow( frame.window );
         }
-        DWORD threadId = GetCurrentThreadId();
+        // Real window messages also survive the native system-menu modal loop;
+        // bare thread messages are not dispatched there.
+        HWND control = CreateWindowW( type.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, type.hInstance, nullptr );
+        if( !control ) throw std::runtime_error( "Cannot create the test-only command receiver." );
         auto initial = Snapshot();
-        std::thread input( [threadId]
+        std::thread input( [control]
         {
             std::string line;
             while( std::getline( std::cin, line ) )
             {
                 auto command = std::make_unique<std::string>( line );
-                if( !PostThreadMessageW( threadId, WM_APP, 0, reinterpret_cast<LPARAM>( command.get() ) ) ) break;
+                if( !PostMessageW( control, WM_APP, 0, reinterpret_cast<LPARAM>( command.get() ) ) ) break;
                 command.release();
             }
-            PostThreadMessageW( threadId, WM_QUIT, 0, 0 );
+            PostMessageW( control, WM_APP + 1, 0, 0 );
         } );
         std::cout << initial.dump() << '\n' << std::flush;
         MSG message;
         while( GetMessageW( &message, nullptr, 0, 0 ) > 0 )
-        {
-            if( !message.hwnd && message.message == WM_APP )
-            {
-                std::unique_ptr<std::string> line( reinterpret_cast<std::string*>( message.lParam ) );
-                try
-                {
-                    auto command = json::parse( *line ); auto& frame = frames.at( command.value( "index", 0 ) );
-                    auto op = command.value( "op", "state" ); json extra = json::object();
-                    if( op == "set" ) frame.set( command.at( "visible" ), command.at( "enabled" ) );
-                    else if( op == "resize" ) SetWindowPos( frame.window, nullptr, 0, 0, command.at( "width" ), 420, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE );
-                    else if( op == "show" ) ShowWindow( frame.window, command.at( "visible" ).get<bool>() ? SW_SHOW : SW_HIDE );
-                    else if( op == "enable" ) EnableWindow( frame.window, command.at( "enabled" ) );
-                    else if( op == "invoke" ) { ACCESS object( frame.window ); extra["invokeResult"] = object.value->accDoDefaultAction( object.child ); }
-                    else if( op == "duplicate" )
-                    {
-                        try { KIPLATFORM::UI::AddWindowsCaptionAction( frame.window, L"Other", []{} ); extra["duplicateRefused"] = false; }
-                        catch( const std::invalid_argument& ) { extra["duplicateRefused"] = true; }
-                    }
-                    else if( op == "wrong-thread" )
-                    {
-                        bool refused = false;
-                        std::thread wrong( [&] { try { frame.set( true, true ); } catch( const std::logic_error& ) { refused = true; } } );
-                        wrong.join(); extra["wrongThreadRefused"] = refused;
-                    }
-                    else if( op == "destroy" )
-                    {
-                        ACCESS retained( frame.window ); DestroyWindow( frame.window ); frame.set( true, true );
-                        extra["staleInvokeResult"] = retained.value->accDoDefaultAction( retained.child );
-                    }
-                    auto response = Snapshot(); response.update( extra ); std::cout << response.dump() << '\n' << std::flush;
-                }
-                catch( const std::exception& error ) { std::cout << json( { { "status", "failed" }, { "error", error.what() } } ).dump() << '\n' << std::flush; }
-            }
-            else { TranslateMessage( &message ); DispatchMessageW( &message ); }
-        }
+        { TranslateMessage( &message ); DispatchMessageW( &message ); }
         input.join();
+        DestroyWindow( control );
         for( auto& frame : frames ) if( frame.window ) DestroyWindow( frame.window );
         CoUninitialize(); return 0;
     }

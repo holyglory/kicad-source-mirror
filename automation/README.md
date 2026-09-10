@@ -19,10 +19,21 @@ Linux/Intel feed bytes. The application archive SHA-256 is
 
 Extract and open `install/KiCad.app`, or use `./kicad-mcp` for STDIO tools.
 macOS 15.7+ is required; the app is ad-hoc signed, not notarized. The real
-Update-button journey from the previous `969193719393` baseline is now running
-as `34519945161`. Its source-controlled baseline envelope contains only public
+Update-button journey from the previous `969193719393` baseline ran as
+`34519945161`. The first editor passed Cancel/Save/restart and object preservation,
+but the second preparation failed on the shared registration lock. Concurrent
+Mac updating is therefore not qualified. Its source-controlled baseline envelope contains only public
 signed metadata; the private publisher remains on the VPS. This is still a
 preliminary package, not full updater, Codex Desktop or engineering qualification.
+
+The native run also exposed unavailable caption-button actionability and duplicate
+Objective-C callback class registrations across editor modules. Fixes in
+`ef3f0f1140` are under focused native checks on both architectures (`34521984823`):
+bounded cancellable registration waiting, actual button visibility/hit-testing,
+and one runtime callback class with independent per-window callbacks. These fixes
+are not present in the published `969193`/`cd4934` pair. A fixed package pair and
+the real two-project journey remain required; the concrete gaps are tracked as
+`p90e20f6eae915471`, `p75f1ac017c017371`, and `p2e0d3607542a597b`.
 
 ### Previous Apple Silicon update baseline
 

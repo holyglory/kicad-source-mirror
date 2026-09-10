@@ -71,7 +71,7 @@ public sealed partial class InstanceRegistry
             if (launch is null || launch.InstanceId != id || string.IsNullOrWhiteSpace(launch.ProjectPath)
                 || !Path.IsPathFullyQualified(launch.ProjectPath) || launch.RequestedAt == default
                 || launch.ProcessId is <= 0
-                || launch.Endpoint != "ipc:///tmp/kicad-automation/" + id + "/api.sock")
+                || launch.Endpoint != NativeIpcEndpoint.FromSocketPath(Path.Combine(NativeIpcEndpoint.RuntimeDirectory(id), "api.sock")))
                 throw new AutomationException("invalid_registry", "The unverified launch receipt is invalid.");
             return launch;
         }

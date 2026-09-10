@@ -9,6 +9,25 @@ namespace KiCad.Automation.Tests;
 public sealed class InstanceRegistryTests
 {
     [TestMethod]
+    public async Task PlatformLocalLaunchReceiptUsesTheSameEndpointAsNativeStartup()
+    {
+        string state = Directory.CreateTempSubdirectory("kicad-launch-local-").FullName;
+        try
+        {
+            var transport = new NativeClientTests.FixtureTransport { ProjectPath = Path.Combine(state, "project.kicad_pro") };
+            string endpoint = NativeIpcEndpoint.FromSocketPath(Path.Combine(NativeIpcEndpoint.RuntimeDirectory(transport.InstanceId), "api.sock"));
+            var launch = new UnverifiedInstanceLaunch(transport.InstanceId, transport.ProjectPath, endpoint, 12345, DateTimeOffset.UtcNow);
+            string receipt = await WriteLaunch(state, launch);
+            var registry = new InstanceRegistry(transport, state);
+            var attached = await registry.ReattachAsync(transport.InstanceId);
+            Assert.AreEqual(endpoint, attached.Endpoint); Assert.AreEqual(launch.ProcessId, attached.ProcessId);
+            Assert.IsFalse(File.Exists(receipt));
+            Assert.AreEqual(transport.Epoch, registry.Client(transport.InstanceId).Epoch);
+        }
+        finally { Directory.Delete(state, true); }
+    }
+
+    [TestMethod]
     public async Task InterruptedLaunchIsUnverifiedUntilIdentityAndProjectAreConfirmed()
     {
         string state = Directory.CreateTempSubdirectory("kicad-launch-test-").FullName;

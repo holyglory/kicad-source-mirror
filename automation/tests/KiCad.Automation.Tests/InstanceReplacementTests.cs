@@ -1,0 +1,113 @@
+using KiCad.Automation.Model;
+using KiCad.Automation.Native;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace KiCad.Automation.Tests;
+
+[TestClass]
+public sealed class InstanceReplacementTests
+{
+    [TestMethod]
+    public async Task AdoptionReplacesOnePinnedClientAndSurvivesServiceRestart()
+    {
+        string state = Directory.CreateTempSubdirectory("kicad-replacement-").FullName;
+        try
+        {
+            var original = new NativeClientTests.FixtureTransport { Epoch = "original", ProjectPath = Path.Combine(state, "one.kicad_pro") };
+            var other = new NativeClientTests.FixtureTransport { Epoch = "other", ProjectPath = Path.Combine(state, "two.kicad_pro") };
+            var peers = new Peers(); string oldEndpoint = Endpoint("old"), nextEndpoint = Endpoint("next"), otherEndpoint = Endpoint("other");
+            peers.Values.Add(oldEndpoint, original); peers.Values.Add(nextEndpoint, original); peers.Values.Add(otherEndpoint, other);
+            var registry = new InstanceRegistry(peers, state);
+            var previous = await registry.AttachAsync(oldEndpoint, original.InstanceId);
+            var second = await registry.AttachAsync(otherEndpoint, other.InstanceId);
+            var oldClient = registry.Client(previous.InstanceId); var otherClient = registry.Client(second.InstanceId);
+            byte[] otherSaved = await File.ReadAllBytesAsync(Path.Combine(state, second.InstanceId + ".json"));
+            original.Epoch = "replacement"; Guid operation = Guid.NewGuid();
+            var result = await registry.AdoptVerifiedReplacementAsync(previous, nextEndpoint, original.Epoch, 42, operation);
+            Assert.IsFalse(result.Reused); Assert.AreEqual(original.Epoch, result.Instance.Epoch);
+            Assert.AreEqual(nextEndpoint, registry.Client(previous.InstanceId).Endpoint);
+            Assert.AreNotSame(oldClient, registry.Client(previous.InstanceId));
+            Assert.AreSame(otherClient, registry.Client(second.InstanceId)); Assert.AreEqual(second, registry.Get(second.InstanceId));
+            CollectionAssert.AreEqual(otherSaved, await File.ReadAllBytesAsync(Path.Combine(state, second.InstanceId + ".json")));
+            await Assert.ThrowsExactlyAsync<AutomationException>(() => oldClient.HandshakeAsync());
+            var restarted = new InstanceRegistry(peers, state);
+            var reused = await restarted.AdoptVerifiedReplacementAsync(previous, nextEndpoint, original.Epoch, 42, operation);
+            Assert.IsTrue(reused.Reused); Assert.AreEqual(result.Instance, reused.Instance);
+            var reattached = await new InstanceRegistry(peers, state).ReattachAsync(previous.InstanceId);
+            Assert.AreEqual(result.Instance.Epoch, reattached.Epoch);
+            Assert.AreEqual(result.Instance.Endpoint, reattached.Endpoint);
+            Assert.AreEqual(result.Instance.ProcessId, reattached.ProcessId);
+            await Assert.ThrowsExactlyAsync<AutomationException>(() => restarted.AdoptVerifiedReplacementAsync(previous, nextEndpoint, original.Epoch, 42, Guid.NewGuid()));
+        }
+        finally { Directory.Delete(state, true); }
+    }
+
+    [TestMethod]
+    public async Task FailedAndStaleAdoptionsPreserveRegistrationAndReceipt()
+    {
+        string state = Directory.CreateTempSubdirectory("kicad-replacement-").FullName;
+        try
+        {
+            var peer = new NativeClientTests.FixtureTransport { ProjectPath = Path.Combine(state, "one.kicad_pro") };
+            var registry = new InstanceRegistry(peer, state);
+            var previous = await registry.AttachAsync(Endpoint("old"), peer.InstanceId);
+            var client = registry.Client(peer.InstanceId); string saved = Path.Combine(state, peer.InstanceId + ".json");
+            byte[] before = await File.ReadAllBytesAsync(saved); peer.Epoch = "next";
+            using (var held = new FileStream(Path.Combine(state, "metadata.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            using (var cancel = new CancellationTokenSource(100))
+                await Assert.ThrowsAsync<OperationCanceledException>(() => registry.AdoptVerifiedReplacementAsync(previous, Endpoint("next"), peer.Epoch, 42, Guid.NewGuid(), cancel.Token));
+            Assert.AreSame(client, registry.Client(peer.InstanceId));
+            CollectionAssert.AreEqual(before, await File.ReadAllBytesAsync(saved));
+            Assert.IsFalse(Directory.Exists(Path.Combine(state, "replacements")));
+            var wrong = previous with { ProjectPath = Path.Combine(state, "wrong.kicad_pro") };
+            await Assert.ThrowsExactlyAsync<AutomationException>(() => registry.AdoptVerifiedReplacementAsync(wrong, Endpoint("next"), peer.Epoch, 42, Guid.NewGuid()));
+            await Assert.ThrowsExactlyAsync<AutomationException>(() => registry.AdoptVerifiedReplacementAsync(previous, Endpoint("next"), "wrong-epoch", 42, Guid.NewGuid()));
+            CollectionAssert.AreEqual(before, await File.ReadAllBytesAsync(saved));
+            // A new service cannot overwrite a saved binding through ordinary attach.
+            await Assert.ThrowsExactlyAsync<AutomationException>(() => new InstanceRegistry(peer, state).AttachAsync(Endpoint("next"), peer.InstanceId));
+            Guid operation = Guid.NewGuid();
+            var adopted = await registry.AdoptVerifiedReplacementAsync(previous, Endpoint("next"), peer.Epoch, 42, operation);
+            byte[] committed = await File.ReadAllBytesAsync(saved);
+            await Assert.ThrowsExactlyAsync<AutomationException>(() => registry.AdoptVerifiedReplacementAsync(previous, Endpoint("next"), peer.Epoch, 99, operation));
+            CollectionAssert.AreEqual(committed, await File.ReadAllBytesAsync(saved));
+            Assert.AreEqual(adopted.Instance, registry.Get(peer.InstanceId));
+        }
+        finally { Directory.Delete(state, true); }
+    }
+
+    private static string Endpoint(string name) => NativeIpcEndpoint.FromSocketPath(Path.Combine(Path.GetTempPath(), "replacement-" + name + ".sock"));
+
+    [TestMethod]
+    public async Task InterruptedPublicationPreservesBothIdentitiesAndRetriesExactlyOnce()
+    {
+        string state = Directory.CreateTempSubdirectory("kicad-replacement-").FullName;
+        try
+        {
+            var peer = new NativeClientTests.FixtureTransport { ProjectPath = Path.Combine(state, "one.kicad_pro") };
+            var registry = new InstanceRegistry(peer, state);
+            var previous = await registry.AttachAsync(Endpoint("old"), peer.InstanceId);
+            byte[] before = await File.ReadAllBytesAsync(Path.Combine(state, peer.InstanceId + ".json"));
+            peer.Epoch = "replacement"; Guid operation = Guid.NewGuid();
+            await Assert.ThrowsExactlyAsync<IOException>(() => registry.AdoptVerifiedReplacementAsync(previous,
+                Endpoint("next"), peer.Epoch, 42, operation, default, () => throw new IOException("Synthetic persistence interruption.")));
+            CollectionAssert.AreEqual(before, await File.ReadAllBytesAsync(Path.Combine(state, peer.InstanceId + ".json")));
+            Assert.AreEqual(previous, registry.Get(peer.InstanceId));
+            string intentPath = Path.Combine(state, "replacements", operation.ToString("D") + ".json");
+            byte[] intent = await File.ReadAllBytesAsync(intentPath);
+            var fresh = new InstanceRegistry(peer, state);
+            var result = await fresh.AdoptVerifiedReplacementAsync(previous, Endpoint("next"), peer.Epoch, 42, operation);
+            Assert.IsFalse(result.Reused);
+            Assert.IsTrue((await fresh.AdoptVerifiedReplacementAsync(previous, Endpoint("next"), peer.Epoch, 42, operation)).Reused);
+            CollectionAssert.AreEqual(intent, await File.ReadAllBytesAsync(intentPath));
+            Assert.AreEqual(1, Directory.GetFiles(Path.Combine(state, "replacements")).Length);
+        }
+        finally { Directory.Delete(state, true); }
+    }
+
+    private sealed class Peers : INativeTransport
+    {
+        internal Dictionary<string, NativeClientTests.FixtureTransport> Values { get; } = new();
+        public Task<byte[]> ExchangeAsync(string endpoint, byte[] request, TimeSpan timeout, CancellationToken cancellationToken = default) =>
+            Values[endpoint].ExchangeAsync(endpoint, request, timeout, cancellationToken);
+    }
+}

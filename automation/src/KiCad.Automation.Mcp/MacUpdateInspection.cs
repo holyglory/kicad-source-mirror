@@ -11,7 +11,7 @@ public sealed record MacUpdateInspectionResult(string Status, Guid OperationId, 
     string? JournalStatus = null, string? PreviousManifestSha256 = null, string? CurrentSelection = null,
     string? OriginalProcessStatus = null, string? ReplacementProcessStatus = null,
     MacProcessIdentity? ObservedReplacement = null, string? NativeEpoch = null,
-    bool AutomaticRecoveryAvailable = false);
+    bool AutomaticRecoveryAvailable = false, UpdateReplacementProof? Reconnection = null);
 internal sealed record MacUpdateJournalSnapshot(MacUpdateHandoffIntent Intent, MacUpdateHandoffState State,
     InstalledMacUpdate PreviousVersion, MacUpdateRecoveryClaim? Recovery);
 
@@ -88,7 +88,9 @@ public static class MacUpdateInspection
                     return report with { Status = "native_identity_mismatch" };
                 if (ObserveProcess(state.ProcessIdentity, executable) != "live")
                     return report with { Status = "replacement_changed_during_observation" };
-                return report with { Status = "replacement_running", NativeEpoch = session.Epoch };
+                return report with { Status = "replacement_running", NativeEpoch = session.Epoch,
+                    Reconnection = UpdateReplacementProof.FromInspection(request.Origin, original, operationId, request.InstanceId,
+                        request.ProjectPath, request.OldProcess.ProcessId, state.ProcessId.Value, state.Endpoint!, session.Epoch) };
             }
             catch (NngException) { return report with { Status = "native_endpoint_unavailable" }; }
             catch (NativeApiException error) when (error.Status is 4 or 7)

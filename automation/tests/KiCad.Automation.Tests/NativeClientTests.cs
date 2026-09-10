@@ -80,13 +80,14 @@ public sealed class NativeClientTests
         public int Status { get; set; } = 1;
         public bool WrongType { get; set; }
         public string InstanceId { get; } = Guid.NewGuid().ToString("D");
+        public string ProjectPath { get; set; } = "/fixture/test.kicad_pro";
         public ApiRequest? LastRequest { get; private set; }
 
         public Task<byte[]> ExchangeAsync(string endpoint, byte[] request, TimeSpan timeout, CancellationToken cancellationToken = default)
         {
             LastRequest = ApiRequest.Parser.ParseFrom(request);
             IMessage payload = LastRequest.Message.Is(GetAutomationSession.Descriptor) && !WrongType
-                ? new AutomationSession { ProtocolVersion = 1, InstanceId = InstanceId, ProjectPath = "/fixture/test.kicad_pro", Epoch = Epoch }
+                ? new AutomationSession { ProtocolVersion = 1, InstanceId = InstanceId, ProjectPath = ProjectPath, Epoch = Epoch }
                 : new GetVersionResponse { Version = new Kiapi.Common.Types.KiCadVersion { FullVersion = "isolated-protocol-fixture" } };
             return Task.FromResult(new ApiResponse
             {

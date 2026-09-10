@@ -13,22 +13,22 @@ public sealed record InstanceRecord(string InstanceId, string ProjectPath, strin
 public sealed partial class InstanceRegistry(INativeTransport transport, string stateDirectory,
     Action<ProcessStartInfo>? configureProcess = null)
 {
-    private readonly ConcurrentDictionary<string, InstanceRecord> records = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, NativeClient> clients = new(StringComparer.Ordinal);
+    private sealed record Connection(InstanceRecord Record, NativeClient Client);
+    // One immutable slot keeps the record and its epoch-pinned client together
+    // when an explicitly verified replacement is adopted.
+    private readonly ConcurrentDictionary<string, Connection> connections = new(StringComparer.Ordinal);
     private readonly HashSet<string> startingProjects = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim changes = new(1, 1);
     private readonly string directory = Path.GetFullPath(stateDirectory);
 
-    public IReadOnlyList<InstanceRecord> List() => records.Values.OrderBy(r => r.InstanceId).ToArray();
+    public IReadOnlyList<InstanceRecord> List() => connections.Values.Select(value => value.Record).OrderBy(r => r.InstanceId).ToArray();
 
-    public InstanceRecord Get(string instanceId) => records.TryGetValue(instanceId, out var record)
-        ? record : throw new AutomationException("unknown_instance", "The instance ID is not attached to this server.");
+    public InstanceRecord Get(string instanceId) => Find(instanceId).Record;
 
-    public NativeClient Client(string instanceId)
-    {
-        InstanceRecord record = Get(instanceId);
-        return clients.GetOrAdd(instanceId, _ => new NativeClient(transport, record.Endpoint, record.Epoch));
-    }
+    public NativeClient Client(string instanceId) => Find(instanceId).Client;
+
+    private Connection Find(string instanceId) => connections.TryGetValue(instanceId, out var connection)
+        ? connection : throw new AutomationException("unknown_instance", "The instance ID is not attached to this server.");
 
     public async Task<InstanceRecord> AttachAsync(string endpoint, string expectedInstanceId,
                                                  CancellationToken cancellationToken = default)
@@ -85,7 +85,7 @@ public sealed partial class InstanceRegistry(INativeTransport transport, string 
         await changes.WaitAsync(cancellationToken);
         try
         {
-            if (records.Values.Any(r => r.ProjectPath == projectPath) || !startingProjects.Add(projectPath))
+            if (connections.Values.Any(r => r.Record.ProjectPath == projectPath) || !startingProjects.Add(projectPath))
                 throw new AutomationException("project_owned", "This project already has an attached writer; use another worktree for an independent instance.");
         }
         finally { changes.Release(); }
@@ -174,24 +174,24 @@ public sealed partial class InstanceRegistry(INativeTransport transport, string 
         if ((expectedProject is not null && session.ProjectPath != expectedProject)
             || (expectedEpoch is not null && session.Epoch != expectedEpoch))
             throw new AutomationException("instance_changed", "The native session no longer matches the requested project or recorded epoch.");
-        if (records.TryGetValue(expectedId, out var existing)
-            && (existing.Epoch != session.Epoch || existing.ProjectPath != session.ProjectPath || existing.Endpoint != endpoint))
+        if (connections.TryGetValue(expectedId, out var existing)
+            && (existing.Record.Epoch != session.Epoch || existing.Record.ProjectPath != session.ProjectPath || existing.Record.Endpoint != endpoint))
             throw new AutomationException("instance_changed", "An attached identity cannot be rebound to another process, project or endpoint.");
-        if (records.Values.Any(r => r.ProjectPath == session.ProjectPath && r.InstanceId != expectedId))
+        if (connections.Values.Any(r => r.Record.ProjectPath == session.ProjectPath && r.Record.InstanceId != expectedId))
             throw new AutomationException("project_owned", "A different instance already owns this project's registry entry.");
         var record = new InstanceRecord(session.InstanceId, session.ProjectPath, endpoint,
                                         session.Epoch, processId, DateTimeOffset.UtcNow);
-        Directory.CreateDirectory(directory);
-        string destination = Path.Combine(directory, record.InstanceId + ".json");
-        string temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
+        using var lease = await MetadataLease(cancellationToken);
+        if (File.Exists(Path.Combine(directory, record.InstanceId + ".json")))
         {
-            await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(record), cancellationToken);
-            File.Move(temporary, destination, true);
+            var saved = await ReadSavedAsync(record.InstanceId, cancellationToken);
+            if (saved.Epoch != record.Epoch || saved.ProjectPath != record.ProjectPath || saved.Endpoint != record.Endpoint)
+                throw new AutomationException("instance_changed", "A saved identity requires explicit verified replacement, not ordinary attachment.");
+            if (record.ProcessId is null) record = record with { ProcessId = saved.ProcessId };
         }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
-        records[record.InstanceId] = record;
-        clients.TryAdd(record.InstanceId, client);
+        var connection = new Connection(record, existing?.Client ?? client);
+        await WriteRecordAsync(record, cancellationToken);
+        connections[record.InstanceId] = connection;
         return record;
     }
 

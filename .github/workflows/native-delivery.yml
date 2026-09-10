@@ -18,6 +18,11 @@ on:
         description: Run only small native delivery fixtures (no KiCad package)
         type: boolean
         default: false
+      mac_fixture:
+        description: With checks_only, select all Mac checks or only the caption control
+        type: choice
+        default: all
+        options: [all, caption]
 
 # SA-09: disposable public-source builds; no publisher key, engineering
 # repository, persistent runner or live editor-control endpoint.
@@ -37,6 +42,8 @@ jobs:
       SOURCE_COMMIT: ${{ inputs.source_commit }}
       DELIVERY_ARCHITECTURE: ${{ matrix.architecture }}
       MAC_BUILDER_COMMIT: 227de1489ae646b2723723bad99f27c10c07c322
+      MAC_FIXTURE: ${{ inputs.mac_fixture }}
+      CHECKS_ONLY: ${{ inputs.checks_only }}
       HOMEBREW_NO_ANALYTICS: '1'
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
@@ -63,8 +70,12 @@ jobs:
         shell: bash
         run: |
           export KICAD_HOSTED_FIXTURE_EVIDENCE="$RUNNER_TEMP/kicad-loader-preflight/evidence"
+          kicad_mac_test_filter='FullyQualifiedName~MacRuntimePathTests|FullyQualifiedName~MacArchivePreflightTests|FullyQualifiedName~MacUpdateStagerTests|FullyQualifiedName~MacVerifiedInstallationTests|FullyQualifiedName~PosixUpdateActivationTests|FullyQualifiedName~MacProcessIdentityTests|FullyQualifiedName~MacUpdateHandoffTests|FullyQualifiedName~MacCaptionActionTests'
+          if [ "$CHECKS_ONLY" = true ] && [ "$MAC_FIXTURE" = caption ]; then
+            kicad_mac_test_filter='FullyQualifiedName~MacCaptionActionTests'
+          fi
           dotnet test KiCad.Automation.slnx --configuration Release \
-            --filter 'FullyQualifiedName~MacRuntimePathTests|FullyQualifiedName~MacArchivePreflightTests|FullyQualifiedName~MacUpdateStagerTests|FullyQualifiedName~MacVerifiedInstallationTests|FullyQualifiedName~PosixUpdateActivationTests|FullyQualifiedName~MacProcessIdentityTests|FullyQualifiedName~MacUpdateHandoffTests' --logger trx \
+            --filter "$kicad_mac_test_filter" --logger trx \
             --results-directory "$RUNNER_TEMP/kicad-loader-preflight"
       - name: Prepare official Mac dependencies and validate the candidate
         if: '!inputs.checks_only'

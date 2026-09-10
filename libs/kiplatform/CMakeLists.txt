@@ -5,6 +5,7 @@ if( KICAD_WX_PORT STREQUAL osx )
     set( PLATFORM_SRCS
         port/wxosx/touchpad.mm
         port/wxosx/ui.mm
+        port/wxosx/caption_action.mm
         port/wxosx/webview.mm
         )
 elseif( KICAD_WX_PORT STREQUAL msw )

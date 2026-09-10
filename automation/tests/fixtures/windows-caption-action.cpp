@@ -10,7 +10,8 @@
 #pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 using json = nlohmann::json;
-struct FRAME { HWND window = nullptr; int index = 0, clicks = 0, escapes = 0; std::function<void( bool, bool )> set; };
+struct FRAME { HWND window = nullptr; int index = 0, clicks = 0, escapes = 0;
+    WPARAM systemCommand = 0, command = 0, menuSelection = 0; std::function<void( bool, bool )> set; };
 std::array<FRAME, 2> frames;
 
 std::string Utf8( const std::wstring& value )
@@ -41,6 +42,7 @@ json Snapshot()
     for( auto& frame : frames )
     {
         json item = { { "index", frame.index }, { "clicks", frame.clicks }, { "escapes", frame.escapes }, { "alive", frame.window != nullptr } };
+        item["systemCommand"] = frame.systemCommand; item["command"] = frame.command; item["menuSelection"] = frame.menuSelection;
         if( frame.window )
         {
             ACCESS accessible( frame.window );
@@ -77,6 +79,16 @@ json Snapshot()
         result["frames"].push_back( item );
     }
     return result;
+}
+
+LRESULT CALLBACK ObserveMessages( HWND window, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data )
+{
+    auto& frame = *reinterpret_cast<FRAME*>( data );
+    if( message == WM_SYSCOMMAND ) frame.systemCommand = wParam;
+    if( message == WM_COMMAND ) frame.command = wParam;
+    if( message == WM_MENUSELECT && HIWORD( wParam ) != 0xffff ) frame.menuSelection = wParam;
+    if( message == WM_NCDESTROY ) RemoveWindowSubclass( window, ObserveMessages, id );
+    return DefSubclassProc( window, message, wParam, lParam );
 }
 
 void HandleCommand( const std::string& line )
@@ -179,6 +191,8 @@ int main()
                 auto title = L"KiCad caption fixture " + std::to_wstring( frame.index ) + L" - clicks " + std::to_wstring( frame.clicks );
                 SetWindowTextW( frame.window, title.c_str() );
             } );
+            if( !SetWindowSubclass( frame.window, ObserveMessages, 2, reinterpret_cast<DWORD_PTR>( &frame ) ) )
+                throw std::runtime_error( "Cannot observe the actual menu message path." );
             ShowWindow( frame.window, SW_SHOW ); UpdateWindow( frame.window );
         }
         // Real window messages also survive the native system-menu modal loop;

@@ -62,6 +62,30 @@ internal static class WindowsNativeUi
         }
     }
 
+    public static void Click(Process owner, nint window, int screenX, int screenY)
+    {
+        Focus(owner, window);
+        nint previousDpi = SetThreadDpiAwarenessContext(-4);
+        try
+        {
+            if (!GetWindowRect(window, out RECT rect) || screenX < rect.Left || screenX >= rect.Right
+                || screenY < rect.Top || screenY >= rect.Bottom)
+                throw new ArgumentException("The pointer target must be inside the exact owned window.");
+            if (!SetCursorPos(screenX, screenY)) throw new Win32Exception();
+            if (WindowFromPoint(new POINT { X = screenX, Y = screenY }) != window)
+                throw new InvalidOperationException("Another window obscures the requested caption target.");
+            INPUT[] input = [new() { Data = new() { Mouse = new() { Flags = 2 } } },
+                new() { Data = new() { Mouse = new() { Flags = 4 } } }];
+            uint sent = SendInput((uint)input.Length, input, Marshal.SizeOf<INPUT>());
+            if (sent != input.Length)
+            {
+                if (sent > 0) SendInput(1, [input[1]], Marshal.SizeOf<INPUT>());
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "The native pointer action was not fully delivered.");
+            }
+        }
+        finally { if (previousDpi != 0) SetThreadDpiAwarenessContext(previousDpi); }
+    }
+
     public static void Capture(Process owner, nint window, string path)
     {
         Focus(owner, window);
@@ -191,6 +215,7 @@ internal static class WindowsNativeUi
     { Type = 1, Data = new() { Keyboard = new() { VirtualKey = key, Flags = up ? 2U : 0U } } };
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
     [StructLayout(LayoutKind.Sequential)] private struct INPUT { public uint Type; public INPUTDATA Data; }
     [StructLayout(LayoutKind.Explicit)] private struct INPUTDATA
     { [FieldOffset(0)] public KEYBDINPUT Keyboard; [FieldOffset(0)] public MOUSEINPUT Mouse; }
@@ -215,6 +240,8 @@ internal static class WindowsNativeUi
     [DllImport("user32")] private static extern bool SetForegroundWindow(nint window);
     [DllImport("user32")] private static extern nint GetForegroundWindow();
     [DllImport("user32", SetLastError = true)] private static extern uint SendInput(uint count, INPUT[] inputs, int size);
+    [DllImport("user32", SetLastError = true)] private static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32")] private static extern nint WindowFromPoint(POINT point);
     [DllImport("user32")] private static extern nint SetThreadDpiAwarenessContext(nint context);
     [DllImport("user32", SetLastError = true)] private static extern bool GetWindowRect(nint window, out RECT rectangle);
     [DllImport("user32", SetLastError = true)] private static extern nint GetWindowDC(nint window);

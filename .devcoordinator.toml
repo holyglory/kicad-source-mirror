@@ -154,6 +154,23 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~UpdateStoreLeaseTests|FullyQualifiedName~UpdateRegistrationRetryTests|FullyQualifiedName~MacCaptionActionTests|FullyQualifiedName~MacUiDriverTests|FullyQualifiedName~MacVerifiedInstallationTests|FullyQualifiedName~MacUpdatePairTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-update-concurrency"]
 retained_artifacts = [{ name = "mac-update-concurrency", path = "automation/artifacts/mac-update-concurrency", max_bytes = 16777216 }]
 
+[test.windows-caption]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.windows-caption.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.windows-caption.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsCaptionActionTests|FullyQualifiedName~WindowsUiDriverTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-caption-tests"]
+retained_artifacts = [{ name = "windows-caption-tests", path = "automation/artifacts/windows-caption-tests", max_bytes = 16777216 }]
+
 [test.windows-process-identity]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

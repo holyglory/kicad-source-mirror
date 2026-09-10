@@ -27,7 +27,7 @@ on:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
         default: all
-        options: [all, package-staging, handoff]
+        options: [all, package-staging, handoff, caption]
       mac_update_baseline_commit:
         description: With integrated-update, exact baseline commit with a retained signed envelope for each selected Mac architecture
         type: string
@@ -191,12 +191,20 @@ jobs:
         with:
           global-json-file: automation/global.json
       - name: Check Windows delivery contracts and select supported stages
-        if: inputs.windows_fixture == 'all'
+        if: inputs.windows_fixture == 'all' || inputs.windows_fixture == 'caption'
         id: stages
         working-directory: automation
         shell: pwsh
         run: |
           $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
+          if ($env:WINDOWS_FIXTURE -eq 'caption') {
+            if ($env:CHECKS_ONLY -ne 'true') { throw 'Caption component verification is a checks-only fixture.' }
+            dotnet test KiCad.Automation.slnx --configuration Release `
+              --filter 'FullyQualifiedName~WindowsCaptionActionTests|FullyQualifiedName~WindowsUiDriverTests' `
+              --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
+            if ($LASTEXITCODE -ne 0) { throw 'Windows caption fixture failed.' }
+            exit 0
+          }
           dotnet test KiCad.Automation.slnx --configuration Release `
             --filter 'FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~WindowsJsonLinkTests|FullyQualifiedName~NativeIpcEndpointTests|FullyQualifiedName~WindowsUiDriverTests|FullyQualifiedName~WindowsArchivePreflightTests|FullyQualifiedName~WindowsUpdateStagerTests|FullyQualifiedName~WindowsVersionSelectionTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~WindowsVerifiedVersionsTests|FullyQualifiedName~WindowsLauncherTests|FullyQualifiedName~WindowsInstallerTests|FullyQualifiedName~WindowsProcessIdentityTests|FullyQualifiedName~WindowsUpdateHandoffTests|FullyQualifiedName~WindowsUpdateInspectionTests|FullyQualifiedName~WindowsRestartCommandTests|FullyQualifiedName~WindowsNativeRestartRequestTests|FullyQualifiedName~UpdateStoreLeaseTests|FullyQualifiedName~UpdateRegistrationRetryTests' `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"

@@ -224,7 +224,7 @@ public static class HostedDelivery
                     throw new InvalidDataException("Packaged Windows NNG transport could not open its native sockets.");
             }
             await Run("managed-contracts", "dotnet", ["test", "automation/KiCad.Automation.slnx", "--configuration", "Release",
-                "--filter", "FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~RuntimeInfoTests",
+                "--filter", "FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~RuntimeInfoTests|FullyQualifiedName~NngTransportTests|FullyQualifiedName~NativeIpcEndpointTests",
                 "--logger", "trx", "--results-directory", Path.Combine(evidence, "managed-tests")]);
             Directory.CreateDirectory(packages);
             ZipFile.CreateFromDirectory(install, Path.Combine(packages, Name("windows-x64", ".zip")), CompressionLevel.Fastest, false);

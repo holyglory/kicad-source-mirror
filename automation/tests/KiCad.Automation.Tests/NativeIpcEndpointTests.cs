@@ -34,7 +34,7 @@ public sealed class NativeIpcEndpointTests
             Assert.AreEqual(0, await Run("native", executable, [path, NativeIpcEndpoint.FromSocketPath(path)]));
             string result = await File.ReadAllTextAsync(Path.Combine(evidence, "native.stdout.log"));
             StringAssert.Contains(result, OperatingSystem.IsWindows()
-                ? "native-pipe-exchange-and-legacy-rejection" : "native-posix-endpoint-unchanged");
+                ? "native-pipe-exchange-and-wrong-target-rejection" : "native-posix-endpoint-unchanged");
         }
         finally { Directory.Delete(scratch, true); }
 
@@ -72,11 +72,9 @@ public sealed class NativeIpcEndpointTests
         string socket = Path.Combine(runtime, "api.sock");
         string endpoint = NativeIpcEndpoint.FromSocketPath(socket);
         NngTransport.ValidateEndpoint(endpoint);
-        Assert.AreEqual("ipc://" + (OperatingSystem.IsWindows() ? socket.Replace('\\', '/') : socket), endpoint);
+        Assert.AreEqual("ipc://" + socket, endpoint);
         if (!OperatingSystem.IsWindows())
             Assert.AreEqual("/tmp/kicad-automation/" + id + "/api.sock", socket);
-        else
-            Assert.IsFalse(endpoint.Contains('\\'), "A Windows pipe name cannot contain backslashes.");
     }
 
     [TestMethod]
@@ -87,9 +85,10 @@ public sealed class NativeIpcEndpointTests
     }
 
     [TestMethod]
-    public void WindowsDriveEndpointsAreAcceptedOnlyOnWindows()
+    [DataRow("ipc://C:/Users/runner/AppData/Local/Temp/kicad/api.sock")]
+    [DataRow("ipc://C:\\Users\\runner\\AppData\\Local\\Temp\\kicad\\api.sock")]
+    public void WindowsDriveEndpointsAreAcceptedOnlyOnWindows(string endpoint)
     {
-        const string endpoint = "ipc://C:/Users/runner/AppData/Local/Temp/kicad/api.sock";
         if (OperatingSystem.IsWindows()) NngTransport.ValidateEndpoint(endpoint);
         else Assert.ThrowsExactly<ArgumentException>(() => NngTransport.ValidateEndpoint(endpoint));
     }

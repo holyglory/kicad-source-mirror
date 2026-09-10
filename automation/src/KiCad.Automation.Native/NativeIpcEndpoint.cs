@@ -7,8 +7,7 @@ public static class NativeIpcEndpoint
     {
         if (!Path.IsPathFullyQualified(socketPath))
             throw new ArgumentException("An absolute socket path is required.", nameof(socketPath));
-        string endpoint = "ipc://" + (OperatingSystem.IsWindows()
-            ? socketPath.Replace('\\', '/') : socketPath);
+        string endpoint = "ipc://" + socketPath;
         NngTransport.ValidateEndpoint(endpoint);
         return endpoint;
     }

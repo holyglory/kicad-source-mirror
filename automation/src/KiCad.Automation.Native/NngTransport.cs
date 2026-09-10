@@ -40,9 +40,8 @@ public sealed class NngTransport : INativeTransport
         bool unixPath = endpoint.StartsWith("ipc:///", StringComparison.Ordinal) && endpoint.Length > 7;
         bool windowsPath = OperatingSystem.IsWindows() && endpoint.Length > 9
             && endpoint.StartsWith("ipc://", StringComparison.Ordinal)
-            && char.IsAsciiLetter(endpoint[6]) && endpoint[7] == ':' && endpoint[8] == '/';
-        if ((!unixPath && !windowsPath) || endpoint.IndexOf('\0') >= 0
-            || (OperatingSystem.IsWindows() && endpoint.Contains('\\')))
+            && char.IsAsciiLetter(endpoint[6]) && endpoint[7] == ':' && endpoint[8] is '/' or '\\';
+        if ((!unixPath && !windowsPath) || endpoint.IndexOf('\0') >= 0)
             throw new ArgumentException("An explicit absolute local ipc:// endpoint is required.", nameof(endpoint));
     }
 

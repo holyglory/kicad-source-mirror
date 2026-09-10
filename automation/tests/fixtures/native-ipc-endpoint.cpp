@@ -1,4 +1,6 @@
 #include <api/api_socket_url.h>
+#include <algorithm>
+#include <iterator>
 #include <iostream>
 
 #ifdef _WIN32
@@ -27,18 +29,21 @@ int main( int argc, char** argv )
     const bool exchanged = WriteFile( client, expected, 3, &written, nullptr ) && written == 3
             && ReadFile( server, received, 3, &read, nullptr ) && read == 3
             && std::equal( std::begin( expected ), std::end( expected ), std::begin( received ) );
+    const std::string wrongName = pipeName + ".wrong-instance";
+    HANDLE wrong = CreateFileA( wrongName.c_str(), GENERIC_READ | GENERIC_WRITE,
+            0, nullptr, OPEN_EXISTING, 0, nullptr );
+    const DWORD wrongError = GetLastError();
+    if( wrong != INVALID_HANDLE_VALUE ) CloseHandle( wrong );
     CloseHandle( client );
     CloseHandle( server );
     if( !exchanged ) return 5;
-
-    // The previous path spelling must fail for its actual backslash naming
-    // problem; unrelated failures are not regression evidence.
-    const std::string legacyName = "\\\\.\\pipe\\" + std::string( argv[1] );
-    HANDLE legacy = CreateNamedPipeA( legacyName.c_str(), PIPE_ACCESS_DUPLEX,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, nullptr );
-    if( legacy != INVALID_HANDLE_VALUE ) { CloseHandle( legacy ); return 6; }
-    if( GetLastError() != ERROR_INVALID_NAME ) return 7;
-    std::cout << "native-pipe-exchange-and-legacy-rejection\n";
+    // A busy instance is not proof that a different target is absent.
+    if( wrong != INVALID_HANDLE_VALUE || wrongError != ERROR_FILE_NOT_FOUND )
+    {
+        std::cerr << "Wrong-target open error: " << wrongError << '\n';
+        return 6;
+    }
+    std::cout << "native-pipe-exchange-and-wrong-target-rejection\n";
 #else
     std::cout << "native-posix-endpoint-unchanged\n";
 #endif

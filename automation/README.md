@@ -106,6 +106,23 @@ test; it does not authenticate packages or launch applications by itself.
 Installer integration, the caption Update action, restart/recovery and actual
 end-to-end Windows updating remain open under `p67f11d25763f499e`.
 
+The exact retained Windows archive `84359da19e3b` subsequently passed real native
+staging in run `34513479435`, helper `bf06326bb4`: 3,048 entries and 807,919,237
+expanded bytes, native KiCad commit and packaged MCP runtime checks, followed by
+wrong-commit rejection. The test used an isolated publisher and did not operate
+the graphical editor. That older candidate predates the startup fixes and the
+installed-editor publication gate, so it is not a public Windows delivery.
+
+Source `d0441539dd` adds authenticated retained-version storage and selection:
+create a new store, register without switching, verify retained payloads, identify
+an old executable independently of the current selection, and bind activation
+or rollback to exact selection/operation identities. Rollback retains the failed
+candidate and preserves the accepted network checkpoint. Native store tests are
+running separately; compilation alone does not qualify these operations. This
+module does not yet provide a stable launcher, a Windows `--install-package`
+path, or an Update button. The command still refuses `installationRoot` until
+that integration is verified.
+
 ### Mac installation and restart checkpoints
 
 Helper `062db56c9231fdf3662b81a4bade9b34a3aec2d5` passed native registration,

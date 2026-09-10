@@ -15,6 +15,27 @@ namespace
 {
 constexpr wchar_t PROPERTY[] = L"KICAD_CAPTION_ACTION_V1";
 
+class CAPTION_FONT
+{
+public:
+    CAPTION_FONT( HWND window, HDC dc ) : m_dc( dc )
+    {
+        NONCLIENTMETRICSW metrics{}; metrics.cbSize = sizeof( metrics );
+        if( SystemParametersInfoForDpi( SPI_GETNONCLIENTMETRICS, sizeof( metrics ), &metrics, 0, GetDpiForWindow( window ) ) )
+            m_font = CreateFontIndirectW( &metrics.lfCaptionFont );
+        m_previous = SelectObject( dc, m_font ? m_font : GetStockObject( DEFAULT_GUI_FONT ) );
+    }
+    ~CAPTION_FONT()
+    {
+        SelectObject( m_dc, m_previous );
+        if( m_font ) DeleteObject( m_font );
+    }
+private:
+    HDC m_dc;
+    HFONT m_font = nullptr;
+    HGDIOBJ m_previous = nullptr;
+};
+
 struct ACTION
 {
     HWND window;
@@ -46,9 +67,11 @@ struct ACTION
         SIZE text = {};
         if( dc )
         {
-            auto old = SelectObject( dc, GetStockObject( DEFAULT_GUI_FONT ) );
-            GetTextExtentPoint32W( dc, label.data(), static_cast<int>( label.size() ), &text );
-            SelectObject( dc, old ); ReleaseDC( window, dc );
+            {
+                CAPTION_FONT font( window, dc );
+                GetTextExtentPoint32W( dc, label.data(), static_cast<int>( label.size() ), &text );
+            }
+            ReleaseDC( window, dc );
         }
         const int gap = std::max( 2, height / 10 );
         const int width = std::max( height * 2, static_cast<int>( text.cx ) + height );
@@ -73,12 +96,14 @@ struct ACTION
         DrawCaption( window, dc, &caption, flags );
         DrawFrameControl( dc, &control, DFC_BUTTON,
                 DFCS_BUTTONPUSH | ( Ready() ? 0 : DFCS_INACTIVE ) | ( pressed ? DFCS_PUSHED : 0 ) );
-        auto old = SelectObject( dc, GetStockObject( DEFAULT_GUI_FONT ) );
-        const int background = SetBkMode( dc, TRANSPARENT );
-        const auto color = SetTextColor( dc, GetSysColor( Ready() ? COLOR_BTNTEXT : COLOR_GRAYTEXT ) );
-        DrawTextW( dc, label.data(), static_cast<int>( label.size() ), &control,
-                DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX );
-        SetTextColor( dc, color ); SetBkMode( dc, background ); SelectObject( dc, old );
+        {
+            CAPTION_FONT font( window, dc );
+            const int background = SetBkMode( dc, TRANSPARENT );
+            const auto color = SetTextColor( dc, GetSysColor( Ready() ? COLOR_BTNTEXT : COLOR_GRAYTEXT ) );
+            DrawTextW( dc, label.data(), static_cast<int>( label.size() ), &control,
+                    DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX );
+            SetTextColor( dc, color ); SetBkMode( dc, background );
+        }
         ReleaseDC( window, dc );
     }
 

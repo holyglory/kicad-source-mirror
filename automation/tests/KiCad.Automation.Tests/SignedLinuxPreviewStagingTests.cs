@@ -15,6 +15,9 @@ public sealed class SignedLinuxPreviewStagingTests
         using var fixture = new Fixture();
         byte[] previous = File.ReadAllBytes(Path.Combine(fixture.Previous, "updates/preview.json"));
         byte[] stable = File.ReadAllBytes(Path.Combine(fixture.Previous, "updates/stable.json"));
+        string nativeFeed = Path.Combine(fixture.Previous, PlatformUpdateFeeds.RelativeFeed("osx-x64", "preview"));
+        Directory.CreateDirectory(Path.GetDirectoryName(nativeFeed)!);
+        await File.WriteAllTextAsync(nativeFeed, "Synthetic retained native feed; authenticated server loading is a separate contract.");
         var result = await SignedLinuxPreviewStaging.RunAsync(fixture.Request, CancellationToken.None);
         Assert.AreEqual("staged", result.Status);
         Assert.AreEqual(4, result.ArtifactCount);
@@ -25,6 +28,8 @@ public sealed class SignedLinuxPreviewStagingTests
         CollectionAssert.AreEqual(File.ReadAllBytes(fixture.Request.Feed), File.ReadAllBytes(Path.Combine(result.Directory, "updates/preview.json")));
         CollectionAssert.AreEqual(stable, File.ReadAllBytes(Path.Combine(result.Directory, "updates/stable.json")));
         CollectionAssert.AreEqual(previous, File.ReadAllBytes(Path.Combine(fixture.Previous, "updates/preview.json")));
+        Assert.AreEqual(await File.ReadAllTextAsync(nativeFeed), await File.ReadAllTextAsync(Path.Combine(result.Directory,
+            PlatformUpdateFeeds.RelativeFeed("osx-x64", "preview"))));
         Assert.IsFalse(File.Exists(Path.Combine(result.Directory, "private-key.pkcs8")));
         Assert.IsFalse(File.Exists(Path.Combine(result.Directory, "private-evidence.json")));
         var manifest = JsonSerializer.Deserialize<DownloadManifest>(File.ReadAllText(Path.Combine(result.Directory, "downloads.json")), Fixture.Json)!;

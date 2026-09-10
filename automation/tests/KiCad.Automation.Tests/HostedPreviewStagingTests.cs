@@ -15,6 +15,9 @@ public sealed class HostedPreviewStagingTests
         using var fixture = await Fixture.Create();
         await File.WriteAllTextAsync(Path.Combine(fixture.Previous, "private.txt"), "Synthetic private fixture.");
         await File.WriteAllTextAsync(Path.Combine(fixture.Candidate, "diagnostic.txt"), "Synthetic diagnostic fixture.");
+        string nativeFeed = Path.Combine(fixture.Previous, PlatformUpdateFeeds.RelativeFeed("osx-arm64", "preview"));
+        Directory.CreateDirectory(Path.GetDirectoryName(nativeFeed)!);
+        await File.WriteAllTextAsync(nativeFeed, "Synthetic retained feed bytes; server authentication is checked separately.");
         var result = await HostedPreviewStaging.RunAsync(fixture.Request, CancellationToken.None);
         Assert.AreEqual("staged", result.Status);
         Assert.IsFalse(result.QualifyingDelivery);
@@ -25,6 +28,8 @@ public sealed class HostedPreviewStagingTests
         Assert.AreEqual(await File.ReadAllTextAsync(Path.Combine(fixture.Previous, "updates/preview.json")),
             await File.ReadAllTextAsync(Path.Combine(fixture.Request.Output, "updates/preview.json")));
         Assert.AreEqual(fixture.OriginalCatalogue, await File.ReadAllTextAsync(Path.Combine(fixture.Previous, "downloads.json")));
+        Assert.AreEqual(await File.ReadAllTextAsync(nativeFeed), await File.ReadAllTextAsync(Path.Combine(fixture.Request.Output,
+            PlatformUpdateFeeds.RelativeFeed("osx-arm64", "preview"))));
         var manifest = JsonSerializer.Deserialize<DownloadManifest>(await File.ReadAllTextAsync(Path.Combine(fixture.Request.Output, "downloads.json")),
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         Assert.AreEqual("win-x64", manifest.Artifacts.Single(x => x.FileName.EndsWith("windows-x64.zip", StringComparison.Ordinal)).Platform);

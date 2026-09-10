@@ -9,6 +9,7 @@ try
         Console.WriteLine("kicad-validate hosted --repository CHECKOUT --commit FULL_SHA --architecture arm64|x64 --output DIRECTORY --dependency-commit FULL_SHA [--phase all|prepare|build] (GitHub-hosted runners only; split phases are Windows same-job only)");
         Console.WriteLine("kicad-validate stage-hosted --candidate DOWNLOADED_CANDIDATE_ROOT --commit FULL_SHA --platform osx-arm64|osx-x64|win-x64 --run-id GITHUB_RUN_ID --version PREVIEW_VERSION --previous PUBLIC_ROOT --output NEW_PUBLIC_ROOT");
         Console.WriteLine("kicad-validate stage-signed-linux --candidate LINUX_PACKAGE_DIRECTORY --commit FULL_SHA --previous PUBLIC_ROOT --output NEW_PUBLIC_ROOT --feed SIGNED_PREVIEW_JSON --publisher TRUSTED_PUBLIC_SPKI");
+        Console.WriteLine("kicad-validate stage-platform-feeds --previous PUBLIC_ROOT --output NEW_PUBLIC_ROOT --publisher TRUSTED_PUBLIC_SPKI --sources FEED_DECLARATION_JSON");
         Console.WriteLine("kicad-validate verify --result RESULT_JSON --archive EVIDENCE_TAR_GZ --commit FULL_SHA [--architecture arm64|x64]");
         Console.WriteLine("kicad-validate stage-linux --build NATIVE_BUILD --managed SELF_CONTAINED_PUBLISH --nng NNG_SHARED_LIBRARY --output EXISTING_STAGING_DIRECTORY");
         Console.WriteLine("kicad-validate package-linux --staging STAGING_RECEIPT --repository COMMITTED_SOURCE --commit FULL_SHA --version VERSION --output NEW_DIRECTORY");
@@ -28,6 +29,7 @@ try
     string Required(string name) => options.TryGetValue(name, out string? value) ? value
         : throw new ArgumentException($"Missing --{name}.");
     string[] allowed = args[0] == "hosted" ? ["repository", "commit", "architecture", "output", "dependency-commit", "phase"]
+        : args[0] == "stage-platform-feeds" ? ["previous", "output", "publisher", "sources"]
         : args[0] == "stage-signed-linux" ? ["candidate", "commit", "previous", "output", "feed", "publisher"]
         : args[0] == "stage-hosted" ? ["candidate", "commit", "platform", "run-id", "version", "previous", "output"]
         : args[0] == "mac"
@@ -42,6 +44,13 @@ try
         if (!allowed.Contains(name, StringComparer.Ordinal)) throw new ArgumentException($"Unknown option --{name}.");
     using var cancel = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
+    if (args[0] == "stage-platform-feeds")
+    {
+        var sources = await SignedPlatformFeedStaging.ReadSourcesAsync(Required("sources"), cancel.Token);
+        var result = await SignedPlatformFeedStaging.RunAsync(new(Required("previous"), Required("output"), Required("publisher"), sources.Feeds), cancel.Token);
+        Console.WriteLine(JsonSerializer.Serialize(result, Evidence.JsonOptions));
+        return 0;
+    }
     if (args[0] == "stage-hosted")
     {
         var result = await HostedPreviewStaging.RunAsync(new(Required("candidate"), Required("commit"), Required("platform"),

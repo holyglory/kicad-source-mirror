@@ -80,12 +80,16 @@ public static partial class HostedPreviewStaging
     }
 
     internal sealed record PublicPreviewArtifact(DownloadArtifact Artifact, string Source);
-    internal sealed record PublicPreviewFeed(string Channel, byte[] Envelope, string PreviousHash);
+    internal sealed record PublicPreviewFeed(string RelativePath, byte[] Envelope, string? PreviousHash);
 
     internal static async Task<(int Count, string Hash)> StagePublicAsync(string previous, string output,
-        IReadOnlyList<PublicPreviewArtifact> incoming, PublicPreviewFeed? replacement, CancellationToken token)
+        IReadOnlyList<PublicPreviewArtifact> incoming, IReadOnlyList<PublicPreviewFeed>? replacements, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        var pendingFeeds = (replacements ?? []).ToDictionary(x => x.RelativePath, StringComparer.Ordinal);
+        if (pendingFeeds.Any(x => !PlatformUpdateFeeds.IsFeedPath(x.Key)))
+            throw new InvalidDataException("Invalid publication feed path.");
+        var expectedFeeds = pendingFeeds.Values.Where(x => x.PreviousHash is not null).Select(x => x.RelativePath).ToHashSet(StringComparer.Ordinal);
         DownloadManifest old = JsonSerializer.Deserialize<DownloadManifest>(await Metadata(Path.Combine(previous, "downloads.json"), token), CatalogueJson)
             ?? throw new InvalidDataException("Missing previous public catalogue.");
         if (old.SchemaVersion != 1 || old.Artifacts is null || old.Artifacts.Count == 0)
@@ -120,7 +124,6 @@ public static partial class HostedPreviewStaging
             }
         }
         string updates = Path.Combine(previous, "updates");
-        bool previousFeedFound = replacement is null;
         if (Directory.Exists(updates))
         {
             _ = AbsoluteDirectory(updates);
@@ -128,18 +131,28 @@ public static partial class HostedPreviewStaging
             {
                 if (!ChannelPattern().IsMatch(Path.GetFileName(path))) throw new InvalidDataException("Unexpected update-feed name.");
                 byte[] bytes = await Metadata(path, token);
-                if (replacement is not null && Path.GetFileName(path) == replacement.Channel + ".json")
+                QueueFeed(path, "updates/" + Path.GetFileName(path), bytes);
+            }
+            string platforms = Path.Combine(updates, "platforms");
+            if (Directory.Exists(platforms))
+            {
+                _ = AbsoluteDirectory(platforms);
+                foreach (string platform in PlatformUpdateFeeds.NativePlatforms)
                 {
-                    if (Convert.ToHexStringLower(SHA256.HashData(bytes)) != replacement.PreviousHash)
-                        throw new InvalidDataException("The previous feed changed during staging.");
-                    previousFeedFound = true;
-                    continue;
+                    string directory = Path.Combine(platforms, platform);
+                    if (!Directory.Exists(directory)) continue;
+                    _ = AbsoluteDirectory(directory);
+                    foreach (string path in Directory.GetFiles(directory, "*.json"))
+                    {
+                        string channel = Path.GetFileNameWithoutExtension(path);
+                        string relative = PlatformUpdateFeeds.RelativeFeed(platform, channel);
+                        byte[] bytes = await Metadata(path, token);
+                        QueueFeed(path, relative, bytes);
+                    }
                 }
-                copies.Add((path, "updates/" + Path.GetFileName(path), bytes.Length,
-                    Convert.ToHexStringLower(SHA256.HashData(bytes))));
             }
         }
-        if (!previousFeedFound) throw new InvalidDataException("The previous feed disappeared during staging.");
+        if (expectedFeeds.Count != 0) throw new InvalidDataException("A previous feed disappeared during staging.");
         token.ThrowIfCancellationRequested();
         // Inputs were validated before creating output. No caller-owned tree is
         // deleted on failure; without downloads.json partial output cannot serve.
@@ -154,10 +167,11 @@ public static partial class HostedPreviewStaging
                 await from.CopyToAsync(to, token);
             await VerifyFile(destination, copy.Bytes, copy.Hash, token);
         }
-        if (replacement is not null)
+        foreach (var replacement in pendingFeeds.Values)
         {
-            string directory = Directory.CreateDirectory(Path.Combine(output, "updates")).FullName;
-            await using var feed = new FileStream(Path.Combine(directory, replacement.Channel + ".json"),
+            string path = Path.Combine(output, replacement.RelativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await using var feed = new FileStream(path,
                 FileMode.CreateNew, FileAccess.Write, FileShare.None);
             await feed.WriteAsync(replacement.Envelope, token);
         }
@@ -165,9 +179,20 @@ public static partial class HostedPreviewStaging
         await using (var stream = new FileStream(Path.Combine(output, "downloads.json"), FileMode.CreateNew, FileAccess.Write, FileShare.None))
             await stream.WriteAsync(catalogue, token);
         return (merged.Count, Convert.ToHexStringLower(SHA256.HashData(catalogue)));
+
+        void QueueFeed(string path, string relative, byte[] bytes)
+        {
+            string hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
+            if (pendingFeeds.TryGetValue(relative, out var replacement))
+            {
+                if (replacement.PreviousHash != hash) throw new InvalidDataException("A previous feed changed during staging.");
+                expectedFeeds.Remove(relative);
+            }
+            else copies.Add((path, relative, bytes.Length, hash));
+        }
     }
 
-    private static async Task VerifyFile(string path, long bytes, string hash, CancellationToken token)
+    internal static async Task VerifyFile(string path, long bytes, string hash, CancellationToken token)
     {
         var info = new FileInfo(path);
         if (!info.Exists || info.LinkTarget is not null || bytes <= 0 || info.Length != bytes || !HashPattern().IsMatch(hash ?? ""))

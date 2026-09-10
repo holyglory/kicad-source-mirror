@@ -54,8 +54,8 @@ public static class SignedLinuxPreviewStaging
         if (artifact is null || artifact.FileName != app.FileName || artifact.Bytes != app.Bytes || artifact.Sha256 != app.Sha256)
             throw new InvalidDataException("The signed preview feed does not identify this Linux archive.");
         var incoming = catalogue.Artifacts.Select(x => new PublicPreviewArtifact(x, Path.Combine(candidate, x.FileName))).ToArray();
-        var feed = new PublicPreviewFeed("preview", envelope, Convert.ToHexStringLower(SHA256.HashData(previousEnvelope)));
-        var staged = await StagePublicAsync(previous, output, incoming, feed, token);
+        var feed = new PublicPreviewFeed("updates/preview.json", envelope, Convert.ToHexStringLower(SHA256.HashData(previousEnvelope)));
+        var staged = await StagePublicAsync(previous, output, incoming, [feed], token);
         return new("staged", output, request.Commit, next.Release.Sequence, staged.Count, staged.Hash);
     }
 }

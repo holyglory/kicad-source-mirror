@@ -20,6 +20,11 @@ public sealed class SignedUpdateCatalogue
     private readonly Dictionary<string, SignedUpdateFeed> feeds = new(StringComparer.Ordinal);
     public static SignedUpdateCatalogue Empty => new();
     public bool TryGet(string channel, out SignedUpdateFeed? feed) => feeds.TryGetValue(channel, out feed);
+    public bool TryGet(string platform, string channel, out SignedUpdateFeed? feed)
+    {
+        feed = null;
+        return PlatformUpdateFeeds.IsNativePlatform(platform) && feeds.TryGetValue(platform + "/" + channel, out feed);
+    }
 
     public static async Task<SignedUpdateCatalogue> LoadAsync(string root, string publisherSpkiPath,
         DownloadCatalogue downloads, CancellationToken token = default)
@@ -29,12 +34,28 @@ public sealed class SignedUpdateCatalogue
         byte[] key = await ReadFileAsync(publisherSpkiPath, 4096, token);
         _ = UpdateManifestCodec.ValidatePublisherKey(key);
         var result = new SignedUpdateCatalogue();
+        RequireOrdinaryDirectory(Path.Combine(root, "updates"));
         foreach (string channel in new[] { "preview", "stable" })
         {
-            string path = Path.Combine(root, "updates", channel + ".json");
-            if (!File.Exists(path)) continue;
+            await LoadFeed(Path.Combine(root, "updates", channel + ".json"), channel, null);
+            foreach (string platform in PlatformUpdateFeeds.NativePlatforms)
+            {
+                RequireOrdinaryDirectory(Path.Combine(root, "updates/platforms"));
+                RequireOrdinaryDirectory(Path.Combine(root, "updates/platforms", platform));
+                await LoadFeed(Path.Combine(root, PlatformUpdateFeeds.RelativeFeed(platform, channel)), channel, platform);
+            }
+        }
+        return result;
+
+        async Task LoadFeed(string path, string channel, string? platform)
+        {
+            if (new FileInfo(path).LinkTarget is not null) throw new InvalidDataException("An update feed cannot be a link.");
+            if (!File.Exists(path)) return;
             byte[] bytes = await ReadFileAsync(path, UpdateManifestCodec.MaximumEnvelopeBytes, token);
             var verified = UpdateManifestCodec.Verify(bytes, key, channel);
+            if (platform is null) PlatformUpdateFeeds.RequireLegacyCompatible(verified);
+            else if (verified.Release.Artifacts.Any(x => x.Platform != platform))
+                throw new InvalidDataException("A native feed contains an artifact for a different platform.");
             foreach (var artifact in verified.Release.Artifacts)
             {
                 if (!downloads.Files.TryGetValue(artifact.FileName, out var published)
@@ -43,9 +64,14 @@ public sealed class SignedUpdateCatalogue
                     || published.Artifact.Version != verified.Release.Version)
                     throw new InvalidDataException("Signed update metadata does not match the published package catalogue.");
             }
-            result.feeds.Add(channel, new(bytes, verified));
+            result.feeds.Add(platform is null ? channel : platform + "/" + channel, new(bytes, verified));
         }
-        return result;
+    }
+
+    private static void RequireOrdinaryDirectory(string path)
+    {
+        if (new DirectoryInfo(path).LinkTarget is not null || File.Exists(path))
+            throw new InvalidDataException("Update feed directories must be ordinary directories.");
     }
 
     private static async Task<byte[]> ReadFileAsync(string path, int maximum, CancellationToken token)

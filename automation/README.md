@@ -80,6 +80,32 @@ download predates it. A staged directory alone is not a ready update; the
 installation and lifecycle checkpoints below remain separate from final updater
 qualification.
 
+### Windows update preparation (source checkpoint)
+
+The compiled Windows updater can verify and extract a signed ZIP into a new
+staging tree, check its x64 native entry points and run the candidate's own
+KiCad commit/MCP transport probes. ZIP inspection covers bounded classic/ZIP64
+directories, actual counts, names/device aliases, links/reparse points, expanded
+limits, CRC32 and file hashes. Failure or cancellation preserves existing
+installations and retains bounded diagnostics. It returns `installationReady=false`.
+
+Native Windows run `34510670116`, helper `0c37eb8888`, passed 62 executed checks
+including a deliberately synthetic executable staging fixture: bad hash/commit,
+subprocess failure, excessive output, cancellation and recovery. This is not a
+real KiCad archive qualification or Authenticode verification. Linux run
+`t20260910T175159Z-79afb5` passed 51 focused archive and updater-command checks;
+its native Windows fixture was skipped.
+
+`--prepare-update --configuration ABSOLUTE_JSON` now supports a trusted
+`win-x64`/`zip` configuration without an `installationRoot`. The same publisher,
+installed-envelope and private state/staging inputs are required as on other
+platforms. Windows installation registration is explicitly refused rather than
+routed into Linux or Mac behavior. This source is not yet a public Windows
+package. The internal retained-version selection mechanism is also under native
+test; it does not authenticate packages or launch applications by itself.
+Installer integration, the caption Update action, restart/recovery and actual
+end-to-end Windows updating remain open under `p67f11d25763f499e`.
+
 ### Mac installation and restart checkpoints
 
 Helper `062db56c9231fdf3662b81a4bade9b34a3aec2d5` passed native registration,

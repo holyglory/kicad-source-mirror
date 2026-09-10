@@ -27,7 +27,9 @@ public sealed class MacIntegratedUpdateTests
         if (!OperatingSystem.IsMacOS()) { Assert.Inconclusive("Native Mac Update-button journey."); return; }
         string Required(string name) => Environment.GetEnvironmentVariable(name)
             ?? throw new AssertFailedException("The integrated journey requires explicit frozen input: " + name);
-        string archive = Required("KICAD_MAC_UI_BASELINE_ARCHIVE");
+        string? archive = Environment.GetEnvironmentVariable("KICAD_MAC_UI_BASELINE_ARCHIVE");
+        if (archive is null && Environment.GetEnvironmentVariable("KICAD_MAC_UI_DOWNLOAD_BASELINE") != "true")
+            throw new AssertFailedException("Supply an explicit baseline archive or opt into its authenticated download.");
         string baselineEnvelopePath = Required("KICAD_MAC_UI_BASELINE_ENVELOPE");
         string keyPath = Required("KICAD_MAC_UI_PUBLISHER_SPKI");
         string expectedCommit = Required("KICAD_MAC_UI_EXPECTED_COMMIT");
@@ -53,6 +55,11 @@ public sealed class MacIntegratedUpdateTests
         try
         {
             var ui = await MacUiAutomation.CreateAsync(scratch, evidence, deadline.Token);
+            if (archive is null)
+            {
+                string downloadRoot = Directory.CreateDirectory(Path.Combine(scratch, "baseline-download")).FullName;
+                archive = (await downloads.DownloadAsync(baseline, platform, "tar.gz", downloadRoot, cancellationToken: deadline.Token)).Path;
+            }
             string quit = await MacProcessIdentityTests.CompileProbe(scratch, deadline.Token);
             var installed = await MacVerifiedInstallation.InstallAsync(installation, archive, baselineEnvelope, key, origin, "preview", deadline.Token);
             Environment.SetEnvironmentVariable("KICAD_AUTOMATION_NNG_LIBRARY", Path.Combine(installed.VersionDirectory, "managed/libnng.dylib"));

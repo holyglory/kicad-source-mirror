@@ -22,7 +22,7 @@ on:
         description: With checks_only, select all Mac checks or a focused native fixture
         type: choice
         default: all
-        options: [all, caption, handoff, staging, ui-access]
+        options: [all, caption, handoff, staging, ui-access, integrated-update]
       windows_fixture:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
@@ -87,6 +87,16 @@ jobs:
           fi
           if [ "$CHECKS_ONLY" = true ] && [ "$MAC_FIXTURE" = ui-access ]; then
             kicad_mac_test_filter='FullyQualifiedName~MacUiDriverTests'
+          fi
+          if [ "$MAC_FIXTURE" = integrated-update ]; then
+            test "$CHECKS_ONLY" = true
+            test "$DELIVERY_ARCHITECTURE" = arm64
+            export KICAD_MAC_UI_DOWNLOAD_BASELINE=true
+            export KICAD_MAC_UI_BASELINE_ENVELOPE="$GITHUB_WORKSPACE/automation/distribution/releases/baseline-osx-arm64-000002.signed.json"
+            export KICAD_MAC_UI_PUBLISHER_SPKI="$GITHUB_WORKSPACE/automation/distribution/preview-publisher.spki"
+            export KICAD_MAC_UI_EXPECTED_COMMIT=cd4934ad7bcb28c50d35586e6d022bda0d2ffee8
+            export KICAD_MAC_UI_ORIGIN=https://kicad.vr.ae/platforms/osx-arm64/
+            kicad_mac_test_filter='TestCategory=NativeMacIntegratedUpdate'
           fi
           dotnet test KiCad.Automation.slnx --configuration Release \
             --filter "$kicad_mac_test_filter" --logger trx \

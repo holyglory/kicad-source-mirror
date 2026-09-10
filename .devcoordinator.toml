@@ -188,6 +188,34 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NngBindingLifetimeTests|FullyQualifiedName~NngTransportTests|FullyQualifiedName~RuntimeInfoTests", "--logger", "trx", "--results-directory", "automation/artifacts/nng-binding-lifetime"]
 retained_artifacts = [{ name = "nng-binding-lifetime", path = "automation/artifacts/nng-binding-lifetime", max_bytes = 16777216 }]
 
+[test.mac-arm64-preview-969193]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.mac-arm64-preview-969193.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["import", "sign", "stage"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "-p:RestoreLockedMode=true"]
+
+[[test.mac-arm64-preview-969193.check]]
+name = "import"
+tier = "development"
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-hosted", "--candidate", "/mnt/build-storage/codex/kicad/evidence/github-34493864978-arm-full/kicad-delivery", "--commit", "9691937193936d257f96da31b825e20f00aa88d9", "--platform", "osx-arm64", "--run-id", "34493864978", "--version", "preview-20260910-969193719393", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/platform-feeds-000001", "--output", "/mnt/build-storage/codex/kicad/public-candidates/mac-arm64-969193-import"]
+
+[[test.mac-arm64-preview-969193.check]]
+name = "sign"
+tier = "development"
+requires = ["import"]
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "release-sign", "--release", "/mnt/build-storage/codex/kicad/worktrees/preview-publication.153T2r/automation/distribution/releases/preview-osx-arm64-000002.json", "--artifacts", "/mnt/build-storage/codex/kicad/public-candidates/mac-arm64-969193-import", "--private", "/mnt/build-storage/codex/kicad/signing/preview-publisher.pkcs8", "--output", "/mnt/build-storage/codex/kicad/platform-feed-candidates.DsNoNZ/osx-arm64-000002.json"]
+
+[[test.mac-arm64-preview-969193.check]]
+name = "stage"
+tier = "development"
+requires = ["sign"]
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-platform-feeds", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/mac-arm64-969193-import", "--output", "/mnt/build-storage/codex/kicad/public-candidates/mac-arm64-update-000002", "--publisher", "/home/holyglory/kicad/automation/distribution/preview-publisher.spki", "--sources", "/mnt/build-storage/codex/kicad/worktrees/preview-publication.153T2r/automation/distribution/releases/platform-arm64-000002.json"]
+
 [test.platform-feeds-publish]
 timeout_seconds = 900
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

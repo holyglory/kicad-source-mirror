@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "feeds": [
+    {
+      "platform": "osx-arm64",
+      "channel": "preview",
+      "envelopePath": "/mnt/build-storage/codex/kicad/platform-feed-candidates.DsNoNZ/osx-arm64-000002.json"
+    }
+  ]
+}

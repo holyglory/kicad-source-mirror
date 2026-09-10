@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "product": "kicad-codex",
+  "channel": "preview",
+  "sequence": 2,
+  "version": "preview-20260910-969193719393",
+  "commit": "9691937193936d257f96da31b825e20f00aa88d9",
+  "artifacts": [
+    {
+      "platform": "osx-arm64",
+      "format": "tar.gz",
+      "fileName": "kicad-codex-9691937193936d257f96da31b825e20f00aa88d9-macos-arm64.tar.gz",
+      "bytes": 329568659,
+      "sha256": "833668210a23e2570565a30e4b2f4754f5ea54b52cea088e6e7ac00e9786bbc3"
+    }
+  ]
+}

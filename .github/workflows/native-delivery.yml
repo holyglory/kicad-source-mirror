@@ -162,7 +162,7 @@ jobs:
         run: |
           $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
           dotnet test KiCad.Automation.slnx --configuration Release `
-            --filter 'FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~WindowsJsonLinkTests|FullyQualifiedName~NativeIpcEndpointTests|FullyQualifiedName~WindowsUiDriverTests|FullyQualifiedName~WindowsArchivePreflightTests|FullyQualifiedName~WindowsUpdateStagerTests|FullyQualifiedName~WindowsVersionSelectionTests|FullyQualifiedName~UpdateCommandTests' `
+            --filter 'FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~WindowsJsonLinkTests|FullyQualifiedName~NativeIpcEndpointTests|FullyQualifiedName~WindowsUiDriverTests|FullyQualifiedName~WindowsArchivePreflightTests|FullyQualifiedName~WindowsUpdateStagerTests|FullyQualifiedName~WindowsVersionSelectionTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~WindowsFixtureCleanupTests' `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
           if ($LASTEXITCODE -ne 0) { throw 'Windows delivery preflight failed.' }
           $split = Test-Path 'tools/KiCad.Automation.Validation/HostedWindowsCheckpoint.cs'

@@ -120,6 +120,11 @@ public sealed class WindowsUiDriverTests
             TestContext.AddResultFile(before); TestContext.AddResultFile(after);
             TestContext.AddResultFile(Path.Combine(evidence, "result.json"));
         }
+        catch (Exception error)
+        {
+            await File.WriteAllTextAsync(Path.Combine(evidence, "failure.txt"), error.ToString());
+            throw;
+        }
         finally
         {
             if (windowProcess is not null)
@@ -127,7 +132,7 @@ public sealed class WindowsUiDriverTests
                 if (!windowProcess.HasExited) windowProcess.Kill(true);
                 await windowProcess.WaitForExitAsync(); windowProcess.Dispose();
             }
-            Directory.Delete(scratch, true);
+            await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(scratch);
         }
     }
 }

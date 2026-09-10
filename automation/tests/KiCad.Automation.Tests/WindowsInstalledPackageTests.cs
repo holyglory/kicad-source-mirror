@@ -142,7 +142,7 @@ public sealed class WindowsInstalledPackageTests
                     File.Copy(log, Path.Combine(evidence, id + "-" + Path.GetFileName(log)), overwrite: false);
                 Directory.Delete(runtime, true);
             }
-            Directory.Delete(scratch, true);
+            await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(scratch);
         }
 
         async Task PrepareMarker(Editor editor)

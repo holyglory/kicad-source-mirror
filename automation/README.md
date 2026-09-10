@@ -6,6 +6,26 @@ of the approved six-milestone program, not a release.
 
 ## Latest preliminary Apple Silicon build — September 10, 2026
 
+[Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-cd4934ad7bcb28c50d35586e6d022bda0d2ffee8-macos-arm64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-cd4934ad7bcb28c50d35586e6d022bda0d2ffee8-source.tar.gz)
+identify `cd4934ad7bcb28c50d35586e6d022bda0d2ffee8`, version
+`preview-20260910-cd4934ad7bcb`. Native build `34507122230` passed for Apple
+Silicon; its Intel build remains separate. Publication `82fa2d` verified the
+native receipt and archives and signed platform feed sequence 3. Public check
+`t20260910T191758Z-5e4769` verified all 31 downloads at
+`2026-09-10T19:19:29.5683026Z`; generation 18 preserves earlier downloads and the
+Linux/Intel feed bytes. The application archive SHA-256 is
+`35d39e37dfca1661183189b0353c7a4a1f146a27f650fc76e956f1bee5354c02`.
+
+Extract and open `install/KiCad.app`, or use `./kicad-mcp` for STDIO tools.
+macOS 15.7+ is required; the app is ad-hoc signed, not notarized. The real
+Update-button journey from the previous `969193719393` baseline is now running
+as `34519945161`. Its source-controlled baseline envelope contains only public
+signed metadata; the private publisher remains on the VPS. This is still a
+preliminary package, not full updater, Codex Desktop or engineering qualification.
+
+### Previous Apple Silicon update baseline
+
 [Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-9691937193936d257f96da31b825e20f00aa88d9-macos-arm64.tar.gz)
 and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-9691937193936d257f96da31b825e20f00aa88d9-source.tar.gz)
 identify `9691937193936d257f96da31b825e20f00aa88d9`, version
@@ -120,9 +140,22 @@ an old executable independently of the current selection, and bind activation
 or rollback to exact selection/operation identities. Rollback retains the failed
 candidate and preserves the accepted network checkpoint. Native store tests are
 running separately; compilation alone does not qualify these operations. This
-module does not yet provide a stable launcher, a Windows `--install-package`
-path, or an Update button. Store-bound update preparation is now wired, but its
-complete command/update journey still requires native verification.
+store and configuration checks passed natively at `70ad68d505` in run
+`34515993302`. These use a synthetic native payload and do not qualify an
+installed KiCad update.
+
+Source `dacee066bf` adds statically linked GUI/console root launchers, Windows
+`--install-package`, and `--launch-installed` dispatch to a verified selected
+version. The root launchers retain the initially installed helper and preserve
+STDIO/argument boundaries; the managed helper validates full retained payloads.
+Native rerun `34518970195` at `a7e2438d7a` passed 91 executed checks, including
+compiled installation, changed-bootstrap rejection, Unicode, STDIO, selected
+managed launch and dismissal of a real launch-error dialog. The test reader was
+corrected to decode UTF-8 protocol bytes instead of the Windows default code
+page. The payload is synthetic: actual installed KiCad/editor/update qualification
+remains open. A caller-working-directory refinement is under native check in
+`34519626858`. Windows caption Update and exact restart/recovery are not yet
+implemented.
 
 ### Mac installation and restart checkpoints
 

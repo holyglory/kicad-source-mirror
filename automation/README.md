@@ -29,6 +29,31 @@ actual Codex Desktop qualification (`p8bf96f1c4b709a28`) remain explicit open
 outcomes alongside the original engineering milestones. These checks do not
 establish native Mac/Desktop execution, complete XML synchronization or routing.
 
+## Mac update staging checkpoint — September 10, 2026
+
+The compiled updater can now prepare a signed Mac TAR.GZ candidate in a new
+private directory without changing the selected installation or closing editors.
+It uses the system libarchive C API to inspect original archive bytes, including
+AppleDouble and extended signature metadata, then the native Mac archive utility
+to preserve those records. Paths, aliases, permissions, expanded size and file
+hashes are checked before native signature, architecture, KiCad commit and MCP
+transport verification. Failure leaves the existing installation untouched and
+retains private diagnostics. Staging returns `installationReady=false`.
+
+Native GitHub run `34476424199`, helper source
+`6ffc01441a775d2d6916bd7c8cf2b15c55ea3193`, passed 21 executed checks on each
+Mac architecture. Its staging fixture used the already-published native bundles
+`f79a41ed7aae` (Apple Silicon) and `4c6a88502a4c` (Intel), each with 45
+AppleDouble records and 45 extended-attribute entries. It verified the real
+signatures/tools and rejected a wrong declared native commit. The fixture
+publisher was isolated test material; the persistent preview private key was
+not sent to GitHub. Linux run `t20260910T121612Z-dc5cfd` supplies supporting
+archive and existing-updater regression evidence, not native Mac execution.
+
+This code is not yet included in the older Mac downloads and does not provide
+Mac installation registration, activation, the caption action or restart.
+Those remain open in `p4d6c4ee22fd8078d`; a staged directory is not a ready update.
+
 ## Current source boundary
 
 The compiled C# service uses the official MCP SDK over STDIO and generated KiCad

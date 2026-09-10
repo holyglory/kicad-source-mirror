@@ -1,7 +1,9 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using KiCad.Automation.Distribution;
+using KiCad.Automation.Mcp;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace KiCad.Automation.Tests;
@@ -43,8 +45,39 @@ public sealed class MacVerifiedInstallationTests
         {
             using var downloads = new UpdateDownloader(origin);
             var download = await downloads.DownloadAsync(first, platform, "tar.gz", root, cancellationToken: deadline.Token);
-            var installed = await MacVerifiedInstallation.InstallAsync(installedRoot, download.Path, firstEnvelope, publicKey, origin, "preview", deadline.Token);
+            string requestPath = Path.Combine(root, "install-request.json");
+            string envelopePath = Path.Combine(root, "installed-envelope.json");
+            string keyPath = Path.Combine(root, "trusted-publisher.spki");
+            await File.WriteAllBytesAsync(envelopePath, firstEnvelope, deadline.Token);
+            await File.WriteAllBytesAsync(keyPath, publicKey, deadline.Token);
+            await File.WriteAllTextAsync(requestPath, JsonSerializer.Serialize(new LinuxInstallRequest(1, installedRoot,
+                download.Path, envelopePath, origin.AbsoluteUri, "preview"), new JsonSerializerOptions(JsonSerializerDefaults.Web)), deadline.Token);
+            var command = UpdateCommandTests.StartInfo();
+            command.WorkingDirectory = root;
+            foreach (string argument in new[] { "--install-package", "--configuration", requestPath, "--publisher-key", keyPath })
+                command.ArgumentList.Add(argument);
+            using (var process = Process.Start(command)!)
+            {
+                Task<string> stdout = MacUpdateStager.ReadBounded(process.StandardOutput, deadline.Token);
+                Task<string> stderr = MacUpdateStager.ReadBounded(process.StandardError, deadline.Token);
+                try
+                {
+                    await process.WaitForExitAsync(deadline.Token);
+                    Assert.AreEqual(0, process.ExitCode, await stderr);
+                    using var result = JsonDocument.Parse((await stdout).Split('\n', StringSplitOptions.RemoveEmptyEntries).Last());
+                    Assert.AreEqual("installed", result.RootElement.GetProperty("status").GetString());
+                    Assert.IsFalse(result.RootElement.GetProperty("nativeEditorRestarted").GetBoolean());
+                }
+                finally
+                {
+                    if (!process.HasExited) process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None);
+                    try { await Task.WhenAll(stdout, stderr); }
+                    catch (Exception error) when (error is IOException or InvalidDataException or OperationCanceledException) { }
+                }
+            }
             string originalTarget = MacVerifiedInstallation.InspectTarget(installedRoot);
+            var installed = await MacVerifiedInstallation.InspectSelectedAsync(installedRoot, originalTarget, deadline.Token);
             Assert.AreEqual(installed, await MacVerifiedInstallation.InspectSelectedAsync(installedRoot, originalTarget, deadline.Token));
             Assert.IsTrue(Directory.Exists(Path.Combine(installedRoot, "KiCad.app")));
             Assert.IsTrue(File.Exists(Path.Combine(installedRoot, "kicad-mcp")));
@@ -91,7 +124,8 @@ public sealed class MacVerifiedInstallationTests
             string receipt = Path.Combine(evidence, "registration.json");
             await File.WriteAllTextAsync(receipt, JsonSerializer.Serialize(new
             {
-                schemaVersion = 1, platform, commit, installed = true, registered = true, selectionStayedDuringRegistration = true,
+                schemaVersion = 1, platform, commit, installed = true, installCommandVerified = true,
+                registered = true, selectionStayedDuringRegistration = true,
                 activationVerified = true, retryVerified = true, rollbackVerified = true, liveVersionRetained = true,
                 driftRejected = true, staleReplayRejected = true, nativeEditorsRestarted = false,
                 automaticUpdatingQualified = false, fixturePublisher = true

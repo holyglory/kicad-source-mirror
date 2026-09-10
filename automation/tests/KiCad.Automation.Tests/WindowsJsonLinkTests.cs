@@ -14,6 +14,11 @@ public sealed class WindowsJsonLinkTests
         string header = File.ReadAllText(Path.Combine(Repository(), "kicad/automation_update_client.h"));
         StringAssert.Contains(header, "#include <json_common.h>");
         Assert.IsFalse(header.Contains("#include <nlohmann/json.hpp>", StringComparison.Ordinal));
+        string declaration = File.ReadAllText(Path.Combine(Repository(), "qa/tests/common/CMakeLists.txt"));
+        var link = System.Text.RegularExpressions.Regex.Match(declaration,
+            @"target_link_libraries\(\s*qa_automation_update_client\s+(?<libraries>[^)]*)\)");
+        Assert.IsTrue(link.Success);
+        StringAssert.Contains(link.Groups["libraries"].Value, "kicommon");
     }
 
     [TestMethod]
@@ -39,6 +44,10 @@ public sealed class WindowsJsonLinkTests
                 "The negative fixture did not reproduce the duplicate JSON definition failure.");
             string diagnostic = await File.ReadAllTextAsync(Path.Combine(evidence, "raw-build.stdout.log"));
             StringAssert.Contains(diagnostic, "LNK2005", "A different build failure cannot prove this regression.");
+            Assert.AreNotEqual(0, await Run("missing-provider", "cmake", ["--build", root, "--target", "missing_provider"]));
+            diagnostic = await File.ReadAllTextAsync(Path.Combine(evidence, "missing-provider.stdout.log"));
+            StringAssert.Contains(diagnostic, "LNK2019");
+            StringAssert.Contains(diagnostic, "basic_json", "The missing JSON provider must actually be exercised.");
         }
         finally { Directory.Delete(root, recursive: true); }
 

@@ -290,7 +290,7 @@ kicad_add_boost_test( qa_document_change_journal qa_document_change_journal )
 add_executable( qa_automation_update_client test_automation_update_client.cpp
     ${CMAKE_SOURCE_DIR}/kicad/automation_update_client.cpp )
 target_link_libraries( qa_automation_update_client PRIVATE Boost::headers Boost::unit_test_framework
-    nlohmann_json ${wxWidgets_LIBRARIES} )
+    kicommon nlohmann_json ${wxWidgets_LIBRARIES} )
 if( UNIX AND NOT APPLE )
     add_test( NAME qa_automation_update_client COMMAND xvfb-run -a
         $<TARGET_FILE:qa_automation_update_client> --log_level=test_suite )

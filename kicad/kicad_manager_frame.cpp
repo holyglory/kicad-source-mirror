@@ -322,7 +322,7 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
                     wxLogTrace( "KICAD_AUTOMATION_UPDATES", "%s", wxString::FromUTF8( message.dump() ) );
                     onAutomationUpdate( message );
                 } );
-#if ( defined( __WXGTK__ ) && defined( __linux__ ) ) || defined( __WXMAC__ )
+#if ( defined( __WXGTK__ ) && defined( __linux__ ) ) || defined( __WXMAC__ ) || defined( __WXMSW__ )
         m_updateCaption = KIPLATFORM::UI::AddCaptionAction( this, _( "Update" ),
                 [this] { CallAfter( [this] { beginAutomationUpdate(); } ); } );
 #endif

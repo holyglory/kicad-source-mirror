@@ -6,6 +6,7 @@ on:
 
 jobs:
   lockdown:
+    if: github.repository == 'KiCad/kicad-source-mirror'
     runs-on: ubuntu-latest
     steps:
       - uses: dessant/repo-lockdown@v2

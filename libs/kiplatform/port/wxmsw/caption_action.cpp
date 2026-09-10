@@ -132,7 +132,13 @@ struct ACTION
                     break;
                 }
         }
-        if( menuId ) EnableMenuItem( menu, menuId, MF_BYCOMMAND | ( Ready() ? MF_ENABLED : MF_GRAYED ) );
+        if( menuId )
+        {
+            UINT desired = Ready() ? MF_ENABLED : MF_GRAYED;
+            UINT current = GetMenuState( menu, menuId, MF_BYCOMMAND );
+            if( current != static_cast<UINT>( -1 ) && ( current & ( MF_DISABLED | MF_GRAYED ) ) != desired )
+                EnableMenuItem( menu, menuId, MF_BYCOMMAND | desired );
+        }
     }
 };
 
@@ -308,9 +314,11 @@ LRESULT CALLBACK Subclass( HWND window, UINT message, WPARAM wParam, LPARAM lPar
     if( message == WM_SYSCOMMAND && action->menuId && ( wParam & 0xfff0 ) == action->menuId )
     { action->Invoke(); return 0; }
     auto result = DefSubclassProc( window, message, wParam, lParam );
+    if( message == WM_WINDOWPOSCHANGED || message == WM_DPICHANGED || message == WM_ENABLE || message == WM_SHOWWINDOW )
+    { action->Layout(); action->Menu(); }
     if( message == WM_NCPAINT || message == WM_NCACTIVATE || message == WM_SETTEXT
         || message == WM_WINDOWPOSCHANGED || message == WM_THEMECHANGED || message == WM_DPICHANGED
-        || message == WM_ENABLE || message == WM_SHOWWINDOW ) { action->Layout(); action->Menu(); action->Paint(); }
+        || message == WM_ENABLE || message == WM_SHOWWINDOW ) action->Paint();
     return result;
 }
 }

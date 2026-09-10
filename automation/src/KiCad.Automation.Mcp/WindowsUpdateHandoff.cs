@@ -25,7 +25,8 @@ public static class WindowsUpdateHandoff
 
     internal static async Task<WindowsUpdateHandoffState> ExecuteAsync(WindowsUpdateHandoffRequest request,
         Func<WindowsUpdateHandoffState, Task> report, IReadOnlyDictionary<string, string?>? launchEnvironment,
-        Action<string, ProcessStartInfo>? beforeLaunch, CancellationToken token)
+        Action<string, ProcessStartInfo>? beforeLaunch, CancellationToken token,
+        Func<string, Process, Task>? afterLaunch = null)
     {
         Validate(request); token.ThrowIfCancellationRequested();
         string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.InstallationRoot));
@@ -110,7 +111,7 @@ public static class WindowsUpdateHandoff
             }
         }
         Task<WindowsUpdateHandoffState> Launch(VerifiedWindowsVersion version, string selection, string label, string socket) =>
-            WindowsUpdateLauncher.LaunchAsync(new(request, version, journal, selection, label, socket), Record, token, environment, beforeLaunch);
+            WindowsUpdateLauncher.LaunchAsync(new(request, version, journal, selection, label, socket), Record, token, environment, beforeLaunch, afterLaunch);
         Task Record(WindowsUpdateHandoffState value, CancellationToken cancellation) => SaveAsync(Path.Combine(journal, "state.json"), value, cancellation);
     }
 

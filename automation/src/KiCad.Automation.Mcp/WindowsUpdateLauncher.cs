@@ -11,7 +11,8 @@ internal static class WindowsUpdateLauncher
 {
     public static async Task<WindowsUpdateHandoffState> LaunchAsync(WindowsUpdateLaunchContext context,
         Func<WindowsUpdateHandoffState, CancellationToken, Task> record, CancellationToken token,
-        IReadOnlyDictionary<string, string?>? environment = null, Action<string, ProcessStartInfo>? beforeLaunch = null)
+        IReadOnlyDictionary<string, string?>? environment = null, Action<string, ProcessStartInfo>? beforeLaunch = null,
+        Func<string, Process, Task>? afterLaunch = null)
     {
         var request = context.Request; var version = context.Version;
         string journal = context.JournalDirectory, label = context.Label;
@@ -40,6 +41,7 @@ internal static class WindowsUpdateLauncher
         {
             var output = Capture(process.StandardOutput.BaseStream, Path.Combine(journal, label + ".stdout.log"));
             var error = Capture(process.StandardError.BaseStream, Path.Combine(journal, label + ".stderr.log"));
+            if (afterLaunch is not null) await afterLaunch(label, process);
             var state = new WindowsUpdateHandoffState("awaiting_native", journal, context.SelectionId, process.Id,
                 Endpoint: NativeIpcEndpoint.FromSocketPath(context.SocketPath));
             try

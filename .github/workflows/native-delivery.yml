@@ -27,7 +27,7 @@ on:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
         default: all
-        options: [all, package-staging]
+        options: [all, package-staging, handoff]
 
 # SA-09: disposable public-source builds; no publisher key, engineering
 # repository, persistent runner or live editor-control endpoint.
@@ -146,6 +146,7 @@ jobs:
       # from the pinned manifest/registries; no packages are pushed to GitLab.
       VCPKG_BINARY_SOURCES: clear;default,readwrite;nuget,https://gitlab.com/api/v4/projects/27426693/packages/nuget/index.json,read
       CHECKS_ONLY: ${{ inputs.checks_only }}
+      WINDOWS_FIXTURE: ${{ inputs.windows_fixture }}
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
     steps:
@@ -178,7 +179,7 @@ jobs:
         with:
           global-json-file: automation/global.json
       - name: Check Windows delivery contracts and select supported stages
-        if: inputs.windows_fixture != 'package-staging'
+        if: inputs.windows_fixture == 'all'
         id: stages
         working-directory: automation
         shell: pwsh
@@ -191,7 +192,7 @@ jobs:
           $split = Test-Path 'tools/KiCad.Automation.Validation/HostedWindowsCheckpoint.cs'
           "split=$($split.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - name: Stage and verify the exact retained Windows archive
-        if: inputs.windows_fixture == 'package-staging'
+        if: inputs.windows_fixture == 'package-staging' || inputs.windows_fixture == 'handoff'
         working-directory: automation
         shell: pwsh
         env:
@@ -206,8 +207,10 @@ jobs:
           $env:KICAD_TEST_WINDOWS_ARCHIVE_COMMIT = '84359da19e3b168290b6199dc36077edbf03faf5'
           $env:KICAD_TEST_WINDOWS_ARCHIVE_SHA256 = '486557b4de48cb2baf7809e1c9411440c7eb0e6613d7d35adbdeb984db1ec655'
           $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
+          $kicad_package_filter = 'TestCategory=WindowsArchivePayload|TestCategory=NativeWindowsPackageStaging'
+          if ($env:WINDOWS_FIXTURE -eq 'handoff') { $kicad_package_filter = 'TestCategory=NativeWindowsHandoff' }
           dotnet test KiCad.Automation.slnx --configuration Release `
-            --filter 'TestCategory=WindowsArchivePayload|TestCategory=NativeWindowsPackageStaging' `
+            --filter $kicad_package_filter `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
           if ($LASTEXITCODE -ne 0) { throw 'The actual Windows package staging fixture failed.' }
       - name: Prepare Windows dependencies and native build configuration

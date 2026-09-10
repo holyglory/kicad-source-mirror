@@ -168,7 +168,7 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.windows-process-identity.check]]
 name = "contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsProcessIdentityTests|FullyQualifiedName~WindowsUpdateHandoffTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-process-identity"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsProcessIdentityTests|FullyQualifiedName~WindowsUpdateHandoffTests|FullyQualifiedName~WindowsNativeHandoffJourneyTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-process-identity"]
 retained_artifacts = [{ name = "windows-process-identity", path = "automation/artifacts/windows-process-identity", max_bytes = 16777216 }]
 
 [test.windows-launchers]
@@ -272,6 +272,34 @@ name = "contracts"
 tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NngBindingLifetimeTests|FullyQualifiedName~NngTransportTests|FullyQualifiedName~RuntimeInfoTests", "--logger", "trx", "--results-directory", "automation/artifacts/nng-binding-lifetime"]
 retained_artifacts = [{ name = "nng-binding-lifetime", path = "automation/artifacts/nng-binding-lifetime", max_bytes = 16777216 }]
+
+[test.mac-intel-preview-cd4934]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.mac-intel-preview-cd4934.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["import", "sign", "stage"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "-p:RestoreLockedMode=true"]
+
+[[test.mac-intel-preview-cd4934.check]]
+name = "import"
+tier = "development"
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-hosted", "--candidate", "/mnt/build-storage/codex/kicad/evidence/github-34507122230-intel-full/kicad-delivery", "--commit", "cd4934ad7bcb28c50d35586e6d022bda0d2ffee8", "--platform", "osx-x64", "--run-id", "34507122230", "--version", "preview-20260910-cd4934ad7bcb", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/mac-arm64-update-000003", "--output", "/mnt/build-storage/codex/kicad/public-candidates/mac-intel-cd4934-import"]
+
+[[test.mac-intel-preview-cd4934.check]]
+name = "sign"
+tier = "development"
+requires = ["import"]
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "release-sign", "--release", "/mnt/build-storage/codex/kicad/worktrees/preview-publication.153T2r/automation/distribution/releases/preview-osx-x64-000002.json", "--artifacts", "/mnt/build-storage/codex/kicad/public-candidates/mac-intel-cd4934-import", "--private", "/mnt/build-storage/codex/kicad/signing/preview-publisher.pkcs8", "--output", "/mnt/build-storage/codex/kicad/platform-feed-candidates.DsNoNZ/osx-x64-000002.json", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/mac-arm64-update-000003/updates/platforms/osx-x64/preview.json"]
+
+[[test.mac-intel-preview-cd4934.check]]
+name = "stage"
+tier = "development"
+requires = ["sign"]
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-platform-feeds", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/mac-intel-cd4934-import", "--output", "/mnt/build-storage/codex/kicad/public-candidates/mac-intel-update-000002", "--publisher", "/home/holyglory/kicad/automation/distribution/preview-publisher.spki", "--sources", "/mnt/build-storage/codex/kicad/worktrees/preview-publication.153T2r/automation/distribution/releases/platform-intel-000002.json"]
 
 [test.mac-arm64-preview-cd4934]
 timeout_seconds = 900

@@ -75,7 +75,7 @@ public sealed class WindowsPackageStagingTests
         }
     }
 
-    private static async Task<(string Path, string Commit, UpdateArtifact Artifact)> Inputs(CancellationToken token)
+    internal static async Task<(string Path, string Commit, UpdateArtifact Artifact)> Inputs(CancellationToken token)
     {
         string path = Required("KICAD_TEST_WINDOWS_ARCHIVE"), commit = Required("KICAD_TEST_WINDOWS_ARCHIVE_COMMIT"),
             hash = Required("KICAD_TEST_WINDOWS_ARCHIVE_SHA256");

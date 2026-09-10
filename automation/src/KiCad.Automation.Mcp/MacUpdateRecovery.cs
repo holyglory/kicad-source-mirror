@@ -38,7 +38,7 @@ public static class MacUpdateRecovery
         {
             if (!File.Exists(Path.Combine(journal, "intent.json"))) return Result("legacy_journal_unverifiable");
             var snapshot = await MacUpdateInspection.ReadSnapshotAsync(root, journal, operationId, token);
-            if (snapshot.Intent.SchemaVersion != 1) return Result("recovery_context_unavailable", snapshot.State);
+            if (snapshot.Intent.SchemaVersion is not (1 or 2)) return Result("recovery_context_unavailable", snapshot.State);
             var request = snapshot.Intent.Request;
             string executable = snapshot.PreviousVersion.NativeExecutable;
             string original = MacUpdateInspection.ObserveProcess(request.OldProcess, executable);

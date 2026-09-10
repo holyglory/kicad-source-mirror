@@ -213,7 +213,8 @@ BOOST_AUTO_TEST_CASE( RestartRequestCanCancelAndRetryWithoutLosingCandidate )
       config << nlohmann::json( { { "installationRoot", root.ToStdString() }, { "fixtureMode", "success" } } ).dump(); }
     scenario.client->Check();
     awaitCondition( [&] { return scenario.client->Candidate().is_object() && !scenario.client->IsRunning(); } );
-    BOOST_REQUIRE( scenario.client->Restart( wxString::FromUTF8( project ), "c9adf9b5-3070-43e4-90c1-c701123c6804", true ) );
+    BOOST_REQUIRE( scenario.client->Restart( wxString::FromUTF8( project ), "c9adf9b5-3070-43e4-90c1-c701123c6804", true,
+                                            "ipc:///synthetic/original.sock", "original-native-epoch" ) );
     awaitCondition( [&] { return scenario.Count( "restart_waiting" ) == 1; } );
     std::vector<std::filesystem::path> requests;
     for( const auto& entry : std::filesystem::directory_iterator( root.ToStdString() + "/state" ) ) requests.push_back( entry.path() );
@@ -231,6 +232,8 @@ BOOST_AUTO_TEST_CASE( RestartRequestCanCancelAndRetryWithoutLosingCandidate )
     BOOST_CHECK( request.at( "oldProcess" ).at( "startTicks" ).get<uint64_t>() > 0 );
 #endif
     BOOST_CHECK_EQUAL( request.at( "instanceId" ).get<std::string>(), "c9adf9b5-3070-43e4-90c1-c701123c6804" );
+    BOOST_CHECK_EQUAL( request.at( "origin" ).at( "endpoint" ).get<std::string>(), "ipc:///synthetic/original.sock" );
+    BOOST_CHECK_EQUAL( request.at( "origin" ).at( "epoch" ).get<std::string>(), "original-native-epoch" );
     scenario.client->Cancel();
     awaitCondition( [&] { return !scenario.client->IsRunning(); } );
     BOOST_CHECK_EQUAL( scenario.Count( "cancelled" ), 1 );

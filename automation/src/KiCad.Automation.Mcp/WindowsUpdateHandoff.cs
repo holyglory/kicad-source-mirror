@@ -7,7 +7,8 @@ using KiCad.Automation.Native;
 namespace KiCad.Automation.Mcp;
 
 public sealed record WindowsUpdateHandoffRequest(string InstallationRoot, string ExpectedSelectionId, string ManifestSha256,
-    Guid OperationId, WindowsProcessIdentity OldProcess, string ProjectPath, Guid InstanceId, string SocketPath, bool SoftwareRendering);
+    Guid OperationId, WindowsProcessIdentity OldProcess, string ProjectPath, Guid InstanceId, string SocketPath, bool SoftwareRendering,
+    UpdateOrigin? Origin = null);
 public sealed record WindowsUpdateHandoffState(string Status, string JournalDirectory, string? SelectionId = null,
     int? ProcessId = null, string? NativeEpoch = null, string? Error = null, string? Endpoint = null,
     WindowsProcessIdentity? ProcessIdentity = null);
@@ -42,6 +43,7 @@ public static class WindowsUpdateHandoff
         _ = await WindowsVerifiedVersions.InspectActivationAsync(root, request.ExpectedSelectionId, request.ManifestSha256, token);
         using var old = WindowsObservedProcess.Open(request.OldProcess);
         var previous = await WindowsVerifiedVersions.InspectExecutableAsync(root, request.OldProcess.Executable, token);
+        await UpdateOrigin.VerifyAsync(request.Origin, request.InstanceId, request.ProjectPath, token);
         if (!old.IsAlive) throw new InvalidDataException("The original editor exited before the handoff was prepared.");
         var environment = UpdateLaunchEnvironment.Capture(launchEnvironment);
         Directory.CreateDirectory(journal);
@@ -52,7 +54,7 @@ public static class WindowsUpdateHandoff
             return new("reconciliation_required", journal, Error: "Inspect the existing handoff before retrying it.");
         }
         await SaveAsync(requestPath, request, token, overwrite: false);
-        await SaveAsync(Path.Combine(journal, "intent.json"), new WindowsUpdateHandoffIntent(1, request, previous, DateTimeOffset.UtcNow, environment), token, overwrite: false);
+        await SaveAsync(Path.Combine(journal, "intent.json"), new WindowsUpdateHandoffIntent(2, request, previous, DateTimeOffset.UtcNow, environment), token, overwrite: false);
         var state = new WindowsUpdateHandoffState("waiting_for_exit", journal, request.ExpectedSelectionId);
         await Record(state, token); await report(state);
         try { await old.WaitForExitAsync(token); }
@@ -118,6 +120,7 @@ public static class WindowsUpdateHandoff
     internal static void Validate(WindowsUpdateHandoffRequest request)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Windows update handoff requires Windows.");
+        request.Origin?.Validate();
         if (!Path.IsPathFullyQualified(request.InstallationRoot) || !Directory.Exists(request.InstallationRoot)
             || request.ProjectPath is null || (request.ProjectPath.Length != 0 && (!Path.IsPathFullyQualified(request.ProjectPath)
                 || Path.GetExtension(request.ProjectPath) != ".kicad_pro" || !File.Exists(request.ProjectPath)))

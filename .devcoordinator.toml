@@ -471,7 +471,7 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.native-updater-objects.check]]
 name = "managed-contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsRestartCommandTests|FullyQualifiedName~WindowsNativeRestartRequestTests", "--logger", "trx", "--results-directory", "automation/artifacts/native-restart-contracts"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsRestartCommandTests|FullyQualifiedName~WindowsNativeRestartRequestTests|FullyQualifiedName~UpdateOriginTests|FullyQualifiedName~UpdateInspectionTests|FullyQualifiedName~UpdateRecoveryTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~MacUpdateHandoffTests|FullyQualifiedName~WindowsUpdateHandoffTests|FullyQualifiedName~WindowsUpdateInspectionTests", "--logger", "trx", "--results-directory", "automation/artifacts/native-restart-contracts"]
 retained_artifacts = [{ name = "native-restart-contracts", path = "automation/artifacts/native-restart-contracts", max_bytes = 16777216 }]
 
 [[test.native-updater-objects.check]]

@@ -96,7 +96,8 @@ void AUTOMATION_UPDATE_CLIENT::Check()
 }
 
 bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std::string& aInstanceId,
-                                       bool aSoftwareRendering )
+                                       bool aSoftwareRendering, const std::string& aOriginEndpoint,
+                                       const std::string& aOriginEpoch )
 {
 #if defined( __linux__ ) || defined( __WXMAC__ ) || defined( __WXMSW__ )
     if( m_process || !m_candidate.is_object() )
@@ -161,6 +162,10 @@ bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std:
             { "projectPath", aProjectPath.ToStdString() }, { "instanceId", instance },
             { "socketPath", socket.ToStdString() }, { "softwareRendering", aSoftwareRendering } } } };
 #endif
+        if( aOriginEndpoint.empty() != aOriginEpoch.empty() )
+            throw std::runtime_error( "The original native session identity is incomplete." );
+        if( !aOriginEndpoint.empty() )
+            request["request"]["origin"] = { { "endpoint", aOriginEndpoint }, { "epoch", aOriginEpoch } };
         m_restartConfiguration = wxString::FromUTF8( root ) + wxFILE_SEP_PATH + "state"
                                  + wxFILE_SEP_PATH + wxString::FromUTF8( "restart-" + operation + ".json" );
         wxFFile output( m_restartConfiguration, "wx" );

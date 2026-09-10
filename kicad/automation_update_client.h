@@ -25,7 +25,8 @@ public:
     void Start( int aCheckIntervalMs = 3600000 );
     void Check();
     void Cancel();
-    bool Restart( const wxString& aProjectPath, const std::string& aInstanceId, bool aSoftwareRendering );
+    bool Restart( const wxString& aProjectPath, const std::string& aInstanceId, bool aSoftwareRendering,
+                  const std::string& aOriginEndpoint = "", const std::string& aOriginEpoch = "" );
     void DetachForRestart();
     bool IsRestarting() const { return m_restart; }
     bool IsRunning() const { return m_process != nullptr; }

@@ -7,7 +7,7 @@ namespace KiCad.Automation.Mcp;
 
 public sealed record MacUpdateHandoffRequest(string InstallationRoot, string ExpectedTarget, string ManifestSha256,
     Guid OperationId, MacProcessIdentity OldProcess, string ProjectPath, Guid InstanceId,
-    string SocketPath, bool SoftwareRendering);
+    string SocketPath, bool SoftwareRendering, UpdateOrigin? Origin = null);
 public sealed record MacUpdateHandoffState(string Status, string JournalDirectory, string? SelectedTarget = null,
     int? ProcessId = null, long? ProcessStartUtcTicks = null, string? NativeEpoch = null, string? Error = null,
     string? Endpoint = null, MacProcessIdentity? ProcessIdentity = null);
@@ -53,6 +53,7 @@ public static class MacUpdateHandoff
             throw new InvalidDataException("The old process does not match its kernel start identity.");
         string executable = request.OldProcess.Executable;
         var previousVersion = await MacVerifiedInstallation.InspectExecutableVersionAsync(root, executable, token);
+        await UpdateOrigin.VerifyAsync(request.Origin, request.InstanceId, request.ProjectPath, token);
         if (old.HasExited || MacProcessIdentity.Read(old.Id) != request.OldProcess)
             throw new InvalidDataException("The old process changed during version verification.");
 
@@ -72,7 +73,7 @@ public static class MacUpdateHandoff
         // Preserve its exact verified identity before permitting the old window
         // to close, so interrupted supervision never has to guess it later.
         await SaveAsync(Path.Combine(journal, "intent.json"),
-            new MacUpdateHandoffIntent(1, request, previousVersion, DateTimeOffset.UtcNow,
+            new MacUpdateHandoffIntent(2, request, previousVersion, DateTimeOffset.UtcNow,
                 UpdateLaunchEnvironment.Capture(launchEnvironment)), token);
         var state = new MacUpdateHandoffState("waiting_for_exit", journal, request.ExpectedTarget);
         await Record(state, token);
@@ -168,6 +169,7 @@ public static class MacUpdateHandoff
     private static void Validate(MacUpdateHandoffRequest request)
     {
         if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("Native update handoff requires macOS.");
+        request.Origin?.Validate();
         if (!Path.IsPathFullyQualified(request.InstallationRoot) || request.ProjectPath is null
             || (request.ProjectPath.Length != 0 && (!Path.IsPathFullyQualified(request.ProjectPath)
                 || Path.GetExtension(request.ProjectPath) != ".kicad_pro" || !File.Exists(request.ProjectPath)))

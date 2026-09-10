@@ -38,7 +38,7 @@ public static class LinuxUpdateRecovery
         {
             if (!File.Exists(Path.Combine(journal, "intent.json"))) return Result("legacy_journal_unverifiable");
             var snapshot = await LinuxUpdateInspection.ReadSnapshotAsync(root, journal, operationId, token);
-            if (snapshot.Intent.SchemaVersion != 2) return Result("recovery_context_unavailable", snapshot.State);
+            if (snapshot.Intent.SchemaVersion is not (2 or 3)) return Result("recovery_context_unavailable", snapshot.State);
             var request = snapshot.Intent.Request;
             string executable = Path.Combine(snapshot.PreviousVersion.VersionDirectory, "runtime/bin/kicad");
             string original = LinuxUpdateInspection.ObserveProcess(request.OldProcess, executable);

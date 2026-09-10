@@ -339,7 +339,9 @@ void KICAD_MANAGER_FRAME::beginAutomationUpdate()
     const auto* api = Pgm().ApiServerOrNull();
     std::string instance = api && api->IsAutomation() ? api->AutomationInstanceId() : "";
     if( !m_automationUpdateClient->Restart( m_active_project ? Prj().GetProjectFullName() : wxString(), instance,
-            wxGetEnv( "KICAD_SOFTWARE_RENDERING", nullptr ) ) )
+            wxGetEnv( "KICAD_SOFTWARE_RENDERING", nullptr ),
+            api && api->IsAutomation() ? api->SocketPath() : "",
+            api && api->IsAutomation() ? api->Token() : "" ) )
     {
         m_updateRequested = false;
         if( m_updateCaption ) m_updateCaption( true, true );

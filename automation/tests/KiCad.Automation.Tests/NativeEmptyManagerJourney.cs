@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using KiCad.Automation.Native;
+using KiCad.Automation.Mcp;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace KiCad.Automation.Tests;
@@ -9,6 +10,7 @@ public sealed partial class NativeSessionTests
 {
     [TestMethod]
     [TestCategory("NativeEmptyManager")]
+    [TestCategory("NativeUpdateOrigin")]
     public async Task EmptyUpdateManagerHasExactIdentityAndCannotInventAnEngineeringProject()
     {
         string root = FindRoot();
@@ -72,6 +74,16 @@ public sealed partial class NativeSessionTests
                 await Task.Delay(100, deadline.Token);
             }
             string forbidden = Path.Combine(temporary, "untouched.kicad_sch");
+            var origin = new UpdateOrigin(client.Endpoint, client.Epoch);
+            await UpdateOrigin.VerifyAsync(origin, Guid.Parse(instance), "", deadline.Token);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => UpdateOrigin.VerifyAsync(origin,
+                Guid.NewGuid(), "", deadline.Token));
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => UpdateOrigin.VerifyAsync(origin,
+                Guid.Parse(instance), project, deadline.Token));
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => UpdateOrigin.VerifyAsync(origin with { Epoch = "stale-origin" },
+                Guid.Parse(instance), "", deadline.Token));
+            Assert.IsFalse(native.HasExited, "Origin rejection must leave the original native window alive.");
+            Assert.AreEqual(origin.Epoch, (await client.HandshakeAsync(deadline.Token)).Epoch);
             var rejectedCreate = await Assert.ThrowsExactlyAsync<NativeApiException>(() =>
                 client.CreateRootSchematicAsync(forbidden, deadline.Token));
             Assert.AreEqual(8, rejectedCreate.Status);
@@ -86,7 +98,8 @@ public sealed partial class NativeSessionTests
                 schemaVersion = 1, nativeIdentityVerified = true, projectPath = "",
                 implicitDocumentCreationRejected = true, explicitProjectAutomationPreserved = true,
                 invalidStartupCases = invalid.Length, normalFailureExitsVerified = true, nativeMacVerified = false,
-                captionRestartVerified = false
+                originalSessionVerified = true, wrongOriginTargetsRejected = true, originRejectionPreservedProcess = true,
+                captionRestartVerified = false, mcpReconnectionVerified = false
             }), deadline.Token);
 
             Process Launch(string[] arguments, string name)

@@ -144,7 +144,7 @@ public static class LinuxUpdateInspection
     private static void Validate(string root, string journal, Guid operation, UpdateHandoffIntent intent,
         LinuxUpdateHandoffRequest request, UpdateHandoffState state, UpdateRecoveryClaim? recovery)
     {
-        if (intent.SchemaVersion is not (1 or 2) || intent.Request != request || intent.PreviousVersion is null
+        if (intent.SchemaVersion is not (1 or 2 or 3) || intent.Request != request || intent.PreviousVersion is null
             || intent.PreparedAtUtc == default || request.OperationId != operation
             || !Path.IsPathFullyQualified(request.InstallationRoot)
             || Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.InstallationRoot)) != root
@@ -156,7 +156,8 @@ public static class LinuxUpdateInspection
             || !Digest(request.ManifestSha256) || state.JournalDirectory != journal
             || intent.PreviousVersion.Root != root || !Digest(intent.PreviousVersion.ManifestSha256))
             throw new InvalidDataException("The saved handoff does not match this exact installation and operation.");
-        if (intent.SchemaVersion == 2) UpdateLaunchEnvironment.Validate(intent.LaunchEnvironment);
+        if (intent.SchemaVersion >= 2) UpdateLaunchEnvironment.Validate(intent.LaunchEnvironment);
+        UpdateOrigin.ValidateRecorded(request.Origin, intent.SchemaVersion, 3);
         if (state.Status is not ("waiting_for_exit" or "cancelled_before_activation" or "activating" or "activation_failed"
             or "launching" or "launch_failed" or "awaiting_native" or "rolling_back" or "restarted" or "restored"
             or "reconciliation_required" or "recovering_previous" or "recovery_cancelled"))

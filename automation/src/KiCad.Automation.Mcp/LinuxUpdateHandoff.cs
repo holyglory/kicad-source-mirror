@@ -7,7 +7,7 @@ namespace KiCad.Automation.Mcp;
 
 public sealed record LinuxUpdateHandoffRequest(string InstallationRoot, string ExpectedTarget, string ManifestSha256,
     Guid OperationId, LinuxProcessIdentity OldProcess, string ProjectPath, Guid InstanceId,
-    string SocketPath, bool SoftwareRendering);
+    string SocketPath, bool SoftwareRendering, UpdateOrigin? Origin = null);
 public sealed record UpdateHandoffState(string Status, string JournalDirectory, string? SelectedTarget = null,
     int? ProcessId = null, long? ProcessStartUtcTicks = null, string? NativeEpoch = null, string? Error = null,
     string? Endpoint = null, LinuxProcessIdentity? ProcessIdentity = null);
@@ -53,6 +53,7 @@ public static class LinuxUpdateHandoff
             throw new InvalidDataException("The old process does not match its kernel start identity.");
         string executable = old.MainModule?.FileName ?? throw new InvalidDataException("The old executable identity is unavailable.");
         var previousVersion = await LinuxVerifiedInstallation.InspectExecutableVersionAsync(root, executable, token);
+        await UpdateOrigin.VerifyAsync(request.Origin, request.InstanceId, request.ProjectPath, token);
         if (old.HasExited || LinuxProcessIdentity.Read(old.Id) != request.OldProcess || old.MainModule?.FileName != executable)
             throw new InvalidDataException("The old process changed during version verification.");
 
@@ -72,7 +73,7 @@ public static class LinuxUpdateHandoff
         // Preserve its exact verified identity before permitting the old window
         // to close, so interrupted supervision never has to guess it later.
         await SaveAsync(Path.Combine(journal, "intent.json"),
-            new UpdateHandoffIntent(2, request, previousVersion, DateTimeOffset.UtcNow,
+            new UpdateHandoffIntent(3, request, previousVersion, DateTimeOffset.UtcNow,
                 UpdateLaunchEnvironment.Capture(launchEnvironment)), token);
         var state = new UpdateHandoffState("waiting_for_exit", journal, request.ExpectedTarget);
         await Record(state, token);
@@ -168,6 +169,7 @@ public static class LinuxUpdateHandoff
     private static void Validate(LinuxUpdateHandoffRequest request)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Native update handoff requires Linux.");
+        request.Origin?.Validate();
         if (!Path.IsPathFullyQualified(request.InstallationRoot) || request.ProjectPath is null
             || (request.ProjectPath.Length != 0 && (!Path.IsPathFullyQualified(request.ProjectPath)
                 || Path.GetExtension(request.ProjectPath) != ".kicad_pro" || !File.Exists(request.ProjectPath)))

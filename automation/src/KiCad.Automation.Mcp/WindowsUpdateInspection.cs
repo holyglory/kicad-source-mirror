@@ -94,7 +94,7 @@ public static class WindowsUpdateInspection
                 throw new InvalidDataException("The Windows recovery pointer differs from its immutable claim.");
             state = await ReadAsync<WindowsUpdateHandoffState>(prefix + ".state.json", token);
         }
-        if (intent.SchemaVersion != 1 || intent.PreparedAtUtc == default || intent.Request != request || intent.PreviousVersion is null
+        if (intent.SchemaVersion is not (1 or 2) || intent.PreparedAtUtc == default || intent.Request != request || intent.PreviousVersion is null
             || request.OperationId != operation || request.InstanceId == Guid.Empty || request.OldProcess is null
             || !SamePath(root, request.InstallationRoot) || !SamePath(journal, state.JournalDirectory)
             || request.ProjectPath is null || (request.ProjectPath.Length != 0 && (!Path.IsPathFullyQualified(request.ProjectPath)
@@ -106,6 +106,7 @@ public static class WindowsUpdateInspection
             || !Path.IsPathFullyQualified(intent.PreviousVersion.VersionDirectory))
             throw new InvalidDataException("The saved previous Windows version is outside the requested installation.");
         request.OldProcess.Validate(); UpdateLaunchEnvironment.Validate(intent.LaunchEnvironment);
+        UpdateOrigin.ValidateRecorded(request.Origin, intent.SchemaVersion, 2);
         string[] states = ["waiting_for_exit", "cancelled_before_activation", "activating", "activation_failed", "launching", "awaiting_native",
             "restarted", "restored", "restoring", "rolling_back", "launch_failed", "reconciliation_required", "recovering_previous", "recovery_cancelled"];
         if (!states.Contains(state.Status, StringComparer.Ordinal) || state.ProcessId is <= 0

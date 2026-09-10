@@ -38,8 +38,8 @@ static bool visibleButton( AXUIElementRef application, AXUIElementRef button )
     bool geometry = AXUIElementCopyAttributeValue( button, kAXPositionAttribute, &position ) == kAXErrorSuccess
         && AXUIElementCopyAttributeValue( button, kAXSizeAttribute, &size ) == kAXErrorSuccess
         && CFGetTypeID( position ) == AXValueGetTypeID() && CFGetTypeID( size ) == AXValueGetTypeID()
-        && AXValueGetValue( (AXValueRef)position, kAXValueCGPointType, &point )
-        && AXValueGetValue( (AXValueRef)size, kAXValueCGSizeType, &dimensions );
+        && AXValueGetValue( (AXValueRef)position, static_cast<AXValueType>( kAXValueCGPointType ), &point )
+        && AXValueGetValue( (AXValueRef)size, static_cast<AXValueType>( kAXValueCGSizeType ), &dimensions );
     if( position ) CFRelease( position ); if( size ) CFRelease( size );
     if( !geometry || dimensions.width <= 0 || dimensions.height <= 0 ) return false;
     AXUIElementRef hit = nullptr;

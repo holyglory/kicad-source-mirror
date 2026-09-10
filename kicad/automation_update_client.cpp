@@ -13,6 +13,11 @@
 #include <sstream>
 #include <filesystem>
 #include <utility>
+#ifdef __WXMAC__
+#include <libproc.h>
+#include <sys/proc_info.h>
+#include <sys/sysctl.h>
+#endif
 
 namespace
 {
@@ -90,7 +95,7 @@ void AUTOMATION_UPDATE_CLIENT::Check()
 bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std::string& aInstanceId,
                                        bool aSoftwareRendering )
 {
-#ifdef __linux__
+#if defined( __linux__ ) || defined( __WXMAC__ )
     if( m_process || !m_candidate.is_object() )
         return false;
     try
@@ -110,6 +115,7 @@ bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std:
         // Snapshot the current selection for this click, not for the earlier
         // background download. The helper still rejects changes after this point.
         const auto selection = std::filesystem::read_symlink( root + "/manager/current" ).generic_string();
+#ifdef __linux__
         std::ifstream bootFile( "/proc/sys/kernel/random/boot_id" );
         std::string boot;
         bootFile >> boot;
@@ -123,14 +129,29 @@ bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std:
         for( int index = 0; index < 19; ++index ) fields >> field;
         uint64_t ticks = 0;
         if( !( fields >> ticks ) ) throw std::runtime_error( "Process start counter is unavailable." );
+        nlohmann::json identity = { { "processId", wxGetProcessId() }, { "bootId", boot }, { "startTicks", ticks } };
+        const int schemaVersion = 1;
+#else
+        proc_bsdinfo process = {};
+        char boot[128] = {}, executable[PROC_PIDPATHINFO_MAXSIZE] = {};
+        size_t bootSize = sizeof( boot );
+        if( proc_pidinfo( wxGetProcessId(), PROC_PIDTBSDINFO, 0, &process, sizeof( process ) ) != sizeof( process )
+            || proc_pidpath( wxGetProcessId(), executable, sizeof( executable ) ) <= 0
+            || sysctlbyname( "kern.bootsessionuuid", boot, &bootSize, nullptr, 0 ) != 0 )
+            throw std::runtime_error( "Mac kernel process identity is unavailable." );
+        nlohmann::json identity = { { "processId", wxGetProcessId() }, { "bootId", std::string( boot ) },
+            { "startSeconds", process.pbi_start_tvsec }, { "startMicroseconds", process.pbi_start_tvusec },
+            { "executable", std::string( executable ) } };
+        const int schemaVersion = 2;
+#endif
         wxString socket = wxStandardPaths::Get().GetTempDir() + wxFILE_SEP_PATH
                           + wxString::FromUTF8( "kcu-" + operation.substr( 0, 12 ) + ".sock" );
         m_restartConfiguration = wxString::FromUTF8( root ) + wxFILE_SEP_PATH + "state"
                                  + wxFILE_SEP_PATH + wxString::FromUTF8( "restart-" + operation + ".json" );
-        nlohmann::json request = { { "schemaVersion", 1 }, { "request", {
+        nlohmann::json request = { { "schemaVersion", schemaVersion }, { "request", {
             { "installationRoot", root }, { "expectedTarget", selection },
             { "manifestSha256", m_candidate.at( "manifestSha256" ) }, { "operationId", operation },
-            { "oldProcess", { { "processId", wxGetProcessId() }, { "bootId", boot }, { "startTicks", ticks } } },
+            { "oldProcess", identity },
             { "projectPath", aProjectPath.ToStdString() }, { "instanceId", instance },
             { "socketPath", socket.ToStdString() }, { "softwareRendering", aSoftwareRendering } } } };
         wxFFile output( m_restartConfiguration, "wx" );
@@ -146,6 +167,37 @@ bool AUTOMATION_UPDATE_CLIENT::Restart( const wxString& aProjectPath, const std:
         fail( error.what() );
         return false;
     }
+#else
+    return false;
+#endif
+}
+
+bool AUTOMATION_UPDATE_CLIENT::InstalledMacContext( wxString& aHelper, wxString& aConfiguration )
+{
+#ifdef __WXMAC__
+    try
+    {
+        const auto executable = std::filesystem::canonical( wxStandardPaths::Get().GetExecutablePath().ToStdString() );
+        // Preserve the signed native bundle. Context lives beside it in the
+        // verified installation, never in an engineering project or a feed.
+        auto version = executable;
+        for( int index = 0; index < 6; ++index ) version = version.parent_path();
+        const auto root = version.parent_path().parent_path();
+        const auto digest = version.filename().string();
+        if( digest.size() != 64 || digest.find_first_not_of( "0123456789abcdef" ) != std::string::npos
+            || version.parent_path().filename() != "versions"
+            || executable != version / "payload/install/KiCad.app/Contents/MacOS/kicad" ) return false;
+        const auto configuration = version / "update-config.json";
+        const auto helper = version / "payload/kicad-mcp";
+        if( !std::filesystem::is_regular_file( configuration ) || !std::filesystem::is_regular_file( helper )
+            || !std::filesystem::is_regular_file( root / "publisher.json" )
+            || !std::filesystem::is_regular_file( version / "installed-envelope.json" )
+            || !std::filesystem::is_regular_file( version / "version.json" ) ) return false;
+        aHelper = wxString::FromUTF8( helper.string() );
+        aConfiguration = wxString::FromUTF8( configuration.string() );
+        return true;
+    }
+    catch( const std::exception& ) { return false; }
 #else
     return false;
 #endif

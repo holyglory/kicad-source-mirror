@@ -312,8 +312,9 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
     // already open. No engineering project can select a helper via its fields.
     wxString updateHelper;
     wxString updateConfiguration;
-    if( wxGetEnv( "KICAD_AUTOMATION_UPDATE_HELPER", &updateHelper )
-            && wxGetEnv( "KICAD_AUTOMATION_UPDATE_CONFIG", &updateConfiguration ) )
+    bool explicitUpdateContext = wxGetEnv( "KICAD_AUTOMATION_UPDATE_HELPER", &updateHelper )
+            && wxGetEnv( "KICAD_AUTOMATION_UPDATE_CONFIG", &updateConfiguration );
+    if( explicitUpdateContext || AUTOMATION_UPDATE_CLIENT::InstalledMacContext( updateHelper, updateConfiguration ) )
     {
         m_automationUpdateClient = std::make_unique<AUTOMATION_UPDATE_CLIENT>( updateHelper,
                 updateConfiguration, [this]( const nlohmann::json& message )
@@ -321,7 +322,7 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
                     wxLogTrace( "KICAD_AUTOMATION_UPDATES", "%s", wxString::FromUTF8( message.dump() ) );
                     onAutomationUpdate( message );
                 } );
-#if defined( __WXGTK__ ) && defined( __linux__ )
+#if ( defined( __WXGTK__ ) && defined( __linux__ ) ) || defined( __WXMAC__ )
         m_updateCaption = KIPLATFORM::UI::AddCaptionAction( this, _( "Update" ),
                 [this] { CallAfter( [this] { beginAutomationUpdate(); } ); } );
 #endif

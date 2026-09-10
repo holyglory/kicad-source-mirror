@@ -120,7 +120,7 @@ public static partial class MacVerifiedInstallation
     {
         string root = RootPath(installationRoot);
         if (!Path.IsPathFullyQualified(executable)) throw new ArgumentException("Use an absolute native executable path.");
-        string relative = Path.GetRelativePath(Path.Combine(root, "versions"), Path.GetFullPath(executable));
+        string relative = Path.GetRelativePath(PhysicalPath(Path.Combine(root, "versions")), PhysicalPath(executable));
         string[] parts = relative.Split(Path.DirectorySeparatorChar);
         if (parts.Length != 7 || !Digest(parts[0]) || string.Join('/', parts.Skip(1)) != "payload/install/KiCad.app/Contents/MacOS/kicad")
             throw new InvalidDataException("The native Mac executable is outside the registered version store.");
@@ -227,6 +227,17 @@ public static partial class MacVerifiedInstallation
             _ => throw new PlatformNotSupportedException("Unsupported Mac installation architecture.") };
     }
     private static bool Digest(string value) => value.Length == 64 && value.All(char.IsAsciiHexDigitLower);
+    private static string PhysicalPath(string path)
+    {
+        byte[] resolved = new byte[4096];
+        if (RealPath(path, resolved) == 0)
+            throw new IOException("Mac executable path could not be resolved.", new System.ComponentModel.Win32Exception(Marshal.GetLastPInvokeError()));
+        int end = Array.IndexOf(resolved, (byte)0);
+        if (end <= 0) throw new InvalidDataException("Mac physical path is invalid.");
+        return System.Text.Encoding.UTF8.GetString(resolved, 0, end);
+    }
+    [DllImport("/usr/lib/libSystem.B.dylib", EntryPoint = "realpath", SetLastError = true)]
+    private static extern nint RealPath([MarshalAs(UnmanagedType.LPUTF8Str)] string path, [Out] byte[] result);
     private static FileStream Lock(string path) => new(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
     private static void RequireAbsent(string path)
     {

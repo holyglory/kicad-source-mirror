@@ -504,6 +504,34 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacVerifiedInstallationTests|FullyQualifiedName~PosixUpdateActivationTests|FullyQualifiedName~LinuxUpdateActivationTests|FullyQualifiedName~LinuxVerifiedInstallationTests|FullyQualifiedName~LinuxPayloadFingerprintTests|FullyQualifiedName~UpdateCommandTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-installation"]
 retained_artifacts = [{ name = "mac-installation", path = "automation/artifacts/mac-installation", max_bytes = 16777216 }]
 
+[test.mac-restart]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.mac-restart.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.mac-restart.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacProcessIdentityTests|FullyQualifiedName~MacUpdateHandoffTests|FullyQualifiedName~LinuxUpdateActivationTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~UpdateRecoveryTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-restart"]
+retained_artifacts = [{ name = "mac-restart", path = "automation/artifacts/mac-restart", max_bytes = 16777216 }]
+
+[[test.mac-restart.check]]
+name = "native"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "qa_automation_update_client"]
+
+[[test.mac-restart.check]]
+name = "native-helper"
+tier = "development"
+requires = ["native"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_automation_update_client$", "--output-on-failure", "--no-tests=error"]
+
 # Independent verification of the already frozen archive, not a rebuild of it.
 [test.archive-delivery]
 timeout_seconds = 600

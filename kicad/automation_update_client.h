@@ -30,6 +30,7 @@ public:
     bool IsRestarting() const { return m_restart; }
     bool IsRunning() const { return m_process != nullptr; }
     const nlohmann::json& Candidate() const { return m_candidate; }
+    static bool InstalledMacContext( wxString& aHelper, wxString& aConfiguration );
 
 private:
     void launch( bool aPrepare );

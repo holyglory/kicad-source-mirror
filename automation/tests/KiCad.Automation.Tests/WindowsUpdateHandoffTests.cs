@@ -63,6 +63,16 @@ public sealed class WindowsUpdateHandoffTests
             Assert.IsTrue(acknowledged); Assert.AreEqual("cancelled_before_activation", result.Status);
             Assert.IsFalse(process.HasExited); Assert.AreEqual(identity, WindowsProcessIdentity.Read(process.Id));
             Assert.AreEqual(original, await WindowsVerifiedVersions.InspectCurrentAsync(installation, deadline.Token));
+            var journalBefore = Directory.GetFiles(result.JournalDirectory, "*.json").ToDictionary(file => Path.GetFileName(file)!,
+                file => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(file))));
+            var inspected = await WindowsUpdateInspection.InspectAsync(installation, request.OperationId, deadline.Token);
+            Assert.AreEqual("original_running", inspected.Status); Assert.AreEqual("live", inspected.OriginalProcessStatus);
+            Assert.IsFalse(inspected.AutomaticRecoveryAvailable);
+            foreach (var (name, hash) in journalBefore)
+                Assert.AreEqual(hash, Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Path.Combine(result.JournalDirectory, name!)))));
+            using (var held = new FileStream(Path.Combine(result.JournalDirectory, "operation.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                Assert.AreEqual("operation_unavailable", (await WindowsUpdateInspection.InspectAsync(installation, request.OperationId, deadline.Token)).Status);
+            Assert.AreEqual("original_running", (await WindowsUpdateRecovery.RecoverAsync(installation, request.OperationId, Guid.NewGuid(), deadline.Token)).Status);
             var repeated = await WindowsUpdateHandoff.ExecuteAsync(request, _ => throw new AssertFailedException("Existing handoffs cannot acknowledge a new close."), deadline.Token);
             Assert.AreEqual("reconciliation_required", repeated.Status);
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => WindowsUpdateHandoff.ExecuteAsync(request with { SocketPath = socket + "x" },

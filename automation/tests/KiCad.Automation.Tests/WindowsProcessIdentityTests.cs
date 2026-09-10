@@ -53,6 +53,9 @@ public sealed class WindowsProcessIdentityTests
             Assert.ThrowsExactly<InvalidDataException>(() => WindowsObservedProcess.Open(expected with { Executable = managed.Executable }));
             using var observed = WindowsObservedProcess.Open(expected);
             Assert.IsTrue(observed.IsAlive);
+            Assert.AreEqual("live", WindowsObservedProcess.Observe(expected, expected.Executable));
+            Assert.AreEqual("identity_changed", WindowsObservedProcess.Observe(expected with { CreationFileTime = "1" }, expected.Executable));
+            Assert.AreEqual("executable_mismatch", WindowsObservedProcess.Observe(expected with { Executable = managed.Executable }, managed.Executable));
             using (var cancelled = new CancellationTokenSource(100))
                 await Assert.ThrowsAsync<OperationCanceledException>(() => observed.WaitForExitAsync(cancelled.Token));
             Assert.IsTrue(observed.IsAlive); Assert.IsFalse(child.HasExited);

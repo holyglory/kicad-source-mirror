@@ -42,17 +42,7 @@ public sealed class WindowsObservedProcess : IDisposable
         try
         {
             RequireAlive(handle);
-            if (!GetProcessTimes(handle, out var created, out _, out _, out _)) throw Error("Cannot read Windows process creation time.");
-            var path = new StringBuilder(32768); uint capacity = (uint)path.Capacity;
-            if (!QueryFullProcessImageNameW(handle, 0, path, ref capacity) || capacity == 0)
-                throw Error("Cannot read Windows executable identity.");
-            RequireAlive(handle);
-            // FILETIME is a 64-bit kernel value, not a rounded date. A decimal
-            // string preserves it through JSON consumers with 53-bit numbers.
-            var identity = new WindowsProcessIdentity(processId, (((ulong)created.High << 32) | created.Low)
-                .ToString(CultureInfo.InvariantCulture), path.ToString());
-            identity.Validate();
-            return new(handle, identity);
+            return new(handle, ReadIdentity(handle, processId));
         }
         catch { handle.Dispose(); throw; }
     }
@@ -68,6 +58,44 @@ public sealed class WindowsObservedProcess : IDisposable
     }
 
     public bool IsAlive => Alive(handle);
+
+    internal static string Observe(WindowsProcessIdentity expected, string executable)
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Windows process observation requires Windows.");
+        expected.Validate();
+        using var observed = OpenProcess(0x00101000, false, expected.ProcessId);
+        // Invalid parameter from this particular OpenProcess call means the
+        // supplied nonzero PID no longer exists. Access denial is unknown, not exit.
+        if (observed.IsInvalid) return Marshal.GetLastPInvokeError() == 87 ? "exited" : "unknown";
+        try
+        {
+            if (!Alive(observed)) return "exited";
+            var actual = ReadIdentity(observed, expected.ProcessId);
+            if (actual.CreationFileTime != expected.CreationFileTime) return "identity_changed";
+            if (!string.Equals(actual.Executable, expected.Executable, StringComparison.OrdinalIgnoreCase)) return "executable_mismatch";
+            if (!string.Equals(Path.GetFullPath(executable), Path.GetFullPath(expected.Executable), StringComparison.OrdinalIgnoreCase))
+                return "executable_mismatch";
+            return Alive(observed) ? "live" : "exited";
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or ArgumentException)
+        {
+            try { return Alive(observed) ? "unknown" : "exited"; }
+            catch (IOException) { return "unknown"; }
+        }
+    }
+
+    private static WindowsProcessIdentity ReadIdentity(SafeProcessHandle handle, int processId)
+    {
+        if (!GetProcessTimes(handle, out var created, out _, out _, out _)) throw Error("Cannot read Windows process creation time.");
+        var path = new StringBuilder(32768); uint capacity = (uint)path.Capacity;
+        if (!QueryFullProcessImageNameW(handle, 0, path, ref capacity) || capacity == 0)
+            throw Error("Cannot read Windows executable identity.");
+        RequireAlive(handle);
+        // Preserve unrounded FILETIME across JSON consumers with 53-bit numbers.
+        var identity = new WindowsProcessIdentity(processId, (((ulong)created.High << 32) | created.Low)
+            .ToString(CultureInfo.InvariantCulture), path.ToString());
+        identity.Validate(); return identity;
+    }
 
     public async Task WaitForExitAsync(CancellationToken token)
     {

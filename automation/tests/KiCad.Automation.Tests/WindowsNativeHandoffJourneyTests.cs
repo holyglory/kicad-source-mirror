@@ -64,6 +64,7 @@ public sealed class WindowsNativeHandoffJourneyTests
         using var publisher = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using var job = new WindowsProcessJob();
         var processes = new List<Process>(); var captures = new List<Task>();
+        int replacementLaunches = 0;
         try
         {
             var input = await WindowsPackageStagingTests.Inputs(deadline.Token);
@@ -92,6 +93,13 @@ public sealed class WindowsNativeHandoffJourneyTests
             var restarted = await WindowsUpdateHandoff.ExecuteAsync(request, _ => Close(old.Process), environment, null, deadline.Token, OwnReplacement);
             Assert.AreEqual("restarted", restarted.Status, restarted.Error);
             Assert.IsNotNull(restarted.ProcessIdentity); Assert.AreNotEqual(old.Epoch, restarted.NativeEpoch);
+            var live = await WindowsUpdateInspection.InspectAsync(installation, request.OperationId, deadline.Token);
+            Assert.AreEqual("replacement_running", live.Status); Assert.AreEqual(restarted.NativeEpoch, live.NativeEpoch);
+            string statePath = Path.Combine(restarted.JournalDirectory, "state.json");
+            byte[] validState = await File.ReadAllBytesAsync(statePath, deadline.Token);
+            await WindowsUpdateHandoff.SaveAsync(statePath, restarted with { NativeEpoch = "wrong-native-epoch" }, deadline.Token);
+            Assert.AreEqual("native_identity_mismatch", (await WindowsUpdateInspection.InspectAsync(installation, request.OperationId, deadline.Token)).Status);
+            await File.WriteAllBytesAsync(statePath, validState, deadline.Token);
             Assert.AreEqual(candidate.Version.NativeExecutable, restarted.ProcessIdentity.Executable, ignoreCase: true);
             var current = await WindowsVerifiedVersions.InspectCurrentAsync(installation, deadline.Token);
             Assert.AreEqual(candidate.Version, current.Version);
@@ -113,12 +121,35 @@ public sealed class WindowsNativeHandoffJourneyTests
             Assert.AreEqual(candidate.Version, (await WindowsVerifiedVersions.InspectCurrentAsync(installation, deadline.Token)).Version);
             using (var replacement = Process.GetProcessById(recovered.ProcessId!.Value))
             { await Close(replacement); await replacement.WaitForExitAsync(deadline.Token); Assert.AreEqual(0, replacement.ExitCode); }
+
+            instance = Guid.NewGuid();
+            var interruptedOld = await Start(initial.Version, instance, "interrupted-original");
+            var interrupted = Request(interruptedOld.Process, WindowsVerifiedVersions.InspectSelectionId(installation), instance);
+            await Assert.ThrowsExactlyAsync<IOException>(() => WindowsUpdateHandoff.ExecuteAsync(interrupted,
+                _ => throw new IOException("Explicit lost-acknowledgment fixture"), environment, null, deadline.Token, OwnReplacement));
+            Assert.AreEqual("original_running", (await WindowsUpdateInspection.InspectAsync(installation, interrupted.OperationId, deadline.Token)).Status);
+            Assert.AreEqual("original_running", (await WindowsUpdateRecovery.RecoverAsync(installation, interrupted.OperationId, Guid.NewGuid(), deadline.Token)).Status);
+            await Close(interruptedOld.Process); await interruptedOld.Process.WaitForExitAsync(deadline.Token);
+            Assert.AreEqual("no_replacement_recorded", (await WindowsUpdateInspection.InspectAsync(installation, interrupted.OperationId, deadline.Token)).Status);
+            string selectionBeforeRecovery = WindowsVerifiedVersions.InspectSelectionId(installation);
+            Guid recoveryAttempt = Guid.NewGuid();
+            var explicitRecovery = await WindowsUpdateRecovery.RecoverAsync(installation, interrupted.OperationId, recoveryAttempt, OwnReplacement, deadline.Token);
+            Assert.IsTrue(explicitRecovery.NativeEditorRestarted); Assert.AreEqual("restored", explicitRecovery.Status);
+            Assert.AreEqual(selectionBeforeRecovery, WindowsVerifiedVersions.InspectSelectionId(installation));
+            Assert.AreEqual("replacement_running", (await WindowsUpdateInspection.InspectAsync(installation, interrupted.OperationId, deadline.Token)).Status);
+            int launchesBeforeRetry = replacementLaunches;
+            var retry = await WindowsUpdateRecovery.RecoverAsync(installation, interrupted.OperationId, recoveryAttempt, OwnReplacement, deadline.Token);
+            Assert.IsTrue(retry.Reused); Assert.AreEqual("attempt_already_recorded", retry.Status);
+            Assert.AreEqual(launchesBeforeRetry, replacementLaunches);
+            using (var replacement = Process.GetProcessById(explicitRecovery.State!.ProcessId!.Value))
+            { await Close(replacement); await replacement.WaitForExitAsync(deadline.Token); Assert.AreEqual(0, replacement.ExitCode); }
             await File.WriteAllTextAsync(Path.Combine(evidence, "result.json"), JsonSerializer.Serialize(new
             {
                 schemaVersion = 1, status = "passed", nativeCommit = input.Commit, archiveSha256 = input.Artifact.Sha256,
                 realKiCadProcesses = true, isolatedTestPublisher = true, syntheticReleaseSequence = true,
                 cancellationPreservedOriginal = true, nativeRestartVerified = true, restoredOlderLiveVersion = true,
-                selectedVersionPreserved = true, automaticUpdatingQualified = false, fullDirtyCaptionJourneyVerified = false
+                selectedVersionPreserved = true, automaticUpdatingQualified = false, fullDirtyCaptionJourneyVerified = false,
+                interruptedRecoveryVerified = true, recoveryRetryDidNotLaunch = true
             }), deadline.Token);
 
             WindowsUpdateHandoffRequest Request(Process process, string selection, Guid id) => new(installation, selection,
@@ -163,6 +194,7 @@ public sealed class WindowsNativeHandoffJourneyTests
             {
                 try { job.Attach(process); }
                 catch { if (!process.HasExited) process.Kill(true); throw; }
+                replacementLaunches++;
                 return Task.CompletedTask;
             }
         }

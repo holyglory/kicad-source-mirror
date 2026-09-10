@@ -30,10 +30,14 @@ if (args.FirstOrDefault() is "--prepare-update" or "--check-update" or "--instal
                 : OperatingSystem.IsMacOS()
                 ? await MacRestartCommand.RunAsync(args, Console.Out, cancellation.Token)
                 : await LinuxRestartCommand.RunAsync(args, Console.Out, cancellation.Token),
-            "--inspect-update" => OperatingSystem.IsMacOS()
+            "--inspect-update" => OperatingSystem.IsWindows()
+                ? await WindowsUpdateInspectionCommand.RunAsync(args, Console.Out, cancellation.Token)
+                : OperatingSystem.IsMacOS()
                 ? await MacUpdateInspectionCommand.RunAsync(args, Console.Out, cancellation.Token)
                 : await LinuxUpdateInspectionCommand.RunAsync(args, Console.Out, cancellation.Token),
-            "--recover-update" => OperatingSystem.IsMacOS()
+            "--recover-update" => OperatingSystem.IsWindows()
+                ? await WindowsUpdateRecoveryCommand.RunAsync(args, Console.Out, cancellation.Token)
+                : OperatingSystem.IsMacOS()
                 ? await MacUpdateRecoveryCommand.RunAsync(args, Console.Out, cancellation.Token)
                 : await LinuxUpdateRecoveryCommand.RunAsync(args, Console.Out, cancellation.Token),
             "--runtime-info" => await RuntimeInfoCommand.RunAsync(args, Console.Out, cancellation.Token),

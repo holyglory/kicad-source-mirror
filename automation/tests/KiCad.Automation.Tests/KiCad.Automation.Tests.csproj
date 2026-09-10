@@ -6,6 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="../../tools/KiCad.Automation.Downloads/KiCad.Automation.Downloads.csproj" />
     <ProjectReference Include="../../tools/KiCad.Automation.Validation/KiCad.Automation.Validation.csproj" />
+    <ProjectReference Include="../../tools/KiCad.Automation.PackageProbe/KiCad.Automation.PackageProbe.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../src/KiCad.Automation.Native/KiCad.Automation.Native.csproj" />
     <ProjectReference Include="../../src/KiCad.Automation.Mcp/KiCad.Automation.Mcp.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

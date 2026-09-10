@@ -132,7 +132,11 @@ but its final managed tests exposed NNG's resolver reopening a deleted temporary
 library path for later function bindings. Its retained diagnostic archive is
 unqualified. Source `a82a87fc53` pins the selected native handle for the process
 lifetime; `9691937193` makes the isolated compiled regression helper a declared
-test dependency. Native regression `34493490753` is pending at this checkpoint.
+test dependency. Native regression `34493490753` passed on both architectures:
+the fixed binding survives removal of its selected pathname, and an isolated
+copy of the former resolver fails as expected. Full Apple Silicon retry
+`34493864978` uses exact source `9691937193936d257f96da31b825e20f00aa88d9`.
+No archive from the failed full run is promoted to a public package.
 
 ## Current source boundary
 

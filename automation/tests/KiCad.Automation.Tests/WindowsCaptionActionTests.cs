@@ -139,8 +139,7 @@ public sealed class WindowsCaptionActionTests
             // Keyboard remains required. Run independent failure/recovery
             // checks first so a menu failure does not hide their findings.
             WindowsNativeUi.Shortcut(process, second, 0x12, 0x20); // Alt+Space
-            await WindowsNativeUi.WaitForSystemMenu(process, second, deadline.Token);
-            WindowsNativeUi.PressKey(process, second, 0x23); // End
+            await WindowsNativeUi.SelectSystemMenuItem(process, second, "Update", deadline.Token);
             WindowsNativeUi.PressKey(process, second, 0x0d); // Enter
             state = await WaitClicks(2, index: 1);
             await File.WriteAllTextAsync(Path.Combine(evidence, "final-state.json"), state.ToJsonString(), deadline.Token);

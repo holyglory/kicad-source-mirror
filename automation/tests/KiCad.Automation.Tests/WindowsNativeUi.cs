@@ -143,6 +143,37 @@ internal static class WindowsNativeUi
         }
     }
 
+    public static async Task SelectSystemMenuItem(Process owner, nint window, string label, CancellationToken token)
+    {
+        await WaitForSystemMenu(owner, window, token);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        nint menu = GetSystemMenu(window, false); int count = GetMenuItemCount(menu);
+        if (menu == 0 || count is < 1 or > 64) throw new InvalidDataException("The native system menu is unavailable.");
+        int target = -1;
+        for (int index = 0; index < count; ++index)
+        {
+            var text = new StringBuilder(512); GetMenuStringW(menu, (uint)index, text, text.Capacity, 0x400);
+            if (text.ToString().Replace("&", "", StringComparison.Ordinal) != label) continue;
+            if (target >= 0) throw new InvalidDataException("The system menu action is ambiguous.");
+            target = index;
+        }
+        if (target < 0) throw new InvalidDataException("The expected native system menu action is absent.");
+        for (int moves = 0; moves <= count; ++moves)
+        {
+            Validate(owner, window); deadline.Token.ThrowIfCancellationRequested();
+            uint state = GetMenuState(menu, (uint)target, 0x400);
+            if (state == uint.MaxValue || (state & 3) != 0) throw new InvalidDataException("The system menu action is unavailable.");
+            if ((state & 0x80) != 0) return; // MF_HILITE: observed selection, not an assumed key effect.
+            string before = Highlight();
+            PressKey(owner, window, 0x26); // Documented Up-arrow navigation, including wraparound.
+            while (Highlight() == before) await Task.Delay(25, deadline.Token);
+        }
+        throw new InvalidDataException("Keyboard navigation did not select the native system menu action.");
+
+        string Highlight() => string.Join(',', Enumerable.Range(0, count).Where(index =>
+            (GetMenuState(menu, (uint)index, 0x400) & 0x80) != 0));
+    }
+
     public static void Capture(Process owner, nint window, string path)
     {
         Focus(owner, window);
@@ -308,6 +339,10 @@ internal static class WindowsNativeUi
     [DllImport("user32", SetLastError = true)] private static extern bool EnumWindows(EnumWindow callback, nint parameter);
     [DllImport("user32")] private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
     [DllImport("user32", SetLastError = true)] private static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
+    [DllImport("user32")] private static extern nint GetSystemMenu(nint window, bool revert);
+    [DllImport("user32")] private static extern int GetMenuItemCount(nint menu);
+    [DllImport("user32")] private static extern uint GetMenuState(nint menu, uint item, uint flags);
+    [DllImport("user32", CharSet = CharSet.Unicode)] private static extern int GetMenuStringW(nint menu, uint item, StringBuilder text, int maximum, uint flags);
     [DllImport("user32", CharSet = CharSet.Unicode)] private static extern int GetWindowTextW(nint window, StringBuilder title, int maximum);
     [DllImport("user32")] private static extern bool IsWindow(nint window);
     [DllImport("user32")] private static extern bool IsWindowVisible(nint window);

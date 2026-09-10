@@ -143,8 +143,11 @@ No archive from the failed full run is promoted to a public package.
 Native run `34495577161` observed Accessibility and screen-capture access on both
 hosted Mac architectures without changing permissions. The compiled QA driver
 checks the process boot session, kernel start time and executable before native
-Accessibility actions, and requires a unique enabled button. Its external-control
-fixture is run `34498294011`; this is not itself the whole KiCad update journey.
+Accessibility actions, and requires a unique enabled button. External-control
+run `34498294011` passed on both architectures at source `258edf512079`: it
+captured the actual other-process window, rejected stale identity and missing
+targets, then pressed its native button. The receipt explicitly keeps
+`applicationUpdateJourneyVerified=false`; this is not the whole KiCad journey.
 
 The `NativeMacIntegratedUpdate` test opens two real projects with unique unsaved
 schematic objects. It presses the actual Update and Cancel/Save controls, checks

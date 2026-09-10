@@ -47,8 +47,10 @@ public static class UpdatePreparationCommand
             using var source = new UpdateDownloader(new Uri(configuration.Origin, UriKind.Absolute));
             var checker = new UpdateChecker(source, configuration.StateDirectory, publisherKey, installed,
                 configuration.Channel, configuration.Platform, configuration.Format);
-            string? expectedTarget = runtime == "linux-x64" && configuration.InstallationRoot is { } installationRoot
-                ? LinuxUpdateActivation.InspectTarget(Path.Combine(installationRoot, "manager")) : null;
+            string? expectedTarget = configuration.InstallationRoot is { } installationRoot
+                ? runtime == "linux-x64" ? LinuxUpdateActivation.InspectTarget(Path.Combine(installationRoot, "manager"))
+                    : MacVerifiedInstallation.InspectTarget(installationRoot)
+                : null;
             await Emit(new { schemaVersion = 1, status = "checking", installationReady = false });
             var result = await checker.CheckAsync(token);
             if (args[0] == "--check-update" || result.Availability != UpdateAvailability.Available)
@@ -68,7 +70,7 @@ public static class UpdatePreparationCommand
                 });
                 return 0;
             }
-            if (configuration.Format != "tar.gz" || (runtime != "linux-x64" && configuration.InstallationRoot is not null))
+            if (configuration.Format != "tar.gz")
             {
                 await Emit(new { schemaVersion = 1, status = "preparation_unavailable", installationReady = false });
                 return 0;
@@ -78,6 +80,20 @@ public static class UpdatePreparationCommand
                 configuration.StagingDirectory, progress, token);
             if (runtime.StartsWith("osx-", StringComparison.Ordinal))
             {
+                if (configuration.InstallationRoot is { } macRoot)
+                {
+                    await Emit(new { schemaVersion = 1, status = "registering_candidate", installationReady = false });
+                    var registered = await MacVerifiedInstallation.RegisterAsync(macRoot, expectedTarget!, download.Path,
+                        result.Manifest.CopyEnvelope(), token);
+                    await Emit(new
+                    {
+                        schemaVersion = 1, status = "candidate_registered", installationReady = false,
+                        directory = registered.Version.VersionDirectory, manifestSha256 = registered.Version.ManifestSha256,
+                        version = result.Manifest.Release.Version, commit = registered.Version.Commit,
+                        expectedTarget = registered.ExpectedTarget, reused = registered.Reused
+                    });
+                    return 0;
+                }
                 await Emit(new { schemaVersion = 1, status = "staging", installationReady = false });
                 var mac = await MacUpdateStager.StageAsync(result.Manifest, download, configuration.StagingDirectory, token);
                 await Emit(new

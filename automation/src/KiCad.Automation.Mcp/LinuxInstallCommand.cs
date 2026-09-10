@@ -37,8 +37,11 @@ public static class LinuxInstallCommand
             byte[] publisherKey = await ReadAsync(args[4], 4096, token);
             byte[] envelope = await ReadAsync(request.EnvelopePath, UpdateManifestCodec.MaximumEnvelopeBytes, token);
             await Emit(new { schemaVersion = 1, status = "verifying_installation", automaticUpdatingQualified = false });
-            var result = await LinuxVerifiedInstallation.InstallAsync(request.InstallationRoot, request.ArchivePath,
-                envelope, publisherKey, origin, request.Channel, token);
+            object result = OperatingSystem.IsMacOS()
+                ? await MacVerifiedInstallation.InstallAsync(request.InstallationRoot, request.ArchivePath,
+                    envelope, publisherKey, origin, request.Channel, token)
+                : await LinuxVerifiedInstallation.InstallAsync(request.InstallationRoot, request.ArchivePath,
+                    envelope, publisherKey, origin, request.Channel, token);
             await Emit(new { schemaVersion = 1, status = "installed", result,
                 automaticUpdatingQualified = false, nativeEditorRestarted = false });
             return 0;

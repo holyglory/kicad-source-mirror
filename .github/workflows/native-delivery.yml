@@ -64,7 +64,7 @@ jobs:
         run: |
           export KICAD_HOSTED_FIXTURE_EVIDENCE="$RUNNER_TEMP/kicad-loader-preflight/evidence"
           dotnet test KiCad.Automation.slnx --configuration Release \
-            --filter 'FullyQualifiedName~MacRuntimePathTests|FullyQualifiedName~MacArchivePreflightTests|FullyQualifiedName~MacUpdateStagerTests' --logger trx \
+            --filter 'FullyQualifiedName~MacRuntimePathTests|FullyQualifiedName~MacArchivePreflightTests|FullyQualifiedName~MacUpdateStagerTests|FullyQualifiedName~MacVerifiedInstallationTests|FullyQualifiedName~PosixUpdateActivationTests' --logger trx \
             --results-directory "$RUNNER_TEMP/kicad-loader-preflight"
       - name: Prepare official Mac dependencies and validate the candidate
         if: '!inputs.checks_only'

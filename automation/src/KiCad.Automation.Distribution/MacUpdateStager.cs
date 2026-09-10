@@ -222,7 +222,7 @@ public static class MacUpdateStager
             }
     }
 
-    private static async Task<string> ReadBounded(StreamReader reader, CancellationToken token)
+    internal static async Task<string> ReadBounded(StreamReader reader, CancellationToken token)
     {
         var text = new StringBuilder();
         char[] buffer = new char[2048]; int count;
@@ -234,7 +234,7 @@ public static class MacUpdateStager
         return text.ToString();
     }
 
-    private static void RemoveOwnedTree(string root)
+    internal static void RemoveOwnedTree(string root)
     {
         if (!System.IO.Directory.Exists(root)) return;
         var pending = new Stack<string>(); pending.Push(root);

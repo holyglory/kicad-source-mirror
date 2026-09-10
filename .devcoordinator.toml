@@ -487,6 +487,23 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacArchivePreflightTests|FullyQualifiedName~MacUpdateStagerTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~LinuxUpdateStagerTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-update-archive"]
 retained_artifacts = [{ name = "mac-update-archive", path = "automation/artifacts/mac-update-archive", max_bytes = 16777216 }]
 
+[test.mac-installation]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.mac-installation.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.mac-installation.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~MacVerifiedInstallationTests|FullyQualifiedName~PosixUpdateActivationTests|FullyQualifiedName~LinuxUpdateActivationTests|FullyQualifiedName~LinuxVerifiedInstallationTests|FullyQualifiedName~LinuxPayloadFingerprintTests|FullyQualifiedName~UpdateCommandTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-installation"]
+retained_artifacts = [{ name = "mac-installation", path = "automation/artifacts/mac-installation", max_bytes = 16777216 }]
+
 # Independent verification of the already frozen archive, not a rebuild of it.
 [test.archive-delivery]
 timeout_seconds = 600

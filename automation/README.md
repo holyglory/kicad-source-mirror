@@ -4,18 +4,20 @@ Implementation branch: `feature/codex-kicad-automation`, based on
 `f638a860a05b3e48d1074314a656ad9b8f597466`. This is an incomplete implementation
 of the approved six-milestone program, not a release.
 
-## Latest preliminary Apple Silicon build — September 10, 2026
+## Latest preliminary Mac builds — September 10, 2026
 
 [Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-cd4934ad7bcb28c50d35586e6d022bda0d2ffee8-macos-arm64.tar.gz)
+[Intel application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-cd4934ad7bcb28c50d35586e6d022bda0d2ffee8-macos-x64.tar.gz),
 and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-cd4934ad7bcb28c50d35586e6d022bda0d2ffee8-source.tar.gz)
 identify `cd4934ad7bcb28c50d35586e6d022bda0d2ffee8`, version
-`preview-20260910-cd4934ad7bcb`. Native build `34507122230` passed for Apple
-Silicon; its Intel build remains separate. Publication `82fa2d` verified the
-native receipt and archives and signed platform feed sequence 3. Public check
-`t20260910T191758Z-5e4769` verified all 31 downloads at
-`2026-09-10T19:19:29.5683026Z`; generation 18 preserves earlier downloads and the
-Linux/Intel feed bytes. The application archive SHA-256 is
+`preview-20260910-cd4934ad7bcb`. Native build `34507122230` passed both architectures.
+Publication `82fa2d` staged Apple Silicon feed 3; `91b9e2` staged Intel feed 2.
+Public check `t20260910T202523Z-d7119c` verified all 32 downloads at
+`2026-09-10T20:26:23.3002219Z`. Generation 19 preserves earlier downloads and the
+Linux/Apple Silicon feed bytes. The Apple Silicon archive SHA-256 is
 `35d39e37dfca1661183189b0353c7a4a1f146a27f650fc76e956f1bee5354c02`.
+The Intel archive SHA-256 is
+`2ef1a2764338e216ba2b4b011d2fb84803879401f47c4153c281c2ee057d7202`.
 
 Extract and open `install/KiCad.app`, or use `./kicad-mcp` for STDIO tools.
 macOS 15.7+ is required; the app is ad-hoc signed, not notarized. The real
@@ -178,8 +180,14 @@ rollback after definite launch failure and preservation of uncertain live
 replacements. Native preflight/cancellation verification passed in `34523685492`
 using an explicitly synthetic payload and a real Windows process. It verified
 persisted intent before acknowledgment, no original-process signal, unchanged
-selection on cancellation, and no duplicate handoff execution. Real replacement/
-recovery and Windows caption Update integration remain unqualified and incomplete.
+selection on cancellation, and no duplicate handoff execution. Real Windows
+handoff run `34525358151` reached a successful native restart but then failed an
+exact path comparison because generated paths used mixed separators. Source
+`a2c942a29e` normalizes the derived executable paths; rerun `34526278706` must
+finish both restart and older-editor recovery before that behavior is qualified.
+The compiled Windows `--restart-update` command now uses schema version 3 and
+stops depending on the original window's stdout after acknowledgment. Native
+caption Update integration and full dirty-document update qualification remain open.
 
 ### Mac installation and restart checkpoints
 

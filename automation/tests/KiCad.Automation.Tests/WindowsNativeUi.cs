@@ -100,6 +100,49 @@ internal static class WindowsNativeUi
         }
     }
 
+    public static void ClickButton(Process owner, nint window, nint button, string expectedText)
+    {
+        Focus(owner, window); Validate(owner, button);
+        if (!IsChild(window, button) || !IsWindowVisible(button) || !IsWindowEnabled(button))
+            throw new InvalidOperationException("The native button is not ready in the requested window.");
+        var name = new StringBuilder(1024); GetWindowTextW(button, name, name.Capacity);
+        if (name.ToString().Replace("&", "", StringComparison.Ordinal) != expectedText)
+            throw new InvalidOperationException("The native button label changed before input.");
+        nint previousDpi = SetThreadDpiAwarenessContext(-4);
+        try
+        {
+            if (!GetWindowRect(button, out RECT rect) || rect.Right <= rect.Left || rect.Bottom <= rect.Top)
+                throw new InvalidDataException("The native button has no visible bounds.");
+            int x = rect.Left + (rect.Right - rect.Left) / 2, y = rect.Top + (rect.Bottom - rect.Top) / 2;
+            if (!SetCursorPos(x, y)) throw new Win32Exception();
+            if (WindowFromPoint(new POINT { X = x, Y = y }) != button)
+                throw new InvalidOperationException("Another control obscures the requested native button.");
+            INPUT[] inputs = [new() { Data = new() { Mouse = new() { Flags = 2 } } }, new() { Data = new() { Mouse = new() { Flags = 4 } } }];
+            uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+            if (sent != inputs.Length)
+            {
+                if (sent > 0) SendInput(1, [inputs[1]], Marshal.SizeOf<INPUT>());
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "The native button click was not fully delivered.");
+            }
+        }
+        finally { if (previousDpi != 0) SetThreadDpiAwarenessContext(previousDpi); }
+    }
+
+    public static async Task WaitForSystemMenu(Process owner, nint window, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        while (true)
+        {
+            deadline.Token.ThrowIfCancellationRequested(); Validate(owner, window);
+            uint thread = GetWindowThreadProcessId(window, out _);
+            var info = new GUITHREADINFO { Size = (uint)Marshal.SizeOf<GUITHREADINFO>() };
+            if (!GetGUIThreadInfo(thread, ref info)) throw new Win32Exception();
+            if ((info.Flags & 8) != 0 && info.MenuOwner == window) return;
+            await Task.Delay(25, deadline.Token);
+        }
+    }
+
     public static void Capture(Process owner, nint window, string path)
     {
         Focus(owner, window);
@@ -231,10 +274,13 @@ internal static class WindowsNativeUi
     }
 
     private static INPUT Key(ushort key, bool up) => new()
-    { Type = 1, Data = new() { Keyboard = new() { VirtualKey = key, Flags = up ? 2U : 0U } } };
+    { Type = 1, Data = new() { Keyboard = new() { VirtualKey = key,
+        Flags = (up ? 2U : 0U) | (key is >= 0x21 and <= 0x28 or 0x2d or 0x2e or 0xa3 or 0xa5 ? 1U : 0U) } } };
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)] private struct GUITHREADINFO
+    { public uint Size, Flags; public nint Active, Focus, Capture, MenuOwner, MoveSize, Caret; public RECT CaretRectangle; }
     [StructLayout(LayoutKind.Sequential)] private struct INPUT { public uint Type; public INPUTDATA Data; }
     [StructLayout(LayoutKind.Explicit)] private struct INPUTDATA
     { [FieldOffset(0)] public KEYBDINPUT Keyboard; [FieldOffset(0)] public MOUSEINPUT Mouse; }
@@ -251,9 +297,12 @@ internal static class WindowsNativeUi
     private delegate bool EnumWindow(nint window, nint parameter);
     [DllImport("user32", SetLastError = true)] private static extern bool EnumWindows(EnumWindow callback, nint parameter);
     [DllImport("user32")] private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
+    [DllImport("user32", SetLastError = true)] private static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
     [DllImport("user32", CharSet = CharSet.Unicode)] private static extern int GetWindowTextW(nint window, StringBuilder title, int maximum);
     [DllImport("user32")] private static extern bool IsWindow(nint window);
     [DllImport("user32")] private static extern bool IsWindowVisible(nint window);
+    [DllImport("user32")] private static extern bool IsWindowEnabled(nint window);
+    [DllImport("user32")] private static extern bool IsChild(nint parent, nint child);
     [DllImport("user32")] private static extern bool IsIconic(nint window);
     [DllImport("user32")] private static extern bool ShowWindow(nint window, int command);
     [DllImport("user32")] private static extern bool SetForegroundWindow(nint window);

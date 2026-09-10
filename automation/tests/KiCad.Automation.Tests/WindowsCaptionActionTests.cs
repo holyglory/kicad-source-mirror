@@ -62,6 +62,24 @@ public sealed class WindowsCaptionActionTests
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => observer.InspectAsync(identity with { CreationFileTime = "1" }, deadline.Token));
             await Assert.ThrowsAsync<OperationCanceledException>(() => observer.InspectAsync(identity, new CancellationToken(true)));
             Assert.IsFalse(process.HasExited);
+            var ui = new WindowsUiAutomation(observer);
+            foreach (string choice in new[] { "Cancel", "Save" })
+            {
+                await Send(new { op = "dialog" });
+                await ui.WaitButtonAsync(identity, choice, deadline.Token);
+                var modal = await observer.InspectAsync(identity, deadline.Token);
+                Assert.IsFalse(modal.GetProperty("buttons").EnumerateArray().Any(button =>
+                    button.GetProperty("title").GetString() == "Update" && button.GetProperty("enabled").GetBoolean()));
+                var dialogButton = modal.GetProperty("buttons").EnumerateArray().Single(button =>
+                    button.GetProperty("title").GetString() == choice && button.GetProperty("enabled").GetBoolean());
+                nint dialog = checked((nint)ulong.Parse(dialogButton.GetProperty("window").GetString()!, System.Globalization.CultureInfo.InvariantCulture));
+                WindowsNativeUi.Capture(process, dialog, Path.Combine(evidence, choice.ToLowerInvariant() + "-dialog.png"));
+                await Assert.ThrowsExactlyAsync<InvalidDataException>(() => ui.PressAsync(identity, "Update", deadline.Token));
+                await ui.PressAsync(identity, choice, deadline.Token);
+                state = await Read(); Assert.AreEqual(choice == "Save" ? 6 : 2, state["dialogResult"]!.GetValue<int>());
+                Assert.IsFalse(process.HasExited);
+                Assert.IsFalse(Unavailable(state, 0));
+            }
             using (var wrongOwner = Process.GetCurrentProcess())
                 Assert.ThrowsExactly<InvalidOperationException>(() => WindowsNativeUi.Click(wrongOwner, first, 0, 0));
             Click(state, 0, first);
@@ -71,6 +89,7 @@ public sealed class WindowsCaptionActionTests
             // Open the actual native system menu and choose its appended action
             // using keyboard input, not a synthetic WM_SYSCOMMAND or handler call.
             WindowsNativeUi.Shortcut(process, first, 0x12, 0x20); // Alt+Space
+            await WindowsNativeUi.WaitForSystemMenu(process, first, deadline.Token);
             WindowsNativeUi.PressKey(process, first, 0x23); // End
             WindowsNativeUi.PressKey(process, first, 0x0d); // Enter
             state = await WaitClicks(2);
@@ -135,8 +154,12 @@ public sealed class WindowsCaptionActionTests
             }
             async Task<JsonObject> Command(object command)
             {
+                await Send(command); return await Read();
+            }
+            async Task Send(object command)
+            {
                 await process.StandardInput.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(command));
-                await process.StandardInput.FlushAsync(deadline.Token); return await Read();
+                await process.StandardInput.FlushAsync(deadline.Token);
             }
             async Task<JsonObject> WaitClicks(int expected)
             {

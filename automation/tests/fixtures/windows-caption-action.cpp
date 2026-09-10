@@ -7,6 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+#pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 using json = nlohmann::json;
 struct FRAME { HWND window = nullptr; int index = 0, clicks = 0, escapes = 0; std::function<void( bool, bool )> set; };
@@ -62,6 +63,16 @@ json Snapshot()
                 if( std::wstring( text ) == L"Update" ) ++found;
             }
             item["menuActions"] = found;
+            GUITHREADINFO gui{}; gui.cbSize = sizeof( gui ); GetGUIThreadInfo( GetCurrentThreadId(), &gui );
+            item["guiFlags"] = gui.flags;
+            item["ownsMenu"] = gui.hwndMenuOwner == frame.window;
+            item["menu"] = json::array();
+            for( int i = 0; i < GetMenuItemCount( menu ); ++i )
+            {
+                wchar_t text[128]; GetMenuStringW( menu, i, text, 128, MF_BYPOSITION );
+                item["menu"].push_back( { { "title", Utf8( text ) }, { "state", GetMenuState( menu, i, MF_BYPOSITION ) },
+                    { "id", GetMenuItemID( menu, i ) } } );
+            }
         }
         result["frames"].push_back( item );
     }
@@ -79,6 +90,21 @@ void HandleCommand( const std::string& line )
         else if( op == "show" ) ShowWindow( frame.window, command.at( "visible" ).get<bool>() ? SW_SHOW : SW_HIDE );
         else if( op == "enable" ) EnableWindow( frame.window, command.at( "enabled" ) );
         else if( op == "invoke" ) { ACCESS object( frame.window ); extra["invokeResult"] = object.value->accDoDefaultAction( object.child ); }
+        else if( op == "dialog" )
+        {
+            TASKDIALOG_BUTTON save{ IDYES, L"&Save" };
+            TASKDIALOGCONFIG dialog{}; dialog.cbSize = sizeof( dialog ); dialog.hwndParent = frame.window;
+            dialog.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
+            dialog.dwCommonButtons = TDCBF_CANCEL_BUTTON; dialog.nDefaultButton = IDYES;
+            dialog.pszWindowTitle = L"Save Changes?"; dialog.pszMainInstruction = L"Save the native fixture change?";
+            dialog.pszContent = L"Isolated test document; no engineering files are open.";
+            dialog.cButtons = 1; dialog.pButtons = &save;
+            for( auto& owner : frames ) if( owner.window ) EnableWindow( owner.window, FALSE );
+            int selected = 0; auto result = TaskDialogIndirect( &dialog, &selected, nullptr, nullptr );
+            for( auto& owner : frames ) if( owner.window ) EnableWindow( owner.window, TRUE );
+            if( FAILED( result ) ) throw std::runtime_error( "The native Save/Cancel dialog could not open." );
+            extra["dialogResult"] = selected;
+        }
         else if( op == "duplicate" )
         {
             try { KIPLATFORM::UI::AddWindowsCaptionAction( frame.window, L"Other", []{} ); extra["duplicateRefused"] = false; }

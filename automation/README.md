@@ -50,9 +50,48 @@ publisher was isolated test material; the persistent preview private key was
 not sent to GitHub. Linux run `t20260910T121612Z-dc5cfd` supplies supporting
 archive and existing-updater regression evidence, not native Mac execution.
 
-This code is not yet included in the older Mac downloads and does not provide
-Mac installation registration, activation, the caption action or restart.
-Those remain open in `p4d6c4ee22fd8078d`; a staged directory is not a ready update.
+This staging code is not yet included in the older Mac downloads. A staged
+directory alone is not a ready update; the subsequent installation and lifecycle
+checkpoints below remain separate from final updater qualification.
+
+### Mac installation and restart checkpoints
+
+Helper `062db56c9231fdf3662b81a4bade9b34a3aec2d5` passed native registration,
+activation, rollback, stale-request and drift checks on both architectures in
+run `34480071790`. Run `34481075647` additionally verified the compiled
+`--install-package` entry point at `396598a2cb5e2aaef8cf09838395d1a520513a0d`.
+Installations keep signed bundles in separate retained version directories;
+registration does not change selection, and rollback does not lower the accepted
+update-feed checkpoint. Existing live versions stay available after selection.
+
+The Mac restart helper at `459e549e3e01e421b0ef8c3ecfedd50e04ed7a65` passed
+native run `34483327352` on both architectures. It verifies boot-session,
+kernel start time and physical executable identity before acknowledging close,
+persists intent, waits for that exact process, and verifies replacement
+instance/project/epoch through native IPC. The fixture covers cancellation,
+wrong-process rejection, clean empty-manager restart and restoration after a
+real startup failure. It does not prove a dirty-document caption-click journey.
+
+The native caption component at `3c0699fc4f37828eb1a4cad1366f2c94f69e3cc4`
+passed `34483913703` on Apple Silicon and Intel: actual AppKit rendering,
+visibility, disabled actions, independent windows and light/dark narrow/wide
+layouts. It reuses the platform implementation compiled into KiCad, but component
+invocation is not proof of an entire application update.
+
+Mac helper commands now include `--inspect-update --installation ABSOLUTE_ROOT
+--operation UUID` and explicit `--recover-update --installation ABSOLUTE_ROOT
+--operation UUID --attempt UUID`. Inspection is read-only. Recovery only reopens
+the verified previous editor when the saved journal proves no replacement launch
+was reached and the original is gone; retries do not duplicate a live process.
+Native verification of this interrupted-helper path (`007521cca5`, run
+`34485495786`) is still pending at this checkpoint.
+
+Same-source preliminary Mac builds at `3c0699fc4f` are running separately:
+Apple Silicon `34484262464` and Intel `34485572638`. They do not include the
+later explicit-recovery helper changes. No newer Mac download is claimed here.
+The integrated dirty-document Update-button journey, final recovery coverage,
+same-candidate packaging and actual Codex Desktop operation remain open under
+`p4d6c4ee22fd8078d` and `p8bf96f1c4b709a28`.
 
 ## Current source boundary
 

@@ -33,13 +33,13 @@ int main( int argc, char** argv )
                     encoding:NSUTF8StringEncoding error:nil];
             } );
             state( true, true );
-            // Reproduce the old hidden-but-enabled state for the external AX
-            // verifier, independently of the corrected production setter.
+            // Explicit hidden-but-enabled negative control for the AX verifier.
+            // Do not infer rendered visibility from controller state alone.
             auto hide = KIPLATFORM::UI::AddMacCaptionAction( window, @"Hide", [window]
             {
                 auto* controller = [[window titlebarAccessoryViewControllers] firstObject];
                 NSButton* button = (NSButton*)[controller view];
-                [button setHidden:NO]; [button setEnabled:YES]; [controller setHidden:YES];
+                [button setHidden:YES]; [button setEnabled:YES]; [controller setHidden:YES];
             } );
             auto show = KIPLATFORM::UI::AddMacCaptionAction( window, @"Show", [state] { state( true, true ); } );
             hide( true, true ); show( true, true );

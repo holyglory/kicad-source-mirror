@@ -18,6 +18,8 @@ int main(int argc, char** argv)
             styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
         int countA=0, countB=0;
         NSButton* buttonA=a(window,&countA); NSButton* buttonB=b(window,&countB);
+        [window makeKeyAndOrderFront:nil]; [window displayIfNeeded];
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
         if([[buttonA target] class] != [[buttonB target] class]) return 4;
         [buttonA performClick:nil]; [buttonB performClick:nil]; [buttonB performClick:nil];
         if(countA != 1 || countB != 2) return 5;

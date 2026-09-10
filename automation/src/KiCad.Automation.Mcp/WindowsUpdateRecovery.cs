@@ -72,7 +72,8 @@ public static class WindowsUpdateRecovery
                 token.ThrowIfCancellationRequested();
                 if (WindowsObservedProcess.Observe(request.OldProcess, snapshot.PreviousVersion.NativeExecutable) is not ("exited" or "identity_changed"))
                 {
-                    await Record(state with { Status = "recovery_cancelled", Error = "Original process is not confirmed closed." }, CancellationToken.None);
+                    state = state with { Status = "recovery_cancelled", Error = "Original process is not confirmed closed." };
+                    await Record(state, CancellationToken.None);
                     return Result("original_identity_unavailable", state);
                 }
                 var previous = await WindowsVerifiedVersions.InspectExecutableAsync(root, snapshot.PreviousVersion.NativeExecutable, token);

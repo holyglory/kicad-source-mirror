@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace KiCad.Automation.Validation;
 
 public sealed record HostedDeliveryRequest(string Repository, string Commit, string Architecture,
-    string Output, string DependencyCommit);
+    string Output, string DependencyCommit, string Phase = "all");
 
 /// <summary>Finite native build on a disposable GitHub runner, never a remote-control worker.</summary>
 public static class HostedDelivery
@@ -41,6 +41,7 @@ public static class HostedDelivery
         Evidence.RequireCommit(request.Commit);
         Evidence.RequireCommit(request.DependencyCommit);
         bool mac = OperatingSystem.IsMacOS();
+        HostedWindowsCheckpoint.RequirePhase(request.Phase, mac);
         ValidateTarget(request.Architecture, mac, OperatingSystem.IsWindows(), RuntimeInformation.ProcessArchitecture);
         // SA-09 authorizes clean dependency setup only on disposable hosted runners.
         // Existing personal Macs continue to use the non-bootstrap `mac` command.
@@ -49,34 +50,47 @@ public static class HostedDelivery
             throw new InvalidOperationException("Use this bootstrap only on a GitHub-hosted runner; use the manual mac command on an existing Mac.");
         string repository = Path.GetFullPath(request.Repository);
         string output = Path.GetFullPath(request.Output);
-        if (Directory.Exists(output) || File.Exists(output))
+        bool finishPrepared = request.Phase == "build";
+        HostedWindowsCheckpoint? checkpoint = finishPrepared
+            ? await HostedWindowsCheckpoint.ReadAsync(request, cancellationToken) : null;
+        if (finishPrepared) await HostedWindowsCheckpoint.ClaimAsync(output, cancellationToken);
+        if (!finishPrepared && (Directory.Exists(output) || File.Exists(output)))
             throw new ArgumentException("Hosted output must be a new directory; an existing build is never cleaned.");
         string evidence = Directory.CreateDirectory(Path.Combine(output, "evidence")).FullName;
         string packages = Path.Combine(output, "packages");
-        var steps = new List<ValidationStep>();
+        var steps = checkpoint?.Steps.ToList() ?? new List<ValidationStep>();
         string status = "failed";
         string? failure = null;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromMinutes(330)); // Leave the job time to retain failure evidence.
+        DateTimeOffset deadlineAt = checkpoint?.DeadlineAt ?? DateTimeOffset.UtcNow.AddMinutes(330);
+        TimeSpan remaining = deadlineAt - DateTimeOffset.UtcNow;
+        deadline.CancelAfter(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
         CancellationToken token = deadline.Token;
         try
         {
-            string actual = (await Run("source-commit", "git", ["rev-parse", "HEAD"], capture: true)).Trim();
+            string prefix = finishPrepared ? "resume-" : "";
+            string actual = (await Run(prefix + "source-commit", "git", ["rev-parse", "HEAD"], capture: true)).Trim();
             if (actual != request.Commit) throw new InvalidDataException("Checkout differs from the exact requested source.");
-            await Run("pinned-ancestry", "git", ["merge-base", "--is-ancestor", "f638a860a05b3e48d1074314a656ad9b8f597466", "HEAD"]);
-            await Run("source-clean", "git", ["diff", "--exit-code", "HEAD"]);
-            await Run("dotnet", "dotnet", ["--info"]);
-            await Run("cmake", "cmake", ["--version"]);
-            var drive = new DriveInfo(Path.GetPathRoot(output)!);
-            await File.WriteAllTextAsync(Path.Combine(evidence, "storage.json"),
-                JsonSerializer.Serialize(new { drive.TotalSize, drive.AvailableFreeSpace }, Evidence.JsonOptions), token);
-            if (drive.AvailableFreeSpace < 30L * 1024 * 1024 * 1024)
-                throw new IOException("Native KiCad build needs at least 30 GiB free. This runner is too small; no existing runner tools were deleted.");
-            await Run("managed-restore", "dotnet", ["restore", "automation/KiCad.Automation.slnx", "--locked-mode"]);
+            await Run(prefix + "pinned-ancestry", "git", ["merge-base", "--is-ancestor", "f638a860a05b3e48d1074314a656ad9b8f597466", "HEAD"]);
+            await Run(prefix + "source-clean", "git", ["diff", "--exit-code", "HEAD"]);
+            if (!finishPrepared)
+            {
+                await Run("dotnet", "dotnet", ["--info"]);
+                await Run("cmake", "cmake", ["--version"]);
+                var drive = new DriveInfo(Path.GetPathRoot(output)!);
+                await File.WriteAllTextAsync(Path.Combine(evidence, "storage.json"),
+                    JsonSerializer.Serialize(new { drive.TotalSize, drive.AvailableFreeSpace }, Evidence.JsonOptions), token);
+                if (drive.AvailableFreeSpace < 30L * 1024 * 1024 * 1024)
+                    throw new IOException("Native KiCad build needs at least 30 GiB free. This runner is too small; no existing runner tools were deleted.");
+                await Run("managed-restore", "dotnet", ["restore", "automation/KiCad.Automation.slnx", "--locked-mode"]);
+            }
             if (mac) await BuildMac();
             else await BuildWindows();
-            await Run("source-still-clean", "git", ["diff", "--exit-code", "HEAD"]);
-            status = "candidate_built";
+            await Run(request.Phase == "prepare" ? "prepared-source-clean" : "source-still-clean",
+                "git", ["diff", "--exit-code", "HEAD"]);
+            if (request.Phase == "prepare")
+                await HostedWindowsCheckpoint.WriteAsync(request, deadlineAt, steps, token);
+            status = request.Phase == "prepare" ? "prepared" : "candidate_built";
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
@@ -93,6 +107,7 @@ public static class HostedDelivery
         await File.WriteAllTextAsync(Path.Combine(output, "receipt.json"), JsonSerializer.Serialize(new
         {
             SchemaVersion = 1, SourceCommit = request.Commit, DependencyCommit = request.DependencyCommit,
+            request.Phase,
             Platform = mac ? "macos" : "windows", request.Architecture,
             OS = RuntimeInformation.OSDescription, Framework = RuntimeInformation.FrameworkDescription,
             RunId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
@@ -105,7 +120,7 @@ public static class HostedDelivery
                 "Mac ad-hoc signature only; not Apple notarization", "Windows preview is not Authenticode signed" }
         }, Evidence.JsonOptions), CancellationToken.None);
         Console.WriteLine(JsonSerializer.Serialize(new { status, failure, receipt = Path.Combine(output, "receipt.json") }));
-        return status == "candidate_built";
+        return status is "candidate_built" or "prepared";
 
         async Task BuildMac()
         {
@@ -153,26 +168,30 @@ public static class HostedDelivery
 
         async Task BuildWindows()
         {
-            await Run("compiler", "cl.exe", ["/?"]);
-            string vcpkg = Path.Combine(output, "vcpkg");
-            await Checkout("vcpkg", "https://github.com/microsoft/vcpkg.git", request.DependencyCommit, vcpkg);
-            await Run("vcpkg-bootstrap", "cmd.exe", ["/d", "/c", Path.Combine(vcpkg, "bootstrap-vcpkg.bat"), "-disableMetrics"]);
-            await Run("vcpkg-version", Path.Combine(vcpkg, "vcpkg.exe"), ["version"]);
             string build = Path.Combine(output, "build");
             string install = Path.Combine(output, "install");
             string bin = Path.Combine(install, "bin");
             string managedPublish = Path.Combine(output, "managed");
-            // One application directory gives KiCad and MCP the same native
-            // dependencies and CRT, without depending on the runner's PATH.
             string managed = bin;
-            await Run("managed-publish", "dotnet", ["publish", "automation/src/KiCad.Automation.Mcp", "--configuration", "Release",
-                "--runtime", "win-x64", "--self-contained", "true", "-p:RestoreLockedMode=true", "--output", managedPublish]);
-            await Run("native-configure", "cmake", ["-S", repository, "-B", build, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
-                "-DCMAKE_TOOLCHAIN_FILE=" + Path.Combine(vcpkg, "scripts", "buildsystems", "vcpkg.cmake"),
-                "-DVCPKG_TARGET_TRIPLET=x64-windows", "-DVCPKG_OVERLAY_TRIPLETS=" + Path.Combine(repository, "tools", "custom_vcpkg_triplets"),
-                "-DVCPKG_BUILD_TYPE=release", "-DKICAD_BUILD_QA_TESTS=ON", "-DKICAD_SCRIPTING_MODULES=OFF",
-                "-DKICAD_WIN32_INSTALL_PDBS=OFF", "-DCMAKE_INSTALL_PREFIX=" + install]);
-            File.Copy(Path.Combine(build, "CMakeCache.txt"), Path.Combine(evidence, "CMakeCache.txt"));
+            if (!finishPrepared)
+            {
+                await Run("compiler", "cl.exe", ["/?"]);
+                string vcpkg = Path.Combine(output, "vcpkg");
+                await Checkout("vcpkg", "https://github.com/microsoft/vcpkg.git", request.DependencyCommit, vcpkg);
+                await Run("vcpkg-bootstrap", "cmd.exe", ["/d", "/c", Path.Combine(vcpkg, "bootstrap-vcpkg.bat"), "-disableMetrics"]);
+                await Run("vcpkg-version", Path.Combine(vcpkg, "vcpkg.exe"), ["version"]);
+                // One application directory gives KiCad and MCP the same native
+                // dependencies and CRT, without depending on the runner's PATH.
+                await Run("managed-publish", "dotnet", ["publish", "automation/src/KiCad.Automation.Mcp", "--configuration", "Release",
+                    "--runtime", "win-x64", "--self-contained", "true", "-p:RestoreLockedMode=true", "--output", managedPublish]);
+                await Run("native-configure", "cmake", ["-S", repository, "-B", build, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
+                    "-DCMAKE_TOOLCHAIN_FILE=" + Path.Combine(vcpkg, "scripts", "buildsystems", "vcpkg.cmake"),
+                    "-DVCPKG_TARGET_TRIPLET=x64-windows", "-DVCPKG_OVERLAY_TRIPLETS=" + Path.Combine(repository, "tools", "custom_vcpkg_triplets"),
+                    "-DVCPKG_BUILD_TYPE=release", "-DKICAD_BUILD_QA_TESTS=ON", "-DKICAD_SCRIPTING_MODULES=OFF",
+                    "-DKICAD_WIN32_INSTALL_PDBS=OFF", "-DCMAKE_INSTALL_PREFIX=" + install]);
+                File.Copy(Path.Combine(build, "CMakeCache.txt"), Path.Combine(evidence, "CMakeCache.txt"));
+            }
+            if (request.Phase == "prepare") return;
             await Run("native-build", "cmake", ["--build", build]);
             await Run("native-tests", "ctest", ["--test-dir", build, "--no-tests=error", "--output-on-failure",
                 "-R", "^(qa_document_change_journal|qa_symbol_graphic_identity|qa_schematic_symbol_library_identity|qa_schematic_formatting)$", "--output-junit", Path.Combine(evidence, "native-tests.xml")]);

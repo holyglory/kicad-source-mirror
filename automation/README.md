@@ -859,11 +859,27 @@ cache miss builds the pinned dependency from source; cache availability is not
 a compatibility or native-execution claim.
 Source archives accompany successfully built application archives.
 
+New Windows candidates run in two stages within the same disposable job:
+`hosted --phase prepare` restores dependencies, publishes MCP and configures
+the native build; GitHub then uploads a separate `windows-preparation-*`
+evidence artifact before `hosted --phase build` starts compilation. The second
+stage requires the same source, dependency commit, job/attempt, paths and
+unchanged prepared inputs/logs. Both stages share the original deadline.
+The checkpoint is not a package or a cache that can resume on a different
+runner. An interrupted or already-claimed final stage needs a fresh job;
+previously uploaded preparation evidence remains available for diagnosis even
+if that runner disappears. Failure during preparation itself can still prevent
+its upload. Older exact source commits retain the all-in-one path.
+
 Every full Mac build first runs small native loader fixtures. Set
 `checks_only=true` with a Mac target to run those fixtures without compiling
 KiCad. They check relocated transitive libraries, repeatable search-path repair,
 missing dependencies, valid symlink aliases and genuinely conflicting copies.
 These fixture runs do not produce a KiCad package or establish editor readiness.
+For Windows, `target=windows -f checks_only=true` runs the small compiled delivery
+and checkpoint fixtures on the native Windows runner without building KiCad.
+It checks the orchestration contracts, not a completed native package or the
+full preparation/upload/compilation sequence.
 
 Artifacts and `receipt.json` are retained even after ordinary failures. A failed
 receipt is not a usable delivery; archive hashes alone are not native execution

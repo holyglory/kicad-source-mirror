@@ -47,6 +47,7 @@ public sealed class HostedPreviewStagingTests
 
     [TestMethod]
     [DataRow("failed")]
+    [DataRow("prepared")]
     [DataRow("wrong-run")]
     [DataRow("wrong-commit")]
     [DataRow("wrong-platform")]
@@ -123,7 +124,7 @@ public sealed class HostedPreviewStagingTests
             {
                 SchemaVersion = 1, SourceCommit = mode == "wrong-commit" ? new string('3', 40) : Commit,
                 Platform = mode == "wrong-platform" ? "macos" : "windows", Architecture = "x64",
-                RunId = mode == "wrong-run" ? "456" : "123", Status = mode == "failed" ? "failed" : "candidate_built",
+                RunId = mode == "wrong-run" ? "456" : "123", Status = mode is "failed" or "prepared" ? mode : "candidate_built",
                 Steps = steps, Artifacts = new[] { App, Source },
                 DiagnosticArtifacts = mode == "diagnostic" ? new[] { App } : [],
                 QualifyingDelivery = false, CrossPlatformReady = false

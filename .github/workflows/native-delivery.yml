@@ -15,7 +15,7 @@ on:
         type: choice
         options: [all, mac, mac-arm64, mac-x64, windows]
       checks_only:
-        description: Run only the small native Mac dependency fixture (no KiCad package)
+        description: Run only small native delivery fixtures (no KiCad package)
         type: boolean
         default: false
 
@@ -93,7 +93,7 @@ jobs:
           compression-level: 1
 
   windows:
-    if: (inputs.target == 'all' && !inputs.checks_only) || inputs.target == 'windows'
+    if: inputs.target == 'all' || inputs.target == 'windows'
     runs-on: windows-2022
     timeout-minutes: 350
     env:
@@ -109,7 +109,6 @@ jobs:
       - name: Check exact source input
         shell: pwsh
         run: |
-          if ($env:CHECKS_ONLY -eq 'true') { throw 'checks_only runs the native Mac loader fixture; select mac, mac-arm64 or mac-x64.' }
           if ($env:SOURCE_COMMIT -cnotmatch '^[0-9a-f]{40}$') { throw 'An exact lower-case commit is required.' }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -135,14 +134,53 @@ jobs:
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           global-json-file: automation/global.json
-      - name: Build, inspect and package Windows x64
+      - name: Check Windows delivery contracts and select supported stages
+        id: stages
+        working-directory: automation
+        shell: pwsh
+        run: |
+          dotnet test KiCad.Automation.slnx --configuration Release `
+            --filter 'FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedWindowsCheckpointTests' `
+            --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows delivery preflight failed.' }
+          $split = Test-Path 'tools/KiCad.Automation.Validation/HostedWindowsCheckpoint.cs'
+          "split=$($split.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - name: Prepare Windows dependencies and native build configuration
+        if: steps.stages.outputs.split == 'true' && !inputs.checks_only
+        id: prepare
         working-directory: automation
         shell: pwsh
         run: |
           dotnet run --project tools/KiCad.Automation.Validation --configuration Release -- `
             hosted --repository "$env:GITHUB_WORKSPACE" --commit "$env:SOURCE_COMMIT" `
             --architecture x64 --output "$env:RUNNER_TEMP/kicad-delivery" `
-            --dependency-commit "$env:VCPKG_COMMIT"
+            --dependency-commit "$env:VCPKG_COMMIT" --phase prepare
+          if ($LASTEXITCODE -ne 0) { throw 'Windows preparation failed; see retained evidence.' }
+      - name: Retain preparation evidence before native compilation
+        if: always() && steps.stages.outputs.split == 'true' && !inputs.checks_only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-preparation-${{ inputs.source_commit }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/kicad-delivery/evidence
+            ${{ runner.temp }}/kicad-delivery/windows-prepared.json
+            ${{ runner.temp }}/kicad-delivery/receipt.json
+            ${{ runner.temp }}/kicad-windows-preflight
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 1
+      - name: Build, inspect and package Windows x64
+        if: success() && !inputs.checks_only
+        working-directory: automation
+        shell: pwsh
+        run: |
+          # Older exact source commits retain their original all-in-one command.
+          $phaseArguments = @()
+          if ('${{ steps.stages.outputs.split }}' -eq 'true') { $phaseArguments = @('--phase', 'build') }
+          dotnet run --project tools/KiCad.Automation.Validation --configuration Release -- `
+            hosted --repository "$env:GITHUB_WORKSPACE" --commit "$env:SOURCE_COMMIT" `
+            --architecture x64 --output "$env:RUNNER_TEMP/kicad-delivery" `
+            --dependency-commit "$env:VCPKG_COMMIT" @phaseArguments
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows delivery failed; see retained evidence.' }
       - name: Retain native result and bounded build evidence, including failures
         if: always()
@@ -153,6 +191,9 @@ jobs:
             ${{ runner.temp }}/kicad-delivery/evidence
             ${{ runner.temp }}/kicad-delivery/receipt.json
             ${{ runner.temp }}/kicad-delivery/packages
+            ${{ runner.temp }}/kicad-delivery/windows-prepared.json
+            ${{ runner.temp }}/kicad-delivery/windows-build-started.json
+            ${{ runner.temp }}/kicad-windows-preflight
           if-no-files-found: error
           retention-days: 14
           compression-level: 1

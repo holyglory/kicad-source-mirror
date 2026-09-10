@@ -799,6 +799,23 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~ValidationEvidenceTests", "--logger", "trx", "--results-directory", "automation/artifacts/hosted-preview-import"]
 retained_artifacts = [{ name = "hosted-preview-import", path = "automation/artifacts/hosted-preview-import", max_bytes = 16777216 }]
 
+[test.windows-delivery-checkpoint]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.windows-delivery-checkpoint.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.windows-delivery-checkpoint.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-delivery-checkpoint"]
+retained_artifacts = [{ name = "windows-delivery-checkpoint", path = "automation/artifacts/windows-delivery-checkpoint", max_bytes = 16777216 }]
+
 [test.hosted-mac-preview-stage]
 timeout_seconds = 900
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

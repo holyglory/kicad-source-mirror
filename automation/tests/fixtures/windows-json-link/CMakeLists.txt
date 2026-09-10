@@ -10,7 +10,7 @@ target_include_directories(json_provider PUBLIC "${KICAD_SOURCE}/include" "${KIC
 target_compile_features(json_provider PUBLIC cxx_std_20)
 target_compile_options(json_provider PRIVATE /Ob0)
 foreach(kind IN ITEMS wrapped raw)
-    add_executable(${kind} EXCLUDE_FROM_ALL consumer.cpp)
+    add_executable(${kind} EXCLUDE_FROM_ALL consumer.cpp imported.cpp)
     target_link_libraries(${kind} PRIVATE json_provider)
     target_compile_options(${kind} PRIVATE /Ob0)
 endforeach()

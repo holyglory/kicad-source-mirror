@@ -25,7 +25,9 @@ public sealed class WindowsJsonLinkTests
             return;
         }
         string root = Directory.CreateTempSubdirectory("kicad-json-link-").FullName;
-        string evidence = Directory.CreateDirectory(Path.Combine(TestContext.TestResultsDirectory!, "windows-json-link")).FullName;
+        string evidence = Directory.CreateDirectory(Path.Combine(
+            Environment.GetEnvironmentVariable("KICAD_HOSTED_FIXTURE_EVIDENCE") ?? TestContext.TestResultsDirectory!,
+            "windows-json-link")).FullName;
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         try
         {
@@ -57,6 +59,10 @@ public sealed class WindowsJsonLinkTests
                 await process.WaitForExitAsync();
                 await Task.WhenAll(output, error);
             }
+            await stdout.FlushAsync();
+            await stderr.FlushAsync();
+            TestContext.AddResultFile(Path.Combine(evidence, name + ".stdout.log"));
+            TestContext.AddResultFile(Path.Combine(evidence, name + ".stderr.log"));
             return process.ExitCode;
         }
     }

@@ -6,11 +6,12 @@
 #endif
 
 extern "C" KICOMMON_API int fixture_touch();
+int imported_json_size();
 
 int main()
 {
     nlohmann::json value = { { "schemaVersion", 1 }, { "status", "available" } };
     nlohmann::json copy = value;
     value = copy;
-    return value.size() == 2 && fixture_touch() == 2 ? 0 : 1;
+    return value.size() == 2 && fixture_touch() == 2 && imported_json_size() == 2 ? 0 : 1;
 }

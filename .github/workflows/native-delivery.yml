@@ -139,6 +139,7 @@ jobs:
         working-directory: automation
         shell: pwsh
         run: |
+          $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
           dotnet test KiCad.Automation.slnx --configuration Release `
             --filter 'FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~WindowsJsonLinkTests' `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"

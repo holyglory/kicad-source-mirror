@@ -1204,7 +1204,7 @@ command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad
 name = "stage"
 tier = "development"
 requires = ["managed-publish", "native-runtime"]
-command = ["bash", "-lc", 'kicad_package_root=$(git rev-parse --show-toplevel) || exit; exec dotnet automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll stage-linux --build "$kicad_package_root/automation/artifacts/native" --managed "$kicad_package_root/automation/artifacts/linux-x64-mcp" --nng /usr/lib/x86_64-linux-gnu/libnng.so --output "$kicad_package_root/automation/artifacts/distribution"']
+command = ["bash", "-lc", 'kicad_package_root=$(git rev-parse --show-toplevel) || exit; mkdir -p "$kicad_package_root/automation/artifacts/distribution" || exit; exec dotnet automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll stage-linux --build "$kicad_package_root/automation/artifacts/native" --managed "$kicad_package_root/automation/artifacts/linux-x64-mcp" --nng /usr/lib/x86_64-linux-gnu/libnng.so --output "$kicad_package_root/automation/artifacts/distribution"']
 
 [[test.linux-package-stage.check]]
 name = "installed-journey"

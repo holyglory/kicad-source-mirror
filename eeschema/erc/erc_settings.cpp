@@ -351,9 +351,15 @@ SEVERITY ERC_SETTINGS::GetSeverity( int aErrorCode ) const
 }
 
 
-void ERC_SETTINGS::SetSeverity( int aErrorCode, SEVERITY aSeverity )
+bool ERC_SETTINGS::SetSeverity( int aErrorCode, SEVERITY aSeverity )
 {
+    const auto previous = m_ERCSeverities.find( aErrorCode );
+
+    if( previous != m_ERCSeverities.end() && previous->second == aSeverity )
+        return false;
+
     m_ERCSeverities[ aErrorCode ] = aSeverity;
+    return true;
 }
 
 
@@ -521,7 +527,7 @@ std::shared_ptr<RC_ITEM> SHEETLIST_ERC_ITEMS_PROVIDER::GetItem( int aIndex ) con
 }
 
 
-void SHEETLIST_ERC_ITEMS_PROVIDER::SetMarkerExcluded( SCH_MARKER* aMarker, bool aExcluded,
+bool SHEETLIST_ERC_ITEMS_PROVIDER::SetMarkerExcluded( SCH_MARKER* aMarker, bool aExcluded,
                                                      const wxString& aComment )
 {
     // Toggling the exclusion moves the marker between the exclusion bucket and its error/warning
@@ -529,13 +535,17 @@ void SHEETLIST_ERC_ITEMS_PROVIDER::SetMarkerExcluded( SCH_MARKER* aMarker, bool 
     // the old severity is captured before the marker flips.
     if( aMarker->IsExcluded() == aExcluded )
     {
+        if( aMarker->GetComment() == aComment )
+            return false;
+
         aMarker->SetExcluded( aExcluded, aComment );
-        return;
+        return true;
     }
 
     adjustCount( markerSeverity( aMarker ), -1 );
     aMarker->SetExcluded( aExcluded, aComment );
     adjustCount( markerSeverity( aMarker ), 1 );
+    return true;
 }
 
 
@@ -552,4 +562,3 @@ void SHEETLIST_ERC_ITEMS_PROVIDER::DeleteItem( int aIndex, bool aDeep )
         screens.DeleteMarker( marker );
     }
 }
-

@@ -92,7 +92,13 @@ BOOST_FIXTURE_TEST_CASE( ERCMarkerCountsExclusion, ERC_MARKER_COUNT_FIXTURE )
     BOOST_REQUIRE( marker != nullptr );
     BOOST_REQUIRE( markerSeverity == RPT_SEVERITY_ERROR || markerSeverity == RPT_SEVERITY_WARNING );
 
-    provider.SetMarkerExcluded( marker, true );
+    BOOST_CHECK( provider.SetMarkerExcluded( marker, true ) );
+    BOOST_CHECK( !provider.SetMarkerExcluded( marker, true ) );
+
+    // A comment-only change is persisted but must not move severity counts.
+    BOOST_CHECK( provider.SetMarkerExcluded( marker, true, wxS( "Intentional fixture exclusion" ) ) );
+    BOOST_CHECK( !provider.SetMarkerExcluded( marker, true, wxS( "Intentional fixture exclusion" ) ) );
+    BOOST_CHECK_EQUAL( marker->GetComment(), wxS( "Intentional fixture exclusion" ) );
 
     // The exclusion bucket gains one; the marker's original bucket loses one. Total is unchanged.
     BOOST_CHECK_EQUAL( provider.GetCount( RPT_SEVERITY_EXCLUSION ), exclusionsBefore + 1 );
@@ -119,9 +125,29 @@ BOOST_FIXTURE_TEST_CASE( ERCMarkerCountsExclusion, ERC_MARKER_COUNT_FIXTURE )
                        fresh.GetCount( RPT_SEVERITY_EXCLUSION ) );
 
     // Restoring the marker must move it back and keep counts consistent with a recompute.
-    provider.SetMarkerExcluded( marker, false );
+    BOOST_CHECK( provider.SetMarkerExcluded( marker, false ) );
+    BOOST_CHECK( !provider.SetMarkerExcluded( marker, false ) );
 
     BOOST_CHECK_EQUAL( provider.GetCount( RPT_SEVERITY_ERROR ), errorsBefore );
     BOOST_CHECK_EQUAL( provider.GetCount( RPT_SEVERITY_WARNING ), warningsBefore );
     BOOST_CHECK_EQUAL( provider.GetCount( RPT_SEVERITY_EXCLUSION ), exclusionsBefore );
+}
+
+
+BOOST_FIXTURE_TEST_CASE( ERCSeverityReportsStoredChangesOnly, ERC_MARKER_COUNT_FIXTURE )
+{
+    LOCALE_IO dummy;
+    KI_TEST::LoadSchematic( m_settingsManager, "issue10430", m_schematic );
+    ERC_SETTINGS& settings = m_schematic->ErcSettings();
+    const auto original = settings.m_ERCSeverities;
+    const auto previous = settings.GetSeverity( ERCE_PIN_NOT_CONNECTED );
+    const auto changed = previous == RPT_SEVERITY_WARNING ? RPT_SEVERITY_ERROR : RPT_SEVERITY_WARNING;
+
+    BOOST_CHECK( !settings.SetSeverity( ERCE_PIN_NOT_CONNECTED, previous ) );
+    BOOST_CHECK( settings.m_ERCSeverities == original );
+    BOOST_CHECK( settings.SetSeverity( ERCE_PIN_NOT_CONNECTED, changed ) );
+    BOOST_CHECK( !settings.SetSeverity( ERCE_PIN_NOT_CONNECTED, changed ) );
+    BOOST_CHECK_EQUAL( settings.GetSeverity( ERCE_PIN_NOT_CONNECTED ), changed );
+    BOOST_CHECK( settings.SetSeverity( ERCE_PIN_NOT_CONNECTED, previous ) );
+    BOOST_CHECK( settings.m_ERCSeverities == original );
 }

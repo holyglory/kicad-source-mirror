@@ -232,7 +232,11 @@ public sealed class WindowsInstalledPackageTests
             start.Environment["KICAD_AUTOMATION_STATE_DIRECTORY"] = state;
             start.Environment["KICAD_CONFIG_HOME"] = Path.Combine(scratch, "config");
             start.Environment["KICAD_CACHE_HOME"] = Path.Combine(scratch, "cache");
-            if (traceUpdates) start.Environment["WXTRACE"] = "KICAD_AUTOMATION_UPDATES";
+            if (traceUpdates)
+            {
+                start.Environment["WXTRACE"] = "KICAD_AUTOMATION_UPDATES";
+                start.Environment["KICAD_ENABLE_WXTRACE"] = "1";
+            }
             foreach (string variable in new[] { "KICAD_AUTOMATION_NNG_LIBRARY", "KICAD_RUN_FROM_BUILD_DIR",
                 "KICAD_AUTOMATION_UPDATE_HELPER", "KICAD_AUTOMATION_UPDATE_CONFIG" }) start.Environment.Remove(variable);
             var process = Process.Start(start)!;

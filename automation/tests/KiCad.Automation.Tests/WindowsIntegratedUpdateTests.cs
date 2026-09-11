@@ -111,9 +111,9 @@ public sealed class WindowsIntegratedUpdateTests
                         deadline.Token, traceUpdates: true);
                     return mcp;
                 });
-                await mcpProbe.StartAsync(installed.Version.McpExecutable);
+                await mcpProbe.StartAsync(Path.Combine(root, "kicad-mcp.exe"));
             }
-            else mcp = await WindowsInstalledPackageTests.Mcp.Start(installed.Version.McpExecutable, scratch, state,
+            else mcp = await WindowsInstalledPackageTests.Mcp.Start(Path.Combine(root, "kicad-mcp.exe"), scratch, state,
                 evidence, "pair", job, deadline.Token, traceUpdates: true);
             await using var mcpLifetime = (IAsyncDisposable?)mcpProbe ?? mcp!;
             var first = await Start("first");
@@ -192,19 +192,18 @@ public sealed class WindowsIntegratedUpdateTests
 
             async Task WaitPrepared(Design design)
             {
-                string directory = NativeIpcEndpoint.RuntimeDirectory(design.Record.InstanceId), path = Path.Combine(directory, "native.log");
-                using var ready = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token); ready.CancelAfter(TimeSpan.FromMinutes(5));
-                using var changed = new SemaphoreSlim(0, 1);
-                using var watcher = new FileSystemWatcher(directory, "native.log") { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size };
-                watcher.Changed += (_, _) => { try { changed.Release(); } catch (SemaphoreFullException) { } catch (ObjectDisposedException) { } };
-                watcher.EnableRaisingEvents = true;
-                while (true)
+                try
                 {
-                    Assert.AreEqual(design.Identity, WindowsProcessIdentity.Read(design.Identity.ProcessId));
-                    string log = File.Exists(path) ? await WindowsNativeLog.ReadAsync(path, ready.Token) : "";
-                    if (log.Contains("\"status\":\"candidate_available\"", StringComparison.Ordinal)) return;
-                    Assert.IsFalse(log.Contains("\"status\":\"failed\"", StringComparison.Ordinal), "Native update preparation failed; see retained native.log.");
-                    await changed.WaitAsync(TimeSpan.FromSeconds(2), ready.Token);
+                    await ui.WaitButtonAsync(design.Identity, "Update", deadline.Token, TimeSpan.FromMinutes(5));
+                }
+                catch
+                {
+                    try { await Capture(design.Identity, Path.GetFileNameWithoutExtension(design.Schematic) + "-update-not-ready"); }
+                    catch (Exception captureError)
+                    {
+                        await File.WriteAllTextAsync(Path.Combine(evidence, design.Record.InstanceId + "-capture-failure.txt"), captureError.ToString());
+                    }
+                    throw;
                 }
             }
 
@@ -247,7 +246,7 @@ public sealed class WindowsIntegratedUpdateTests
                 CollectionAssert.AreEqual(saved, await File.ReadAllBytesAsync(old.Schematic, ready.Token));
                 if (mcpProbe is not null)
                     await mcpProbe.ReconnectAsync(old.Record.InstanceId, root, Path.GetFileName(result.JournalDirectory), result.NativeEpoch!,
-                        name == "first" ? version.McpExecutable : null);
+                        name == "first" ? Path.Combine(root, "kicad-mcp.exe") : null);
                 await Capture(result.ProcessIdentity, name + "-restarted");
                 return process;
             }
@@ -266,11 +265,11 @@ public sealed class WindowsIntegratedUpdateTests
                 var observed = await observer.InspectAsync(identity, deadline.Token);
                 using var process = Process.GetProcessById(identity.ProcessId); Assert.IsTrue(job.Contains(process));
                 var windows = observed.GetProperty("windows").EnumerateArray().ToArray(); Assert.IsTrue(windows.Length > 0);
+                await File.WriteAllTextAsync(Path.Combine(evidence, name + ".json"), observed.GetRawText(), deadline.Token);
                 int index = 0;
                 foreach (var window in windows.Take(5))
                     WindowsNativeUi.Capture(process, checked((nint)ulong.Parse(window.GetProperty("handle").GetString()!, CultureInfo.InvariantCulture)),
                         Path.Combine(evidence, name + "-" + index++ + ".png"));
-                await File.WriteAllTextAsync(Path.Combine(evidence, name + ".json"), observed.GetRawText(), deadline.Token);
             }
         }
         catch (Exception error) { await File.WriteAllTextAsync(Path.Combine(evidence, "failure.txt"), error.ToString()); throw; }

@@ -9,9 +9,10 @@ namespace KiCad.Automation.Tests;
 /// process identities. No direct application handlers, policy or permission changes.</summary>
 internal sealed class WindowsUiAutomation(WindowsUiObserver observer)
 {
-    public async Task WaitButtonAsync(WindowsProcessIdentity identity, string title, CancellationToken token)
+    public async Task WaitButtonAsync(WindowsProcessIdentity identity, string title, CancellationToken token,
+        TimeSpan? timeout = null)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromSeconds(60));
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(timeout ?? TimeSpan.FromSeconds(60));
         int delay = 50; string? previous = null;
         while (true)
         {

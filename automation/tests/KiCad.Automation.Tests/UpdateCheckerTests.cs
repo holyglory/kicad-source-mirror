@@ -89,7 +89,11 @@ public sealed class UpdateCheckerTests
             Directory.CreateDirectory(fixture.AcceptedPath);
             return Task.CompletedTask;
         };
-        await Assert.ThrowsAsync<IOException>(() => fixture.Checker().CheckAsync());
+        // Replacing a directory with the metadata file is rejected on every
+        // platform, but Windows reports access denied rather than IOException.
+        var failure = await Assert.ThrowsAsync<Exception>(() => fixture.Checker().CheckAsync());
+        Assert.IsTrue(failure is IOException or UnauthorizedAccessException,
+            "Only a genuine filesystem write failure satisfies this negative control.");
         Assert.IsFalse(Directory.GetFiles(fixture.Root).Any(path => path.EndsWith(".partial")));
         Assert.IsTrue(Directory.Exists(fixture.AcceptedPath));
         Directory.Delete(fixture.AcceptedPath);
@@ -98,7 +102,7 @@ public sealed class UpdateCheckerTests
     }
 
     [TestMethod]
-    public async Task CancellationReleasesOwnershipAndAnotherCheckerCannotCompete()
+    public async Task CancellationReleasesOwnershipAndWaitingCheckerDoesNotCompete()
     {
         using var fixture = new FeedFixture();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -112,13 +116,114 @@ public sealed class UpdateCheckerTests
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            await Assert.ThrowsAsync<IOException>(() => fixture.Checker().CheckAsync());
+            using var waiting = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            var second = fixture.Checker().CheckAsync(waiting.Token);
+            Assert.IsFalse(second.IsCompleted, "A competing check must wait, not fail immediately.");
+            waiting.Cancel();
+            await Assert.ThrowsAsync<OperationCanceledException>(() => second);
+            Assert.AreEqual(1, fixture.Requests, "A cancelled waiter must not contact the feed.");
+            Assert.IsFalse(first.IsCompleted, "Cancelling a waiter must not cancel the owner.");
         }
         finally { cancellation.Cancel(); }
         await Assert.ThrowsAsync<OperationCanceledException>(() => first);
         Assert.IsFalse(File.Exists(fixture.AcceptedPath));
         fixture.BeforeResponse = null;
         Assert.AreEqual(UpdateAvailability.Available, (await fixture.Checker().CheckAsync()).Availability);
+    }
+
+    [TestMethod]
+    [DataRow("win-x64", "zip")]
+    [DataRow("osx-arm64", "tar.gz")]
+    [DataRow("osx-x64", "tar.gz")]
+    [DataRow("linux-x64", "tar.gz")]
+    public async Task ConcurrentChecksWaitAndDoNotRewriteAcceptedMetadata(string platform, string format)
+    {
+        using var fixture = new FeedFixture(platform, format);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var timestamp = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        fixture.BeforeResponse = async (_, token) =>
+        {
+            if (fixture.Requests == 1)
+            {
+                entered.TrySetResult();
+                await release.Task.WaitAsync(token);
+            }
+            else
+            {
+                Assert.IsTrue(File.Exists(fixture.AcceptedPath), "The first check must commit before the second fetch.");
+                File.SetLastWriteTimeUtc(fixture.AcceptedPath, timestamp);
+            }
+        };
+        var first = fixture.Checker().CheckAsync(deadline.Token);
+        Task<UpdateCheckResult>? second = null;
+        try
+        {
+            await entered.Task.WaitAsync(deadline.Token);
+            second = fixture.Checker().CheckAsync(deadline.Token);
+            Assert.IsFalse(second.IsCompleted, "An independent editor must queue for the shared store.");
+            Assert.AreEqual(1, fixture.Requests);
+            release.TrySetResult();
+            var results = await Task.WhenAll(first, second);
+            Assert.IsTrue(results.All(result => result.Availability == UpdateAvailability.Available));
+            Assert.AreEqual(results[0].Manifest.PayloadSha256, results[1].Manifest.PayloadSha256);
+            Assert.AreEqual(2, fixture.Requests);
+            CollectionAssert.AreEqual(fixture.Payload, await File.ReadAllBytesAsync(fixture.AcceptedPath));
+            Assert.AreEqual(timestamp, File.GetLastWriteTimeUtc(fixture.AcceptedPath));
+            Assert.IsTrue(File.Exists(Path.Combine(fixture.Root, "check.lock")));
+            Assert.IsFalse(Directory.GetFiles(fixture.Root).Any(path => path.EndsWith(".partial")));
+        }
+        finally
+        {
+            release.TrySetResult();
+            deadline.Cancel();
+            // Settle both owned operations before removing their fixture, even
+            // when a regression fails one of the assertions above.
+            try { await Task.WhenAll(second is null ? [first] : [first, second]); }
+            catch (Exception) { }
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task QueuedCheckRereadsAcceptedSequenceAndRejectsReplayOrConflict(bool conflictingSequence)
+    {
+        using var fixture = new FeedFixture();
+        fixture.Payload = fixture.Envelope(4);
+        byte[] accepted = fixture.Payload;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.BeforeResponse = async (_, token) =>
+        {
+            if (fixture.Requests == 1)
+            {
+                entered.TrySetResult();
+                await release.Task.WaitAsync(token);
+            }
+            else fixture.Payload = conflictingSequence ? fixture.Envelope(4, version: "conflicting") : fixture.Envelope(3);
+        };
+        var first = fixture.Checker().CheckAsync(deadline.Token);
+        Task<UpdateCheckResult>? second = null;
+        try
+        {
+            await entered.Task.WaitAsync(deadline.Token);
+            second = fixture.Checker().CheckAsync(deadline.Token);
+            Assert.IsFalse(second.IsCompleted);
+            release.TrySetResult();
+            Assert.AreEqual(4L, (await first).Manifest.Release.Sequence);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => second);
+            CollectionAssert.AreEqual(accepted, await File.ReadAllBytesAsync(fixture.AcceptedPath));
+        }
+        finally
+        {
+            release.TrySetResult();
+            deadline.Cancel();
+            try { await Task.WhenAll(second is null ? [first] : [first, second]); }
+            catch (Exception) { }
+        }
     }
 
     [TestMethod]
@@ -145,6 +250,7 @@ public sealed class UpdateCheckerTests
     {
         private readonly ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         private readonly UpdateDownloader source;
+        private readonly string platform, format;
         public string Root { get; } = Directory.CreateTempSubdirectory("kicad-update-check-").FullName;
         public string AcceptedPath => Path.Combine(Root, "accepted-envelope.json");
         public byte[] Installed { get; }
@@ -153,10 +259,12 @@ public sealed class UpdateCheckerTests
         public int Requests { get; private set; }
         public Func<HttpRequestMessage, CancellationToken, Task>? BeforeResponse { get; set; }
 
-        public FeedFixture()
+        public FeedFixture(string platform = "linux-x64", string format = "tar.gz")
         {
-            Installed = Envelope(2);
-            Payload = Envelope(3);
+            this.platform = platform;
+            this.format = format;
+            Installed = Envelope(2, platform: platform, format: format);
+            Payload = Envelope(3, platform: platform, format: format);
             source = new(new Uri("https://updates.example.test/releases/"), new Handler(async (request, token) =>
             {
                 Requests++;
@@ -180,7 +288,7 @@ public sealed class UpdateCheckerTests
         }
 
         public UpdateChecker Checker() => new(source, Root, key.ExportSubjectPublicKeyInfo(), Installed,
-            "preview", "linux-x64", "tar.gz");
+            "preview", platform, format);
 
         public byte[] Envelope(long sequence, string? version = null, string platform = "linux-x64", string format = "tar.gz") =>
             UpdateManifestCodec.Sign(new(1, "kicad-codex", "preview", sequence, version ?? "preview-" + sequence,

@@ -88,6 +88,27 @@ public sealed class WindowsUiDriverTests
             Assert.ThrowsExactly<InvalidOperationException>(() => WindowsNativeUi.Save(wrongOwner, window));
             Assert.IsFalse(File.Exists(saved), "A wrong process target must not send keyboard input.");
             string before = Path.Combine(evidence, "before.png"), after = Path.Combine(evidence, "after.png");
+            Assert.ThrowsExactly<InvalidOperationException>(() => WindowsNativeUi.Capture(wrongOwner, window, before));
+            var neighborStart = new ProcessStartInfo(executable) { WorkingDirectory = scratch, UseShellExecute = false };
+            neighborStart.ArgumentList.Add(Path.Combine(scratch, "neighbor-saved.txt"));
+            using (var neighbor = Process.Start(neighborStart)!)
+            {
+                job.Attach(neighbor);
+                try
+                {
+                    nint neighborWindow = await WindowsNativeUi.WaitForWindow(neighbor, "KiCad native UI fixture", deadline.Token);
+                    WindowsNativeUi.Save(neighbor, neighborWindow);
+                    await WindowsNativeUi.WaitForWindow(neighbor, "fixture - Saved", deadline.Token);
+                    Assert.AreEqual(neighborWindow, WindowsNativeUi.ObservedForegroundWindow);
+                    WindowsNativeUi.Capture(windowProcess, window, Path.Combine(evidence, "background.png"));
+                    Assert.AreEqual(neighborWindow, WindowsNativeUi.ObservedForegroundWindow,
+                        "Observation must not change the input target to the background window.");
+                    Assert.IsFalse(File.Exists(saved), "Capturing a background window must not send it keyboard input.");
+                    WindowsNativeUi.Close(neighbor, neighborWindow);
+                    await neighbor.WaitForExitAsync(deadline.Token);
+                }
+                finally { if (!neighbor.HasExited) { neighbor.Kill(true); await neighbor.WaitForExitAsync(); } }
+            }
             WindowsNativeUi.Capture(windowProcess, window, before);
             WindowsNativeUi.Save(windowProcess, window);
             Assert.AreEqual(window, await WindowsNativeUi.WaitForWindow(windowProcess, "fixture - Saved", deadline.Token));

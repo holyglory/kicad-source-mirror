@@ -265,11 +265,11 @@ public sealed class WindowsIntegratedUpdateTests
                 var observed = await observer.InspectAsync(identity, deadline.Token);
                 using var process = Process.GetProcessById(identity.ProcessId); Assert.IsTrue(job.Contains(process));
                 var windows = observed.GetProperty("windows").EnumerateArray().ToArray(); Assert.IsTrue(windows.Length > 0);
+                await File.WriteAllTextAsync(Path.Combine(evidence, name + ".json"), observed.GetRawText(), deadline.Token);
                 int index = 0;
                 foreach (var window in windows.Take(5))
                     WindowsNativeUi.Capture(process, checked((nint)ulong.Parse(window.GetProperty("handle").GetString()!, CultureInfo.InvariantCulture)),
                         Path.Combine(evidence, name + "-" + index++ + ".png"));
-                await File.WriteAllTextAsync(Path.Combine(evidence, name + ".json"), observed.GetRawText(), deadline.Token);
             }
         }
         catch (Exception error) { await File.WriteAllTextAsync(Path.Combine(evidence, "failure.txt"), error.ToString()); throw; }

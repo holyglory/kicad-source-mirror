@@ -176,7 +176,7 @@ internal static class WindowsNativeUi
 
     public static void Capture(Process owner, nint window, string path)
     {
-        Focus(owner, window);
+        Validate(owner, window);
         nint previousDpi = SetThreadDpiAwarenessContext(-4); // This caller thread only; restore below.
         nint windowDc = 0, memoryDc = 0, bitmap = 0, previousBitmap = 0;
         try
@@ -288,6 +288,8 @@ internal static class WindowsNativeUi
         if (GetForegroundWindow() != window)
             throw new InvalidOperationException("The owned native window could not receive foreground input.");
     }
+
+    internal static nint ObservedForegroundWindow => GetForegroundWindow();
 
     private static void Validate(Process owner, nint window)
     {

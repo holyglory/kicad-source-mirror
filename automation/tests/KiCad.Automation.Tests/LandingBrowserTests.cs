@@ -50,6 +50,9 @@ public sealed class LandingBrowserTests
             await State("document.documentElement.dataset.theme", "dark");
             await State("[...document.images].every(i=>i.complete && i.naturalWidth>0)", true);
             Assert.IsTrue(string.IsNullOrWhiteSpace(await Browser("errors")), "The browser reported page errors.");
+            await Browser("click", "a.source-link");
+            await State("location.origin + location.pathname", "https://github.com/holyglory/KAICad");
+            await State("document.title.includes('KAICad')", true);
         }
         finally { if (started) await Browser("close"); }
 

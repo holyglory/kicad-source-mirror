@@ -4,7 +4,12 @@ string root = Environment.GetEnvironmentVariable("KICAD_DOWNLOAD_ROOT")
     ?? throw new InvalidOperationException("KICAD_DOWNLOAD_ROOT must name the dedicated public artifact directory.");
 if (!int.TryParse(Environment.GetEnvironmentVariable("PORT"), out int port) || port is < 1 or > 65535)
     throw new InvalidOperationException("PORT must be the Coordinator-assigned local port.");
+// Verify the complete retained catalogue before opening the replacement listener.
+// The prior deployment keeps serving while this startup proof runs.
+var catalogueClock = System.Diagnostics.Stopwatch.StartNew();
+Console.WriteLine("Verifying public download archive hashes before startup.");
 DownloadCatalogue catalogue = await DownloadCatalogue.LoadAsync(root);
+Console.WriteLine($"Verified {catalogue.Files.Count} public artifacts in {catalogueClock.Elapsed.TotalSeconds:F1} seconds.");
 string? publisherSpki = Environment.GetEnvironmentVariable("KICAD_UPDATE_PUBLISHER_SPKI_FILE");
 SignedUpdateCatalogue updates = publisherSpki is null ? SignedUpdateCatalogue.Empty
     : await SignedUpdateCatalogue.LoadAsync(root, publisherSpki, catalogue);

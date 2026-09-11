@@ -134,3 +134,8 @@ Historical source snapshots without the upstream manifest continue to verify
 against the original development base `f638a860a05b3e48d1074314a656ad9b8f597466`.
 Malformed manifests never fall back to that legacy rule. Stable candidates must
 match their canonical tag and must have a completed integration result.
+
+The download replacement gets up to five minutes to verify the entire retained
+archive catalogue before its real health check can pass. The previous generation
+continues serving during that check. Startup logs retain the archive-verification
+duration; this timeout is a failure ceiling, not a readiness shortcut.

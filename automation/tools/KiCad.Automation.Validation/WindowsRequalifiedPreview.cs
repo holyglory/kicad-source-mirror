@@ -39,7 +39,7 @@ public static class WindowsRequalifiedPreview
         // A dedicated exact-commit worktree keeps current development and its
         // private config out of the source archive without rewriting history.
         await LinuxPackage.RequireSourceAsync(request.Repository, request.Commit, token);
-        await Git(["merge-base", "--is-ancestor", "f638a860a05b3e48d1074314a656ad9b8f597466", request.Commit]);
+        var upstream = await UpstreamProvenance.RequireAsync(request.Repository, request.Commit, token);
         string parent = Path.GetDirectoryName(request.Output)!;
         if (!Directory.Exists(parent)) throw new DirectoryNotFoundException("The staging parent must already exist.");
         string scratch = Directory.CreateDirectory(Path.Combine(parent, ".requalified-source-" + Guid.NewGuid().ToString("N"))).FullName;
@@ -61,7 +61,7 @@ public static class WindowsRequalifiedPreview
             var staged = await HostedPreviewStaging.StagePublicAsync(request.Previous, request.Output, incoming, null, token);
             return new
             {
-                Status = "staged_requalified", Directory = request.Output, SourceCommit = request.Commit,
+                Status = "staged_requalified", Directory = request.Output, SourceCommit = request.Commit, Upstream = upstream,
                 OriginalBuildRunId = binding.RunId, request.QualificationRunId, binding.HarnessCommit,
                 OriginalReceiptSha256 = Convert.ToHexStringLower(SHA256.HashData(originalBytes)),
                 QualificationTrxSha256 = Convert.ToHexStringLower(SHA256.HashData(trxBytes)),

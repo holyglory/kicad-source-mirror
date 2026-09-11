@@ -5,6 +5,9 @@ try
 {
     if (args.Length == 0 || args[0] is "--help" or "-h")
     {
+        Console.WriteLine("kicad-validate upstream-detect --repository CHECKOUT --output NEW_JSON_FILE");
+        Console.WriteLine("kicad-validate upstream-prepare --repository CHECKOUT --tag STABLE_VERSION --commit UPSTREAM_SHA --output NEW_DIRECTORY");
+        Console.WriteLine("kicad-validate upstream-verify --repository CHECKOUT --commit SOURCE_SHA --output NEW_JSON_FILE");
         Console.WriteLine("kicad-validate mac --repository LOCAL_CHECKOUT --commit FULL_SHA --architecture arm64|x64 --builder MAC_BUILDER_CHECKOUT --toolchain EXISTING_CMAKE_TOOLCHAIN --output NEW_DIRECTORY [--native-tests CTEST_REGEX]");
         Console.WriteLine("kicad-validate hosted --repository CHECKOUT --commit FULL_SHA --architecture arm64|x64 --output DIRECTORY --dependency-commit FULL_SHA [--phase all|prepare|build] (GitHub-hosted runners only; split phases are Windows same-job only)");
         Console.WriteLine("kicad-validate stage-hosted --candidate DOWNLOADED_CANDIDATE_ROOT --commit FULL_SHA --platform osx-arm64|osx-x64|win-x64 --run-id GITHUB_RUN_ID --version PREVIEW_VERSION --previous PUBLIC_ROOT --output NEW_PUBLIC_ROOT");
@@ -29,7 +32,10 @@ try
     }
     string Required(string name) => options.TryGetValue(name, out string? value) ? value
         : throw new ArgumentException($"Missing --{name}.");
-    string[] allowed = args[0] == "hosted" ? ["repository", "commit", "architecture", "output", "dependency-commit", "phase"]
+    string[] allowed = args[0] == "upstream-detect" ? ["repository", "output"]
+        : args[0] == "upstream-prepare" ? ["repository", "tag", "commit", "output"]
+        : args[0] == "upstream-verify" ? ["repository", "commit", "output"]
+        : args[0] == "hosted" ? ["repository", "commit", "architecture", "output", "dependency-commit", "phase"]
         : args[0] == "stage-platform-feeds" ? ["previous", "output", "publisher", "sources"]
         : args[0] == "stage-signed-linux" ? ["candidate", "commit", "previous", "output", "feed", "publisher"]
         : args[0] == "stage-hosted" ? ["candidate", "commit", "platform", "run-id", "version", "previous", "output"]
@@ -46,6 +52,25 @@ try
         if (!allowed.Contains(name, StringComparer.Ordinal)) throw new ArgumentException($"Unknown option --{name}.");
     using var cancel = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
+    if (args[0].StartsWith("upstream-", StringComparison.Ordinal))
+    {
+        object result = args[0] switch
+        {
+            "upstream-detect" => await UpstreamMaintenance.DetectAsync(Required("repository"), cancel.Token),
+            "upstream-prepare" => await UpstreamMaintenance.PrepareAsync(Required("repository"), Required("tag"), Required("commit"), Required("output"), cancel.Token),
+            "upstream-verify" => new { SourceCommit = Required("commit"), Upstream = await UpstreamProvenance.RequireAsync(Required("repository"), Required("commit"), cancel.Token) },
+            _ => throw new ArgumentException("Unknown upstream command.")
+        };
+        string json = JsonSerializer.Serialize(result, UpstreamProvenance.Json);
+        if (args[0] != "upstream-prepare")
+        {
+            await using var file = new FileStream(Required("output"), FileMode.CreateNew, FileAccess.Write);
+            await using var writer = new StreamWriter(file);
+            await writer.WriteLineAsync(json);
+        }
+        Console.WriteLine(json);
+        return 0;
+    }
     if (args[0] == "stage-platform-feeds")
     {
         var sources = await SignedPlatformFeedStaging.ReadSourcesAsync(Required("sources"), cancel.Token);

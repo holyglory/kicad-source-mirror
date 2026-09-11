@@ -64,6 +64,7 @@ public sealed class DownloadPageTests
                     string html = await response.Content.ReadAsStringAsync();
                     StringAssert.Contains(html, "data-theme=\"" + theme + "\"");
                     StringAssert.Contains(html, "Download for Windows");
+                    StringAssert.Contains(html, "https://github.com/holyglory/KAICad");
                     StringAssert.Contains(html, "/artifacts/win-x64.zip");
                     StringAssert.Contains(html, "/artifacts/osx-x64.zip");
                     StringAssert.Contains(html, "/artifacts/source.zip");

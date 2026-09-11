@@ -61,6 +61,7 @@ public static class HostedDelivery
         var steps = checkpoint?.Steps.ToList() ?? new List<ValidationStep>();
         string status = "failed";
         string? failure = null;
+        UpstreamProvenance? upstream = null;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         DateTimeOffset deadlineAt = checkpoint?.DeadlineAt ?? DateTimeOffset.UtcNow.AddMinutes(330);
         TimeSpan remaining = deadlineAt - DateTimeOffset.UtcNow;
@@ -71,7 +72,8 @@ public static class HostedDelivery
             string prefix = finishPrepared ? "resume-" : "";
             string actual = (await Run(prefix + "source-commit", "git", ["rev-parse", "HEAD"], capture: true)).Trim();
             if (actual != request.Commit) throw new InvalidDataException("Checkout differs from the exact requested source.");
-            await Run(prefix + "pinned-ancestry", "git", ["merge-base", "--is-ancestor", "f638a860a05b3e48d1074314a656ad9b8f597466", "HEAD"]);
+            upstream = await UpstreamProvenance.RequireAsync(repository, request.Commit, token);
+            await Run(prefix + "pinned-ancestry", "git", ["merge-base", "--is-ancestor", upstream.Commit, "HEAD"]);
             await Run(prefix + "source-clean", "git", ["diff", "--exit-code", "HEAD"]);
             if (!finishPrepared)
             {
@@ -113,7 +115,7 @@ public static class HostedDelivery
                 Path.GetFileName(path), new FileInfo(path).Length, Evidence.Hash(path))).ToArray() : [];
         await File.WriteAllTextAsync(Path.Combine(output, "receipt.json"), JsonSerializer.Serialize(new
         {
-            SchemaVersion = 1, SourceCommit = request.Commit, DependencyCommit = request.DependencyCommit,
+            SchemaVersion = 1, SourceCommit = request.Commit, DependencyCommit = request.DependencyCommit, Upstream = upstream,
             request.Phase,
             Platform = mac ? "macos" : "windows", request.Architecture,
             OS = RuntimeInformation.OSDescription, Framework = RuntimeInformation.FrameworkDescription,

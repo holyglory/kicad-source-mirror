@@ -1,4 +1,30 @@
-# KiCad README
+# KAICad
+
+**KiCad with AI-assisted design and automation, maintained across official KiCad releases.**
+
+KAICad extends KiCad with native editor automation and an MCP interface for working
+with explicit designs from Codex. The current previews include application/MCP
+packages, design observation and editing capabilities, and signed update tooling.
+XML synchronization and the broader engineering workflow are still under development;
+see the [automation documentation](automation/README.md) for current capabilities
+and qualification limits.
+
+- [Download previews for Linux, macOS and Windows](https://kicad.vr.ae)
+- [Release maintenance and review policy](RELEASES.md)
+- [Automation setup and usage](automation/README.md)
+
+This is an actively developed public fork. KAICad changes and pull requests belong
+here. It originated from the [KiCad GitHub mirror](https://github.com/KiCad/kicad-source-mirror);
+[KiCad's canonical source](https://gitlab.com/kicad/code/kicad) remains on GitLab.
+Upstream KiCad contributions should follow its contribution guide.
+
+`main` contains KAICad development. The current development-based build is a preview.
+New stable KiCad tags are detected daily, integrated in separate candidate branches,
+and verified before owner-reviewed publication. No existing stable KiCad version is
+being ported by this repository setup. Releases retain matching source and the
+upstream [license notices](LICENSE.README) and [credits](AUTHORS.txt).
+
+## Upstream KiCad documentation
 
 For specific documentation about [building KiCad](https://dev-docs.kicad.org/en/build/), policies
 and guidelines, and source code documentation see the

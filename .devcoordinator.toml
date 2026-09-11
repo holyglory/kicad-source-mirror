@@ -1572,3 +1572,28 @@ command = ["xvfb-run", "-a", "ctest", "--test-dir", "automation/artifacts/native
 name = "managed-build"
 tier = "development"
 command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+
+[test.upstream-release]
+timeout_seconds = 1200
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.upstream-release.check]]
+name = "restore"
+tier = "development"
+role = "preflight"
+invalidates = ["build", "contracts"]
+command = ["dotnet", "restore", "automation/KiCad.Automation.slnx", "--locked-mode"]
+
+[[test.upstream-release.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--configuration", "Release", "--no-restore"]
+
+[[test.upstream-release.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--configuration", "Release", "--no-build", "--no-restore", "--filter", "TestCategory=UpstreamRelease|FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~WindowsRequalifiedPreviewTests|FullyQualifiedName~LinuxPackageTests|FullyQualifiedName~DownloadPageTests", "--logger", "trx", "--results-directory", "automation/artifacts/upstream-release"]
+retained_artifacts = [{ name = "upstream-release", path = "automation/artifacts/upstream-release", max_bytes = 16777216 }]

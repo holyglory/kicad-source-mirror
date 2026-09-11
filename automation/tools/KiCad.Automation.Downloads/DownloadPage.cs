@@ -22,7 +22,7 @@ public sealed class DownloadPage
             foreach (string theme in new[] { "", "light", "dark" })
                 pages.Add((platform, theme), System.Text.Encoding.UTF8.GetBytes(RenderCore(platform, theme)));
     }
-    private const string Repository = "https://github.com/holyglory/kicad-source-mirror";
+    private const string Repository = "https://github.com/holyglory/KAICad";
     public static string DetectPlatform(string userAgent, string hintPlatform = "", string hintArchitecture = "")
     {
         string ua = userAgent.ToLowerInvariant(), platform = hintPlatform.Trim('"').ToLowerInvariant();

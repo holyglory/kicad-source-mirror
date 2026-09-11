@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://gitlab.com/kicad/code/kicad.git",
+  "tag": null,
+  "commit": "f638a860a05b3e48d1074314a656ad9b8f597466",
+  "channel": "preview",
+  "kaicadRevision": 1,
+  "featureCommit": null
+}

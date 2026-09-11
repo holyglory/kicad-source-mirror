@@ -1,0 +1,142 @@
+name: Prepare upstream KiCad release
+run-name: Inspect and prepare stable KiCad releases
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      detect_only:
+        description: Inspect upstream without creating candidates or starting builds
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kaicad-upstream-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    if: github.repository == 'holyglory/KAICad'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      found: ${{ steps.detect.outputs.found }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          global-json-file: automation/global.json
+      - name: Detect every unhandled stable tag and reject changed tags
+        id: detect
+        shell: bash
+        run: |
+          dotnet run --project automation/tools/KiCad.Automation.Validation --configuration Release -- \
+            upstream-detect --repository "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/upstream.json"
+          printf 'matrix=%s\n' "$(jq -c '{include:.targets}' "$RUNNER_TEMP/upstream.json")" >> "$GITHUB_OUTPUT"
+          printf 'found=%s\n' "$(jq '.targets | length > 0' "$RUNNER_TEMP/upstream.json")" >> "$GITHUB_OUTPUT"
+          jq '{newStableVersions:[.targets[].tag],existingCandidates}' "$RUNNER_TEMP/upstream.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: upstream-discovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/upstream.json
+          if-no-files-found: error
+          retention-days: 30
+
+  prepare:
+    needs: discover
+    if: needs.discover.outputs.found == 'true' && inputs.detect_only != true
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    # Approved candidate preparation only. No publisher or engineering data.
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      UPSTREAM_TAG: ${{ matrix.tag }}
+      UPSTREAM_COMMIT: ${{ matrix.commit }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          global-json-file: automation/global.json
+      - name: Prepare an isolated candidate and retain conflicts
+        id: candidate
+        shell: bash
+        run: |
+          dotnet run --project automation/tools/KiCad.Automation.Validation --configuration Release -- \
+            upstream-prepare --repository "$GITHUB_WORKSPACE" --tag "$UPSTREAM_TAG" \
+            --commit "$UPSTREAM_COMMIT" --output "$RUNNER_TEMP/upstream-candidate"
+          printf 'status=%s\n' "$(jq -r .status "$RUNNER_TEMP/upstream-candidate/candidate.json")" >> "$GITHUB_OUTPUT"
+      - name: Create the candidate branch and draft review
+        shell: bash
+        run: |
+          receipt="$RUNNER_TEMP/upstream-candidate/candidate.json"
+          branch=$(jq -r .candidateBranch "$receipt")
+          base=$(jq -r .maintenanceBranch "$receipt")
+          commit=$(jq -r .candidateCommit "$receipt")
+          # An empty lease requires the branch not to exist; never replace a candidate.
+          git push --force-with-lease="refs/heads/$branch:" origin "$commit:refs/heads/$branch"
+          if [ "$(jq -r .createMaintenanceBranch "$receipt")" = true ]; then
+            # POST creates only: a concurrent candidate cannot overwrite this ref.
+            gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/heads/$base" -f "sha=$UPSTREAM_COMMIT" >/dev/null \
+              || gh api "repos/$GH_REPO/git/ref/heads/$base" --jq .object.sha
+          fi
+          gh pr create --draft --base "$base" --head "$branch" \
+            --title "Prepare KAICad on KiCad $UPSTREAM_TAG" --body-file "$RUNNER_TEMP/upstream-candidate/review.md"
+      - name: Verify integrated source and managed release contracts
+        if: steps.candidate.outputs.status == 'integrated'
+        shell: bash
+        run: |
+          candidate="$RUNNER_TEMP/upstream-candidate/candidate"
+          commit=$(jq -r .candidateCommit "$RUNNER_TEMP/upstream-candidate/candidate.json")
+          dotnet run --project "$candidate/automation/tools/KiCad.Automation.Validation" --configuration Release -- \
+            upstream-verify --repository "$candidate" --commit "$commit" --output "$RUNNER_TEMP/upstream-candidate/provenance.json"
+          dotnet test "$candidate/automation/KiCad.Automation.slnx" --configuration Release \
+            --filter 'TestCategory=UpstreamRelease|FullyQualifiedName~HostedWindowsCheckpointTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests' \
+            --logger trx --results-directory "$RUNNER_TEMP/upstream-candidate/checks"
+      - name: Dispatch exact-commit Mac and Windows native builds
+        if: steps.candidate.outputs.status == 'integrated'
+        shell: bash
+        run: |
+          receipt="$RUNNER_TEMP/upstream-candidate/candidate.json"
+          gh workflow run native-delivery.yml --ref "$(jq -r .candidateBranch "$receipt")" \
+            -f "source_commit=$(jq -r .candidateCommit "$receipt")" -f target=all
+      - name: Mark integration failures as requiring repair
+        if: steps.candidate.outputs.status == 'conflicts'
+        shell: bash
+        run: |
+          printf '%s\n' 'The draft candidate requires porting repair. No native build or publication was started.' >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+      - name: Preserve preparation, checks and conflict evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: upstream-${{ matrix.tag }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/upstream-candidate/*.json
+            ${{ runner.temp }}/upstream-candidate/*.md
+            ${{ runner.temp }}/upstream-candidate/*.txt
+            ${{ runner.temp }}/upstream-candidate/*.patch
+            ${{ runner.temp }}/upstream-candidate/checks
+          if-no-files-found: warn
+          retention-days: 30

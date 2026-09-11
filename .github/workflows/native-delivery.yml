@@ -84,7 +84,12 @@ jobs:
         shell: bash
         run: |
           test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
-          git merge-base --is-ancestor f638a860a05b3e48d1074314a656ad9b8f597466 HEAD
+          upstream_base=f638a860a05b3e48d1074314a656ad9b8f597466
+          if [ -f automation/distribution/upstream.json ]; then
+            upstream_base=$(python3 -c 'import json; print(json.load(open("automation/distribution/upstream.json"))["commit"])')
+          fi
+          [[ "$upstream_base" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$upstream_base" HEAD
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           global-json-file: automation/global.json
@@ -204,7 +209,12 @@ jobs:
         shell: pwsh
         run: |
           if ((git rev-parse HEAD) -ne $env:SOURCE_COMMIT) { throw 'Wrong source commit.' }
-          git merge-base --is-ancestor f638a860a05b3e48d1074314a656ad9b8f597466 HEAD
+          $upstreamBase = 'f638a860a05b3e48d1074314a656ad9b8f597466'
+          if (Test-Path automation/distribution/upstream.json) {
+            $upstreamBase = (Get-Content automation/distribution/upstream.json -Raw | ConvertFrom-Json).commit
+          }
+          if ($upstreamBase -cnotmatch '^[0-9a-f]{40}$') { throw 'Invalid upstream commit.' }
+          git merge-base --is-ancestor $upstreamBase HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Pinned ancestry is missing.' }
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
           $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -331,7 +341,7 @@ jobs:
             --filter 'FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~McpToolPayloadTests|FullyQualifiedName~WindowsRetainedPackageInputTests' `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight/harness"
           if ($LASTEXITCODE -ne 0) { throw 'Native harness preflight failed.' }
-          gh run download $retained[0] --repo holyglory/kicad-source-mirror `
+          gh run download $retained[0] --repo "${{ github.repository }}" `
             --name "native-windows-x64-$($retained[2])-$($retained[1])" `
             --dir "$env:RUNNER_TEMP/kicad-retained-application"
           if ($LASTEXITCODE -ne 0) { throw 'Retained Windows artifact unavailable.' }
@@ -349,7 +359,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ($env:CHECKS_ONLY -ne 'true') { throw 'Package staging is a checks-only fixture.' }
-          gh run download 34487042181 --repo holyglory/kicad-source-mirror `
+          gh run download 34487042181 --repo "${{ github.repository }}" `
             --name native-windows-x64-84359da19e3b168290b6199dc36077edbf03faf5-1 `
             --dir "$env:RUNNER_TEMP/kicad-staging-archive"
           if ($LASTEXITCODE -ne 0) { throw 'The retained Windows build artifact could not be downloaded.' }

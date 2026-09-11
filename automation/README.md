@@ -1,6 +1,6 @@
 # Codex-operated KiCad automation
 
-Implementation branch: `feature/codex-kicad-automation`, based on
+Development branch: `main` (the original `feature/codex-kicad-automation` branch is preserved), based on
 `f638a860a05b3e48d1074314a656ad9b8f597466`. This is an incomplete implementation
 of the approved six-milestone program, not a release.
 
@@ -1422,24 +1422,24 @@ Do not point a production workflow at this development build yet.
 
 The `Native delivery` GitHub Actions workflow builds an exact fork commit on
 Apple Silicon (`macos-15`), Intel Mac (`macos-15-intel`) and Windows x64
-(`windows-2022`). It runs only when dispatched, not on pushes or pull requests.
+(`windows-2022`). It runs when dispatched, including exact-commit dispatch by the upstream-candidate workflow; it does not build every push or pull request.
 One target failing does not cancel the other targets. The public update-signing
 key remains on the VPS; no private publisher or engineering repository is sent
 to the runners.
 
 ```sh
-gh workflow run native-delivery.yml --repo holyglory/kicad-source-mirror \
-  --ref feature/codex-kicad-automation -f source_commit=FULL_40_CHARACTER_FEATURE_COMMIT -f target=all
-gh run list --repo holyglory/kicad-source-mirror --workflow native-delivery.yml
-gh run watch RUN_ID --repo holyglory/kicad-source-mirror --exit-status
-gh run download RUN_ID --repo holyglory/kicad-source-mirror --dir NEW_EVIDENCE_DIRECTORY
+gh workflow run native-delivery.yml --repo holyglory/KAICad \
+  --ref main -f source_commit=FULL_40_CHARACTER_FEATURE_COMMIT -f target=all
+gh run list --repo holyglory/KAICad --workflow native-delivery.yml
+gh run watch RUN_ID --repo holyglory/KAICad --exit-status
+gh run download RUN_ID --repo holyglory/KAICad --dir NEW_EVIDENCE_DIRECTORY
 ```
 
 Use `target=mac`, `target=mac-arm64`, `target=mac-x64` or `target=windows` for a
 focused repair run. Individual Mac selections let an unaffected sibling finish
 without starting a second build of that target. The workflow must
-be registered on the default branch. The command above selects its newer
-feature-branch definition without changing `master`; the native checkout and
+be registered on the default branch. The command above selects its `main`
+definition; the native checkout and
 compiled runner still come from the explicit requested source commit.
 
 The compiled `hosted` command refuses other execution platforms and non-hosted

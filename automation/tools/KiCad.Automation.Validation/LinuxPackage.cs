@@ -37,6 +37,7 @@ public static class LinuxPackage
                 throw new InvalidDataException("Staged bytes no longer match their receipt: " + file.Path);
         }
         await RequireSourceAsync(request.Repository, request.Commit, token);
+        var upstream = await UpstreamProvenance.RequireAsync(request.Repository, request.Commit, token);
         var environment = new Dictionary<string, string>
         {
             ["LD_LIBRARY_PATH"] = Path.Combine(prefix, "lib"),
@@ -71,7 +72,7 @@ public static class LinuxPackage
         string sourceHash = Evidence.Hash(source);
         await File.WriteAllTextAsync(Path.Combine(work, "package.json"), JsonSerializer.Serialize(new
         {
-            schemaVersion = 1, version = request.Version, commit = request.Commit,
+            schemaVersion = 1, version = request.Version, commit = request.Commit, upstream,
             sourceSha256 = sourceHash, platform = "linux-x64", testedDistribution = "Debian 13",
             qualifyingDelivery = false, automaticUpdating = false
         }, Evidence.JsonOptions), token);

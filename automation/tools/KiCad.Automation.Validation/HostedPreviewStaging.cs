@@ -81,13 +81,15 @@ public static partial class HostedPreviewStaging
         }
     }
 
-    private static async Task VerifyWindowsEditorJourney(string candidate, CancellationToken token)
+    private static Task VerifyWindowsEditorJourney(string candidate, CancellationToken token) =>
+        VerifyWindowsEditorResult(Path.Combine(candidate, "evidence", "installed-editor-tests", "windows-installed-editor", "result.json"), token);
+
+    internal static async Task VerifyWindowsEditorResult(string path, CancellationToken token)
     {
         const string failure = "The Windows candidate lacks a passing installed editor/MCP journey.";
         try
         {
-            using var document = JsonDocument.Parse(await Metadata(Path.Combine(candidate, "evidence", "installed-editor-tests",
-                "windows-installed-editor", "result.json"), token));
+            using var document = JsonDocument.Parse(await Metadata(path, token));
             var result = document.RootElement;
             if (result.GetProperty("schemaVersion").GetInt32() != 1 || result.GetProperty("status").GetString() != "passed")
                 throw new InvalidDataException(failure);

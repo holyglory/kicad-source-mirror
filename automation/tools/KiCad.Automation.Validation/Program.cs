@@ -8,6 +8,7 @@ try
         Console.WriteLine("kicad-validate mac --repository LOCAL_CHECKOUT --commit FULL_SHA --architecture arm64|x64 --builder MAC_BUILDER_CHECKOUT --toolchain EXISTING_CMAKE_TOOLCHAIN --output NEW_DIRECTORY [--native-tests CTEST_REGEX]");
         Console.WriteLine("kicad-validate hosted --repository CHECKOUT --commit FULL_SHA --architecture arm64|x64 --output DIRECTORY --dependency-commit FULL_SHA [--phase all|prepare|build] (GitHub-hosted runners only; split phases are Windows same-job only)");
         Console.WriteLine("kicad-validate stage-hosted --candidate DOWNLOADED_CANDIDATE_ROOT --commit FULL_SHA --platform osx-arm64|osx-x64|win-x64 --run-id GITHUB_RUN_ID --version PREVIEW_VERSION --previous PUBLIC_ROOT --output NEW_PUBLIC_ROOT");
+        Console.WriteLine("kicad-validate stage-requalified-windows --candidate ORIGINAL_FAILED_BUILD --qualification NATIVE_RERUN_ROOT --repository EXACT_NATIVE_SOURCE_WORKTREE --commit FULL_SHA --run-id QUALIFICATION_RUN_ID --version PREVIEW_VERSION --previous PUBLIC_ROOT --output NEW_PUBLIC_ROOT");
         Console.WriteLine("kicad-validate stage-signed-linux --candidate LINUX_PACKAGE_DIRECTORY --commit FULL_SHA --previous PUBLIC_ROOT --output NEW_PUBLIC_ROOT --feed SIGNED_PREVIEW_JSON --publisher TRUSTED_PUBLIC_SPKI");
         Console.WriteLine("kicad-validate stage-platform-feeds --previous PUBLIC_ROOT --output NEW_PUBLIC_ROOT --publisher TRUSTED_PUBLIC_SPKI --sources FEED_DECLARATION_JSON");
         Console.WriteLine("kicad-validate verify --result RESULT_JSON --archive EVIDENCE_TAR_GZ --commit FULL_SHA [--architecture arm64|x64]");
@@ -32,6 +33,7 @@ try
         : args[0] == "stage-platform-feeds" ? ["previous", "output", "publisher", "sources"]
         : args[0] == "stage-signed-linux" ? ["candidate", "commit", "previous", "output", "feed", "publisher"]
         : args[0] == "stage-hosted" ? ["candidate", "commit", "platform", "run-id", "version", "previous", "output"]
+        : args[0] == "stage-requalified-windows" ? ["candidate", "qualification", "repository", "commit", "run-id", "version", "previous", "output"]
         : args[0] == "mac"
         ? ["repository", "commit", "architecture", "builder", "toolchain", "output", "native-tests"]
         : args[0] == "stage-linux" ? ["build", "managed", "nng", "output"]
@@ -57,6 +59,12 @@ try
             Required("run-id"), Required("version"), Required("previous"), Required("output")), cancel.Token);
         Console.WriteLine(JsonSerializer.Serialize(result, Evidence.JsonOptions));
         return 0;
+    }
+    if (args[0] == "stage-requalified-windows")
+    {
+        var result = await WindowsRequalifiedPreview.RunAsync(new(Required("candidate"), Required("qualification"), Required("repository"),
+            Required("commit"), Required("run-id"), Required("version"), Required("previous"), Required("output")), cancel.Token);
+        Console.WriteLine(JsonSerializer.Serialize(result, Evidence.JsonOptions)); return 0;
     }
     if (args[0] == "stage-signed-linux")
     {

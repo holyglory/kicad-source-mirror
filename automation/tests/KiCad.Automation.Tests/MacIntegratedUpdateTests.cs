@@ -113,6 +113,9 @@ public sealed class MacIntegratedUpdateTests
                 await MacProcessIdentityTests.Run(quit, ["quit", process.Id.ToString()], deadline.Token);
                 await process.WaitForExitAsync(deadline.Token);
             }
+            // MCP owns its diagnostic writer independently of the editor
+            // captures. Close and drain it before inspecting complete logs.
+            if (mcpProbe is not null) await mcpProbe.DisposeAsync();
             await Task.WhenAll(captures).WaitAsync(TimeSpan.FromSeconds(15), deadline.Token);
             foreach (string log in Directory.GetFiles(evidence, "*.stderr.log"))
                 Assert.IsFalse((await File.ReadAllTextAsync(log, deadline.Token)).Contains("implemented in both", StringComparison.Ordinal),

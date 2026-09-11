@@ -22,9 +22,14 @@ caption-update checks on September 11 at 07:32:44 UTC. Generation 32 publishes
 the Windows archive without removing older downloads or Mac/Linux feeds.
 
 This is a preview, not full project readiness. Extracting the archive alone
-does not configure managed updating. The Windows signed installation and
-two-version native update journey remain under qualification; do not treat
-this download receipt as proof of automatic Windows updates.
+does not configure managed updating. Generation 33 adds the signed Windows
+feed at `https://kicad.vr.ae/platforms/win-x64/`, sequence 2. Public check
+`8d1abc` verified its ZIP download and preservation of the Mac/Linux update
+paths. On native Windows, `34575956920` installed the public package and ran
+its shipped updater: current-version checks, unchanged metadata, wrong-platform
+rejection and subsequent recovery passed without changing the selected version.
+That is not a two-version upgrade or editor restart. The actual Windows
+Update-button and post-update MCP journey remain under qualification.
 
 ## Latest Apple Silicon preview — September 11, 2026
 

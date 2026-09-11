@@ -237,6 +237,24 @@ name = "stage"
 tier = "development"
 command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-requalified-windows", "--candidate", "/mnt/build-storage/codex/kicad/evidence/github-34555975985-windows-corrected-candidate/kicad-delivery", "--qualification", "/mnt/build-storage/codex/kicad/evidence/github-34571626328-windows-retained-passed/native-windows-x64-c9319056c3392875aca22ec78e27e09b05597037-1/kicad-windows-preflight", "--repository", "/mnt/build-storage/codex/kicad/worktrees/windows-source-433.iTweC0", "--commit", "433c5e1fdf5954955a19df546236dce78e78b5b0", "--run-id", "34571626328", "--version", "preview-20260911-433c5e1fdf59", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000013", "--output", "/mnt/build-storage/codex/kicad/public-candidates/windows-433-requalified"]
 
+# The first Windows update candidate uses the already requalified, unchanged
+# native archive. Sequence 1 is reserved for the distinct frozen baseline.
+# Staging does not deploy the feed or establish native update qualification.
+[test.windows-first-feed]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.windows-first-feed.check]]
+name = "sign"
+tier = "development"
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "release-sign", "--release", "/mnt/build-storage/codex/kicad/worktrees/delivery-next.HAjDme/automation/distribution/releases/preview-win-x64-000002.json", "--artifacts", "/mnt/build-storage/codex/kicad/public-candidates/windows-433-requalified", "--private", "/mnt/build-storage/codex/kicad/signing/preview-publisher.pkcs8", "--output", "/mnt/build-storage/codex/kicad/public-candidates/windows-preview-000002.signed.json"]
+
+[[test.windows-first-feed.check]]
+name = "stage"
+tier = "development"
+requires = ["sign"]
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-platform-feeds", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/windows-433-requalified", "--output", "/mnt/build-storage/codex/kicad/public-candidates/windows-433-signed-000002", "--publisher", "/home/holyglory/kicad/automation/distribution/preview-publisher.spki", "--sources", "/mnt/build-storage/codex/kicad/worktrees/delivery-next.HAjDme/automation/distribution/releases/platform-windows-000002.json"]
+
 [test.windows-harness]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

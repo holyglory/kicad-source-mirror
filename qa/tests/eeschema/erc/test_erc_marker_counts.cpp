@@ -108,6 +108,17 @@ BOOST_FIXTURE_TEST_CASE( ERCMarkerCountsExclusion, ERC_MARKER_COUNT_FIXTURE )
     BOOST_CHECK( !provider.SetMarkerExcluded( marker, true, wxS( "Intentional fixture exclusion" ) ) );
     BOOST_CHECK_EQUAL( marker->GetComment(), wxS( "Intentional fixture exclusion" ) );
 
+    const auto markerBeforeClone = ERC_EXCLUSION::FromMarker( *marker ).ToProto().SerializeAsString();
+    {
+        std::unique_ptr<SCH_MARKER> copy( static_cast<SCH_MARKER*>( marker->Clone() ) );
+        BOOST_CHECK( copy->GetRCItem() != marker->GetRCItem() );
+        BOOST_CHECK( marker->GetRCItem()->GetParent() == marker );
+        BOOST_CHECK( copy->GetRCItem()->GetParent() == copy.get() );
+        BOOST_CHECK_EQUAL( ERC_EXCLUSION::FromMarker( *copy ).ToProto().SerializeAsString(), markerBeforeClone );
+    }
+    BOOST_CHECK( marker->GetRCItem()->GetParent() == marker );
+    BOOST_CHECK_EQUAL( ERC_EXCLUSION::FromMarker( *marker ).ToProto().SerializeAsString(), markerBeforeClone );
+
     const auto captured = SCH_ERC_SETTINGS::Capture( *m_schematic );
     const auto key = ERC_EXCLUSION::FromMarker( *marker ).GetSortKey();
     int matches = 0;

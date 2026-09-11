@@ -459,6 +459,7 @@ public sealed partial class NativeSessionTests
                     evidence, target.Id, deadline.Token);
                 await VerifyNativeEvents(client, registry.Client(launched.Single(p => p.Id != target.Id).Id),
                     opened.Document, textId, nativeProcessId, ":" + displayNumber, evidence, target.Id, deadline.Token);
+                await VerifySnapshotSchemaVersions(client, opened.Document, deadline.Token);
                 await VerifyNativeSymbolXml(client, opened.Document, electrical, evidence, target.Id, deadline.Token);
                 await VerifyNativeCacheTransaction(client, opened.Document, nativeProcessId,
                     ":" + displayNumber, evidence, target.Id, deadline.Token);

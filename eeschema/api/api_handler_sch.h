@@ -102,6 +102,9 @@ protected:
             const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicMetadata>& aCtx );
 
 private:
+    static std::optional<kiapi::common::ApiResponseStatus> validateSnapshotSchema( uint32_t aVersion );
+    static void projectSnapshotSchema( kiapi::schematic::types::SchematicMetadata& aMetadata,
+                                       uint32_t aVersion );
     HANDLER_RESULT<kiapi::automation::v1::SchematicSaveState> handleReadSaveState(
             const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicSaveState>& aCtx );
     HANDLER_RESULT<kiapi::automation::v1::SchematicHierarchyDataSnapshot> handleReadHierarchyData(

@@ -1477,12 +1477,37 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicOperationReceipt> API_HANDLER_SCH
 }
 
 
+std::optional<ApiResponseStatus> API_HANDLER_SCH::validateSnapshotSchema( uint32_t aVersion )
+{
+    if( aVersion <= 2 ) return std::nullopt;
+    ApiResponseStatus error;
+    error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+    error.set_error_message( "Unsupported schematic snapshot schema version" );
+    return error;
+}
+
+
+void API_HANDLER_SCH::projectSnapshotSchema(
+        kiapi::schematic::types::SchematicMetadata& aMetadata, uint32_t aVersion )
+{
+    if( aVersion < 2 && aMetadata.has_erc_settings() )
+    {
+        aMetadata.clear_erc_settings();
+        aMetadata.add_unrepresented_state( "erc_settings_require_snapshot_schema_2" );
+    }
+}
+
+
 HANDLER_RESULT<kiapi::automation::v1::SchematicObservation> API_HANDLER_SCH::handleCaptureObservation(
         const HANDLER_CONTEXT<kiapi::automation::v1::CaptureSchematicObservation>& aCtx )
 {
+    if( auto error = validateSnapshotSchema( aCtx.Request.schema_version() ) )
+        return tl::unexpected( *error );
     HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicScreenData> query;
     query.ClientName = aCtx.ClientName;
     query.Request.mutable_document()->CopyFrom( aCtx.Request.document() );
+    // Compare full current state across rendering, even for legacy clients.
+    query.Request.set_schema_version( 2 );
     auto before = handleReadScreenData( query );
     if( !before )
         return tl::unexpected( before.error() );
@@ -1512,6 +1537,8 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicObservation> API_HANDLER_SCH::han
     kiapi::automation::v1::SchematicObservation result;
     result.mutable_snapshot()->Swap( &*after );
     result.mutable_preview()->Swap( &*preview );
+    projectSnapshotSchema( *result.mutable_snapshot()->mutable_data()->mutable_metadata(),
+                           aCtx.Request.schema_version() );
     return result;
 }
 
@@ -1555,6 +1582,8 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicSaveState> API_HANDLER_SCH::handl
 HANDLER_RESULT<kiapi::automation::v1::SchematicScreenDataSnapshot> API_HANDLER_SCH::handleReadScreenData(
         const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicScreenData>& aCtx )
 {
+    if( auto error = validateSnapshotSchema( aCtx.Request.schema_version() ) )
+        return tl::unexpected( *error );
     if( auto busy = checkForStableObservation() ) return tl::unexpected( *busy );
     if( auto valid = validateDisplayedSheet( aCtx.Request.document() ); !valid )
         return tl::unexpected( valid.error() );
@@ -1562,6 +1591,7 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicScreenDataSnapshot> API_HANDLER_S
     if( !data ) return tl::unexpected( data.error() );
     kiapi::automation::v1::SchematicScreenDataSnapshot result;
     result.mutable_data()->CopyFrom( *data );
+    projectSnapshotSchema( *result.mutable_data()->mutable_metadata(), aCtx.Request.schema_version() );
     result.mutable_revision()->set_epoch( schematic()->ChangeJournal().Epoch() );
     result.mutable_revision()->set_sequence( schematic()->ChangeJournal().Sequence() );
     result.set_tracking_complete( false );
@@ -1572,6 +1602,8 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicScreenDataSnapshot> API_HANDLER_S
 HANDLER_RESULT<kiapi::automation::v1::SchematicHierarchyDataSnapshot> API_HANDLER_SCH::handleReadHierarchyData(
         const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicHierarchyData>& aCtx )
 {
+    if( auto error = validateSnapshotSchema( aCtx.Request.schema_version() ) )
+        return tl::unexpected( *error );
     if( auto busy = checkForStableObservation() ) return tl::unexpected( *busy );
     if( auto valid = validateDisplayedSheet( aCtx.Request.document() ); !valid )
         return tl::unexpected( valid.error() );
@@ -1591,6 +1623,7 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicHierarchyDataSnapshot> API_HANDLE
         PackSheetPath( *document.mutable_sheet_path(), path.Path() );
         auto screen = readScreenDataForPath( path, document );
         if( !screen ) return tl::unexpected( screen.error() );
+        projectSnapshotSchema( *screen->mutable_metadata(), aCtx.Request.schema_version() );
         data->add_instances()->CopyFrom( *screen );
     }
     result.mutable_revision()->set_epoch( schematic()->ChangeJournal().Epoch() );
@@ -1653,13 +1686,18 @@ HANDLER_RESULT<kiapi::schematic::types::SchematicScreenData> API_HANDLER_SCH::re
 HANDLER_RESULT<kiapi::automation::v1::SchematicMetadataSnapshot> API_HANDLER_SCH::handleReadMetadata(
         const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicMetadata>& aCtx )
 {
+    if( auto error = validateSnapshotSchema( aCtx.Request.schema_version() ) )
+        return tl::unexpected( *error );
     if( auto busy = checkForStableObservation() )
         return tl::unexpected( *busy );
 
     if( auto valid = validateDisplayedSheet( aCtx.Request.document() ); !valid )
         return tl::unexpected( valid.error() );
 
-    return readMetadataForPath( *m_context->GetCurrentSheet(), aCtx.Request.document() );
+    auto result = readMetadataForPath( *m_context->GetCurrentSheet(), aCtx.Request.document() );
+    if( !result ) return tl::unexpected( result.error() );
+    projectSnapshotSchema( *result->mutable_metadata(), aCtx.Request.schema_version() );
+    return result;
 }
 
 

@@ -12,6 +12,9 @@ import "schematic/schematic_types.proto";
 
 message ReadSchematicMetadata {
   kiapi.common.types.DocumentSpecifier document = 1;
+  // 0/1: legacy fields with explicit missing-ERC coverage; 2: includes ERC.
+  // Unknown versions are rejected, never silently simplified.
+  uint32 schema_version = 2;
 }
 
 // Native in-memory save flags, not a filesystem comparison or complete project
@@ -37,6 +40,7 @@ message SchematicMetadataSnapshot {
 
 message ReadSchematicScreenData {
   kiapi.common.types.DocumentSpecifier document = 1;
+  uint32 schema_version = 2;
 }
 
 message SchematicScreenDataSnapshot {
@@ -47,6 +51,7 @@ message SchematicScreenDataSnapshot {
 
 message ReadSchematicHierarchyData {
   kiapi.common.types.DocumentSpecifier document = 1;
+  uint32 schema_version = 2;
 }
 
 message SchematicHierarchyDataSnapshot {
@@ -59,6 +64,7 @@ message SchematicHierarchyDataSnapshot {
 // Incomplete tracking/serializer coverage remain explicit; not edit admission.
 message CaptureSchematicObservation {
   kiapi.common.types.DocumentSpecifier document = 1;
+  uint32 schema_version = 2;
 }
 
 message SchematicObservation {
@@ -159,6 +165,7 @@ message SchematicViewport {
 message RenderSchematicViews {
   kiapi.common.types.DocumentSpecifier document = 1;
   repeated SchematicRenderView views = 2;
+  uint32 schema_version = 3;
 }
 
 message SchematicRenderView {

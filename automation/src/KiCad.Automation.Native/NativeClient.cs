@@ -60,7 +60,7 @@ public sealed class NativeClient(INativeTransport transport, string endpoint, st
             var envelope = new ApiRequest
             {
                 Header = new ApiRequestHeader { KicadToken = epoch ?? "", ClientName = clientName },
-                Message = Any.Pack(request)
+                Message = Any.Pack(CurrentSnapshotRequest(request))
             };
             byte[] bytes = await transport.ExchangeAsync(Endpoint, envelope.ToByteArray(), TimeSpan.FromSeconds(15), cancellationToken);
             ApiResponse response = ApiResponse.Parser.ParseFrom(bytes);
@@ -82,4 +82,17 @@ public sealed class NativeClient(INativeTransport transport, string endpoint, st
         }
         finally { serial.Release(); }
     }
+
+    // New clients opt into all current schematic fields. Explicit legacy or
+    // unknown versions remain untouched for negotiation/error handling. Clone
+    // read requests so invoking a client never changes caller-owned messages.
+    internal static IMessage CurrentSnapshotRequest(IMessage request) => request switch
+    {
+        ReadSchematicMetadata { SchemaVersion: 0 } value => new ReadSchematicMetadata(value) { SchemaVersion = 2 },
+        ReadSchematicScreenData { SchemaVersion: 0 } value => new ReadSchematicScreenData(value) { SchemaVersion = 2 },
+        ReadSchematicHierarchyData { SchemaVersion: 0 } value => new ReadSchematicHierarchyData(value) { SchemaVersion = 2 },
+        CaptureSchematicObservation { SchemaVersion: 0 } value => new CaptureSchematicObservation(value) { SchemaVersion = 2 },
+        RenderSchematicViews { SchemaVersion: 0 } value => new RenderSchematicViews(value) { SchemaVersion = 2 },
+        _ => request
+    };
 }

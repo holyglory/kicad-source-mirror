@@ -39,8 +39,9 @@ public sealed class UpdateChecker
         cancellationToken.ThrowIfCancellationRequested();
         // Retain the lock file after closing it. Unlinking an open Unix lock file
         // would permit a second updater to lock a different inode at this path.
-        using var ownership = new FileStream(Path.Combine(root, "check.lock"), FileMode.OpenOrCreate,
-            FileAccess.ReadWrite, FileShare.None);
+        // Independent editors share this checkpoint. Wait for its owner, then
+        // reread accepted metadata so a queued check cannot lower the baseline.
+        using var ownership = await UpdateStoreLease.AcquireAsync(Path.Combine(root, "check.lock"), cancellationToken);
         string acceptedPath = Path.Combine(root, "accepted-envelope.json");
         VerifiedUpdateManifest? saved = null;
         try

@@ -325,6 +325,23 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsCaptionActionTests|FullyQualifiedName~WindowsUiDriverTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-caption-tests"]
 retained_artifacts = [{ name = "windows-caption-tests", path = "automation/artifacts/windows-caption-tests", max_bytes = 16777216 }]
 
+[test.update-check-contention]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.update-check-contention.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.update-check-contention.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~UpdateCheckerTests|FullyQualifiedName~UpdateStoreLeaseTests|FullyQualifiedName~UpdateCommandTests|FullyQualifiedName~UpdateRegistrationRetryTests", "--logger", "trx", "--results-directory", "automation/artifacts/update-check-contention"]
+retained_artifacts = [{ name = "update-check-contention", path = "automation/artifacts/update-check-contention", max_bytes = 16777216 }]
+
 [test.windows-process-identity]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

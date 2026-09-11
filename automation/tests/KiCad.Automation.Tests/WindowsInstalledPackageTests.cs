@@ -204,7 +204,7 @@ public sealed class WindowsInstalledPackageTests
     {
         private int nextId;
         public static async Task<Mcp> Start(string executable, string scratch, string state, string evidence,
-            string name, WindowsProcessJob job, CancellationToken token)
+            string name, WindowsProcessJob job, CancellationToken token, bool traceUpdates = false)
         {
             var start = new ProcessStartInfo(executable) { WorkingDirectory = scratch, UseShellExecute = false,
                 RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -213,6 +213,7 @@ public sealed class WindowsInstalledPackageTests
             start.Environment["KICAD_AUTOMATION_STATE_DIRECTORY"] = state;
             start.Environment["KICAD_CONFIG_HOME"] = Path.Combine(scratch, "config");
             start.Environment["KICAD_CACHE_HOME"] = Path.Combine(scratch, "cache");
+            if (traceUpdates) start.Environment["WXTRACE"] = "KICAD_AUTOMATION_UPDATES";
             foreach (string variable in new[] { "KICAD_AUTOMATION_NNG_LIBRARY", "KICAD_RUN_FROM_BUILD_DIR",
                 "KICAD_AUTOMATION_UPDATE_HELPER", "KICAD_AUTOMATION_UPDATE_CONFIG" }) start.Environment.Remove(variable);
             var process = Process.Start(start)!;

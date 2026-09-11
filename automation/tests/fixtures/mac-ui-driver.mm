@@ -162,6 +162,20 @@ int main( int argc, char** argv )
             {
                 [[NSRunningApplication runningApplicationWithProcessIdentifier:pid] activateWithOptions:NSApplicationActivateIgnoringOtherApps];
                 raised = AXUIElementPerformAction( owners[0], kAXRaiseAction ) == kAXErrorSuccess;
+                if( raised )
+                {
+                    bool focused = false;
+                    for( int attempt = 0; attempt < 50 && !focused; ++attempt )
+                    {
+                        CFTypeRef actual = nullptr;
+                        AXUIElementCopyAttributeValue( application, kAXFocusedWindowAttribute, &actual );
+                        focused = actual && CFEqual( actual, owners[0] )
+                            && [[NSRunningApplication runningApplicationWithProcessIdentifier:pid] isActive];
+                        if( actual ) CFRelease( actual );
+                        if( !focused ) [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+                    }
+                    raised = focused && matchesProcess();
+                }
             }
             if( windows ) CFRelease( windows );
             if( !raised )
@@ -173,9 +187,10 @@ int main( int argc, char** argv )
             AXUIElementCopyAttributeValue( application, kAXMenuBarAttribute, &bar );
             AXUIElementRef parent = bar && CFGetTypeID( bar ) == AXUIElementGetTypeID() ? (AXUIElementRef)bar : nullptr;
             if( bar && !parent ) CFRelease( bar );
-            bool sent = false;
+            bool sent = false; NSString* failure = @"menu_bar_unavailable"; NSUInteger lastLevel = 0;
             for( NSUInteger level = 0; parent && level < 2; ++level )
             {
+                lastLevel = level;
                 AXUIElementRef child = nullptr;
                 for( int attempt = 0; attempt < 20 && !child; ++attempt )
                 {
@@ -184,18 +199,21 @@ int main( int argc, char** argv )
                     if( !child ) [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
                 }
                 CFRelease( parent ); parent = child;
-                if( !child ) break;
+                if( !child ) { failure = @"unique_visible_menu_missing"; break; }
                 CFTypeRef enabled = nullptr;
                 bool actionable = AXUIElementCopyAttributeValue( child, kAXEnabledAttribute, &enabled ) == kAXErrorSuccess
                     && CFGetTypeID( enabled ) == CFBooleanGetTypeID() && CFBooleanGetValue( (CFBooleanRef)enabled );
                 if( enabled ) CFRelease( enabled );
-                if( !actionable || !matchesProcess() || !visibleButton( application, child ) ) break;
-                if( AXUIElementPerformAction( child, kAXPressAction ) != kAXErrorSuccess ) break;
+                if( !actionable ) { failure = @"menu_disabled"; break; }
+                if( !matchesProcess() ) { failure = @"process_changed"; break; }
+                if( !visibleButton( application, child ) ) { failure = @"menu_no_longer_visible"; break; }
+                if( AXUIElementPerformAction( child, kAXPressAction ) != kAXErrorSuccess ) { failure = @"menu_press_failed"; break; }
                 sent = level == 1;
             }
             if( parent ) CFRelease( parent );
             CFRelease( application );
-            emit( @{ @"schemaVersion": @1, @"status": sent ? @"menu_action_sent" : @"menu_not_actionable", @"menuPath": path } );
+            emit( @{ @"schemaVersion": @1, @"status": sent ? @"menu_action_sent" : @"menu_not_actionable", @"menuPath": path,
+                @"level": @(lastLevel), @"reason": sent ? @"" : failure } );
             return sent ? 0 : 5;
         }
         std::vector<AXUIElementRef> queue = { application }, matches;

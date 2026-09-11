@@ -238,6 +238,8 @@ public sealed class MacIntegratedUpdateTests
 
             async Task VerifyPcbModule(NativeClient client, MacProcessIdentity identity, string project, string name, CancellationToken token)
             {
+                try
+                {
                 var before = await ui.InspectAsync(identity, token);
                 string manager = before.GetProperty("windows").EnumerateArray().Select(x => x.GetProperty("title").GetString()!)
                     .Single(x => x.StartsWith(name + " — KiCad ", StringComparison.Ordinal));
@@ -250,7 +252,10 @@ public sealed class MacIntegratedUpdateTests
                 {
                     Assert.AreEqual(identity, MacProcessIdentity.Read(identity.ProcessId));
                     try { boards = await client.InvokeAsync<GetOpenDocuments, GetOpenDocumentsResponse>(new() { Type = (DocumentType)3 }, ready.Token); }
-                    catch (NativeApiException error) when (error.Status is 4 or 7) { }
+                    // The menu action schedules module creation on the native
+                    // event loop. Until its handler registers, AS_UNHANDLED is
+                    // a startup state, not a completed PCB observation.
+                    catch (NativeApiException error) when (error.Status is 4 or 5 or 7) { }
                     if (boards is null || boards.Documents.Count == 0)
                     { await Task.Delay(delay, ready.Token); delay = Math.Min(delay * 2, 1000); }
                 }
@@ -266,6 +271,14 @@ public sealed class MacIntegratedUpdateTests
                 await File.WriteAllTextAsync(Path.Combine(evidence, name + "-module-ownership.json"), JsonSerializer.Serialize(new
                 { identity, epoch = client.Epoch, board = board.BoardFilename, schematicCount = sheets.Documents.Count,
                     openedThroughNativeMenu = true, sameProcess = true }), ready.Token);
+                }
+                catch
+                {
+                    using var capture = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    try { await ui.CaptureAsync(identity, name + "-pcb-open-failed", capture.Token); }
+                    catch (Exception error) { await File.WriteAllTextAsync(Path.Combine(evidence, name + "-pcb-capture-failure.txt"), error.ToString()); }
+                    throw;
+                }
             }
 
             async Task VerifyMarker(NativeClient client, DocumentSpecifier document, string id, string text)

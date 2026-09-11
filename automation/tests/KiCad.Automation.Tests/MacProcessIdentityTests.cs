@@ -76,8 +76,9 @@ public sealed class MacProcessIdentityTests
         {
             await process.WaitForExitAsync(token);
             string error = await stderr;
-            Assert.AreEqual(0, process.ExitCode, error);
-            return await stdout;
+            string output = await stdout;
+            Assert.AreEqual(0, process.ExitCode, error + "\n" + (output.Length <= 4096 ? output : output[^4096..]));
+            return output;
         }
         finally
         {

@@ -120,6 +120,14 @@ object preservation and an untouched dirty neighboring instance. Cross-platform
 reconnection, full automatic synchronization and actual Codex Desktop remain
 open. Windows has no public package yet. Qualification flags remain false.
 
+The manual `native-delivery.yml` Windows `integrated-update` fixture is prepared
+for a published baseline/candidate pair. It requires their exact commits and a
+retained `baseline-win-x64-COMMIT.signed.json`; it runs native UI-driver checks
+before downloading the pair. It then exercises actual caption Cancel/Save,
+two dirty designs, replacement identity and preserved objects. Until real
+Windows packages and this journey pass, the fixture is verification code, not
+evidence of a working Windows update delivery.
+
 ### Earlier Linux checkpoint — September 10, 2026
 
 [Linux application](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260910T105342Z-9b748bcdb3c5-debian13-x64.tar.gz)

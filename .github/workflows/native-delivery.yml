@@ -27,12 +27,18 @@ on:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
         default: all
-        options: [all, package-staging, handoff, caption, harness, registry]
+        options: [all, package-staging, handoff, caption, harness, registry, integrated-update]
       mac_update_baseline_commit:
         description: With integrated-update, exact baseline commit with a retained signed envelope for each selected Mac architecture
         type: string
       mac_update_candidate_commit:
         description: With integrated-update, exact different candidate commit currently in the public Mac feed
+        type: string
+      windows_update_baseline_commit:
+        description: With integrated-update, exact Windows baseline commit with a retained signed envelope
+        type: string
+      windows_update_candidate_commit:
+        description: With integrated-update, exact different candidate commit in the public Windows feed
         type: string
 
 # SA-09: disposable public-source builds; no publisher key, engineering
@@ -167,6 +173,8 @@ jobs:
       VCPKG_BINARY_SOURCES: clear;default,readwrite;nuget,https://gitlab.com/api/v4/projects/27426693/packages/nuget/index.json,read
       CHECKS_ONLY: ${{ inputs.checks_only }}
       WINDOWS_FIXTURE: ${{ inputs.windows_fixture }}
+      WINDOWS_UPDATE_BASELINE_COMMIT: ${{ inputs.windows_update_baseline_commit }}
+      WINDOWS_UPDATE_CANDIDATE_COMMIT: ${{ inputs.windows_update_candidate_commit }}
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
     steps:
@@ -198,6 +206,32 @@ jobs:
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           global-json-file: automation/global.json
+      - name: Verify two real Windows designs through the signed caption update
+        if: inputs.windows_fixture == 'integrated-update'
+        timeout-minutes: 30
+        working-directory: automation
+        shell: pwsh
+        run: |
+          if ($env:CHECKS_ONLY -ne 'true') { throw 'Integrated update is a checks-only fixture.' }
+          foreach ($commit in @($env:WINDOWS_UPDATE_BASELINE_COMMIT, $env:WINDOWS_UPDATE_CANDIDATE_COMMIT)) {
+            if ($commit -cnotmatch '^[0-9a-f]{40}$') { throw 'An exact frozen Windows package commit is required.' }
+          }
+          if ($env:WINDOWS_UPDATE_BASELINE_COMMIT -eq $env:WINDOWS_UPDATE_CANDIDATE_COMMIT) { throw 'The source build must change.' }
+          $env:KICAD_WINDOWS_UI_BASELINE_COMMIT = $env:WINDOWS_UPDATE_BASELINE_COMMIT
+          $env:KICAD_WINDOWS_UI_EXPECTED_COMMIT = $env:WINDOWS_UPDATE_CANDIDATE_COMMIT
+          $env:KICAD_WINDOWS_UI_BASELINE_ENVELOPE = "$env:GITHUB_WORKSPACE/automation/distribution/releases/baseline-win-x64-$env:WINDOWS_UPDATE_BASELINE_COMMIT.signed.json"
+          if (!(Test-Path $env:KICAD_WINDOWS_UI_BASELINE_ENVELOPE)) { throw 'Retained public baseline envelope is unavailable.' }
+          $env:KICAD_WINDOWS_UI_PUBLISHER_SPKI = "$env:GITHUB_WORKSPACE/automation/distribution/preview-publisher.spki"
+          $env:KICAD_WINDOWS_UI_ORIGIN = 'https://kicad.vr.ae/platforms/win-x64/'
+          $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
+          dotnet test KiCad.Automation.slnx --configuration Release `
+            --filter 'FullyQualifiedName~WindowsCaptionActionTests|FullyQualifiedName~WindowsUiDriverTests' `
+            --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight/driver"
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows UI preflight failed.' }
+          dotnet test KiCad.Automation.slnx --configuration Release --no-build `
+            --filter 'TestCategory=NativeWindowsIntegratedUpdate' `
+            --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
+          if ($LASTEXITCODE -ne 0) { throw 'The actual Windows update journey failed.' }
       - name: Check Windows delivery contracts and select supported stages
         if: inputs.windows_fixture == 'all' || inputs.windows_fixture == 'caption' || inputs.windows_fixture == 'harness' || inputs.windows_fixture == 'registry'
         id: stages

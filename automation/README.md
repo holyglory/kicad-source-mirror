@@ -728,6 +728,12 @@ design-XML write-back, native delta application or complete revision admission.
 Those workflows remain unfinished. These source tools are not yet included in
 the public packages described above; frozen native/MCP verification is separate
 from the focused managed/STDIO checks.
+Linux native run `t20260911T151857Z-9b14cc` passed all 11 foundation checks on
+`0fe15e0a79cf3ae3cfb65899567abd0d65a2932a`, including real MCP event intake,
+native edits and keyboard undo/redo, persistence failure and explicit resume,
+preserved invalid desired bytes/baseline, and graceful MCP shutdown with an
+active observer. Native Mac/Windows and actual Codex Desktop qualification of
+these new tools remain separate, unfinished release work.
 
 Successful plans include merged XML, ordered native operations and explicit
 coverage gaps. This tool does not access files, apply a batch, resolve electrical

@@ -1151,7 +1151,7 @@ command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad
 name = "stage"
 tier = "development"
 requires = ["managed-publish", "native-runtime"]
-command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-linux", "--build", "/home/holyglory/kicad/automation/artifacts/native", "--managed", "/home/holyglory/kicad/automation/artifacts/linux-x64-mcp", "--nng", "/usr/lib/x86_64-linux-gnu/libnng.so", "--output", "/home/holyglory/kicad/automation/artifacts/distribution"]
+command = ["bash", "-lc", 'kicad_package_root=$(git rev-parse --show-toplevel) || exit; exec dotnet automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll stage-linux --build "$kicad_package_root/automation/artifacts/native" --managed "$kicad_package_root/automation/artifacts/linux-x64-mcp" --nng /usr/lib/x86_64-linux-gnu/libnng.so --output "$kicad_package_root/automation/artifacts/distribution"']
 
 [[test.linux-package-stage.check]]
 name = "installed-journey"
@@ -1164,7 +1164,7 @@ retained_artifacts = [{ name = "package-native-tests", path = "automation/artifa
 name = "archives"
 tier = "pre-merge"
 requires = ["installed-journey"]
-command = ["bash", "-lc", 'kicad_package_commit=$(git rev-parse HEAD); kicad_package_stamp=$(date -u +%Y%m%dT%H%M%SZ); exec dotnet automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll package-linux --staging /home/holyglory/kicad/automation/artifacts/distribution/current-staging.json --repository /home/holyglory/kicad --commit "$kicad_package_commit" --version "preview-$kicad_package_stamp-${kicad_package_commit:0:12}" --output "/mnt/build-storage/codex/kicad/public-candidates/$kicad_package_stamp-${kicad_package_commit:0:12}"']
+command = ["bash", "-lc", 'kicad_package_root=$(git rev-parse --show-toplevel) || exit; kicad_package_commit=$(git rev-parse HEAD) || exit; kicad_package_stamp=$(date -u +%Y%m%dT%H%M%SZ) || exit; exec dotnet automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll package-linux --staging "$kicad_package_root/automation/artifacts/distribution/current-staging.json" --repository "$kicad_package_root" --commit "$kicad_package_commit" --version "preview-$kicad_package_stamp-${kicad_package_commit:0:12}" --output "/mnt/build-storage/codex/kicad/public-candidates/$kicad_package_stamp-${kicad_package_commit:0:12}"']
 
 # Focused managed/event contract checks, including the compiled STDIO server.
 # No native editor proof is claimed by this graph.

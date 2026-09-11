@@ -40,6 +40,7 @@ public sealed partial class NativeSessionTests
             (net_chain "PARTIAL_PATH" (from "NOT_PRESENT" "1"))
             (net_chain "NAMED_ONLY")
             """;
+        Exception? primaryFailure = null;
         try
         {
             await File.WriteAllTextAsync(rootFile, native.Insert(end, definitions), token);
@@ -259,10 +260,25 @@ public sealed partial class NativeSessionTests
             await History("z", nativeVersion.Data);
             await History("z", persisted.Data);
         }
+        catch (Exception error)
+        {
+            primaryFailure = error;
+            await File.WriteAllTextAsync(Path.Combine(evidence, "chain-primary-failure.txt"), error.ToString(), CancellationToken.None);
+            try { await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-primary-failure.png"), CancellationToken.None); }
+            catch (Exception capture) { Console.Error.WriteLine("Chain failure capture: " + capture.Message); }
+            throw;
+        }
         finally
         {
-            await File.WriteAllBytesAsync(rootFile, original, CancellationToken.None);
-            await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
+            try
+            {
+                await File.WriteAllBytesAsync(rootFile, original, CancellationToken.None);
+                await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
+            }
+            catch (Exception cleanup) when (primaryFailure is not null)
+            {
+                throw new AggregateException("Native chain journey and fixture restoration failed; both results are retained.", primaryFailure, cleanup);
+            }
         }
         var restored = await client.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(query, token);
         foreach (var screen in restored.Data.Instances)

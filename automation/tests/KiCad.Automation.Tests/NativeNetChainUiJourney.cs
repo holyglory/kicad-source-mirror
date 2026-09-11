@@ -7,6 +7,7 @@ using Kiapi.Common.Types;
 using Kiapi.Schematic.Types;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Text.Json;
+using System.Diagnostics;
 
 namespace KiCad.Automation.Tests;
 
@@ -17,6 +18,7 @@ public sealed partial class NativeSessionTests
     {
         const string title = "Name Net Chain", oldName = "AUTOMATION_PATH", newName = "renamedpath";
         var header = new ItemHeader { Document = root };
+        bool capturedMenuStack = false;
         void Key(string key, string window = "Schematic Editor", bool control = false) =>
             NativeKeyboard.SchematicShortcut(display, processId, key, window, control, focusCanvas: false);
         async Task Window(string window, bool visible)
@@ -71,6 +73,26 @@ public sealed partial class NativeSessionTests
             // Grid. Net Chain precedes those four entries; Name precedes Create.
             Key("End"); for (int i = 0; i < 4; i++) Key("Up"); Key("Right");
             await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-actions-menu.png"), token);
+            var windows = new List<string>();
+            NativeKeyboard.SchematicShortcut(display, processId, "", describe: windows.Add);
+            await File.WriteAllLinesAsync(Path.Combine(evidence, "chain-menu-windows.txt"), windows, token);
+            if (!capturedMenuStack)
+            {
+                // Read-only diagnosis of this fixture-owned native process.
+                // Keep the stack cold; do not continue through a native assertion.
+                var start = new ProcessStartInfo("gdb") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+                foreach (string arg in new[] { "--batch", "--nx", "--quiet", "-p", processId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "-ex", "set pagination off", "-ex", "thread apply all bt 40", "-ex", "detach" }) start.ArgumentList.Add(arg);
+                using var debugger = Process.Start(start)!;
+                Task stdout = Capture(debugger.StandardOutput, Path.Combine(evidence, "chain-menu-stack.stdout.log"));
+                Task stderr = Capture(debugger.StandardError, Path.Combine(evidence, "chain-menu-stack.stderr.log"));
+                using var limit = CancellationTokenSource.CreateLinkedTokenSource(token); limit.CancelAfter(TimeSpan.FromSeconds(20));
+                try { await debugger.WaitForExitAsync(limit.Token); }
+                finally { if (!debugger.HasExited) { debugger.Kill(); await debugger.WaitForExitAsync(); } await Task.WhenAll(stdout, stderr); }
+                capturedMenuStack = true;
+            }
+            if (windows.Any(w => w.Contains("assert", StringComparison.OrdinalIgnoreCase) || w.Contains("Debug Alert", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("Native assertion while opening the net-chain menu; see retained window/stack evidence.");
             Key("End"); Key("Up"); Key("Return");
             await Window(title, true);
         }

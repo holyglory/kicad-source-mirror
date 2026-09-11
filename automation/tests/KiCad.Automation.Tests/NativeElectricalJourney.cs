@@ -11,9 +11,9 @@ namespace KiCad.Automation.Tests;
 
 public sealed partial class NativeSessionTests
 {
-    private sealed record ElectricalFixture(string Contents, string Symbol, string Wire, string PinA, string PinB);
+    internal sealed record ElectricalFixture(string Contents, string Symbol, string Wire, string PinA, string PinB);
 
-    private static ElectricalFixture MakeElectricalFixture(string rootId)
+    internal static ElectricalFixture MakeElectricalFixture(string rootId)
     {
         string a = Guid.NewGuid().ToString("D"), b = Guid.NewGuid().ToString("D");
         string pinA = Guid.NewGuid().ToString("D"), pinB = Guid.NewGuid().ToString("D");

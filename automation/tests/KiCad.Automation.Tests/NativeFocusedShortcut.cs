@@ -6,7 +6,7 @@ namespace KiCad.Automation.Tests;
 
 public sealed partial class NativeSessionTests
 {
-    private static async Task FocusedSchematicShortcut(NativeClient client, DocumentSpecifier document,
+    internal static async Task FocusedSchematicShortcut(NativeClient client, DocumentSpecifier document,
         int processId, string display, string key, CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);

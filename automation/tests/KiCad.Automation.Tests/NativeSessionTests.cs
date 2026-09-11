@@ -73,6 +73,8 @@ public sealed partial class NativeSessionTests
                 await File.WriteAllTextAsync(project, System.Text.Json.JsonSerializer.Serialize(new
                 {
                     meta = new { version = 3 }, text_variables = new { ENGINEERING_NOTE = "電源 & timing" },
+                    net_settings = new { meta = new { version = 5 }, net_chain_classes = new Dictionary<string, string>
+                        { ["AUTOMATION_PATH"] = "fastbus", ["UNAFFECTED_CHAIN"] = "preserved" } },
                     schematic = new
                     {
                         top_level_sheets = new[] { new { uuid = declaredRootId, name = "fixture", filename = "fixture.kicad_sch" } },
@@ -242,7 +244,7 @@ public sealed partial class NativeSessionTests
                             ":" + displayNumber, evidence, deadline.Token);
                     else
                         await VerifyNetChainMetadata(client, opened.Document, schematic, electrical, focusProcessId,
-                            ":" + displayNumber, deadline.Token);
+                            ":" + displayNumber, evidence, deadline.Token);
                     Console.WriteLine($"Focused {journey} {target.Id} completed at {elapsed.Elapsed.TotalSeconds:F1}s.");
                     continue;
                 }
@@ -513,7 +515,7 @@ public sealed partial class NativeSessionTests
                     ":" + displayNumber, deadline.Token);
                 await VerifySharedRootOwnership(client, opened.Document, hierarchyFixture, schematic, nativeProcessId,
                     ":" + displayNumber, evidence, target.Id, deadline.Token);
-                await VerifyNetChainMetadata(client, opened.Document, schematic, electrical, nativeProcessId, ":" + displayNumber, deadline.Token);
+                await VerifyNetChainMetadata(client, opened.Document, schematic, electrical, nativeProcessId, ":" + displayNumber, evidence, deadline.Token);
                 await VerifyVariantDescriptionDialog(client, opened.Document, schematic, nativeProcessId, ":" + displayNumber, evidence, deadline.Token);
                 await VerifyVariantRegistryXml(client, opened.Document, schematic, nativeProcessId, ":" + displayNumber, deadline.Token);
                 await VerifyDrawingRatios(client, opened.Document, schematic, nativeProcessId, ":" + displayNumber, evidence, deadline.Token);

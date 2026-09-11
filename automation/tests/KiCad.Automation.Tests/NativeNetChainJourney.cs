@@ -13,7 +13,7 @@ namespace KiCad.Automation.Tests;
 public sealed partial class NativeSessionTests
 {
     private static async Task VerifyNetChainMetadata(NativeClient client, DocumentSpecifier root,
-        string rootFile, ElectricalFixture fixture, int processId, string display, CancellationToken token)
+        string rootFile, ElectricalFixture fixture, int processId, string display, string evidence, CancellationToken token)
     {
         await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
         byte[] original = await File.ReadAllBytesAsync(rootFile, token);
@@ -81,6 +81,9 @@ public sealed partial class NativeSessionTests
                 Assert.IsTrue(imported.Data.Instances[0].Metadata.NetChains.Equals(screen.Metadata.NetChains),
                     "Saving and reloading must retain both committed and unresolved net-chain declarations. Observed: "
                     + string.Join(", ", screen.Metadata.NetChains.Select(c => c.Name)));
+
+            await VerifyNetChainNameDialog(client, root, rootFile, fixture.PinA, processId, display, evidence, token);
+            saved = await client.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(query, token);
 
             Task<SchematicHierarchyDataSnapshot> Read() =>
                 client.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(query, token);

@@ -26,6 +26,9 @@
 #include <schematic.h>
 #include <sch_netchain.h>
 #include <sch_sheet.h>
+#include <sch_screen.h>
+#include <sch_symbol.h>
+#include <sch_pin.h>
 #include <settings/settings_manager.h>
 #include <locale_io.h>
 
@@ -213,4 +216,82 @@ BOOST_FIXTURE_TEST_CASE( NetChain_RefreshPreservesTerminalPinOverride,
     BOOST_REQUIRE( twice );
     BOOST_CHECK( twice->GetTerminalPinA() == newPinA );
     BOOST_CHECK( twice->GetTerminalPinB() == originalPinB );
+}
+
+BOOST_FIXTURE_TEST_CASE( NetChain_SetTerminalPersistsExactSelectedPin,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO locale;
+    KI_TEST::LoadSchematic( m_settingsManager, wxString( "net_chains_four_nets" ), m_schematic );
+    CONNECTION_GRAPH* graph = m_schematic->ConnectionGraph();
+    BOOST_REQUIRE( graph );
+    SCH_SHEET_LIST sheets = m_schematic->BuildSheetListSortedByPageNumbers();
+    graph->Recalculate( sheets, true );
+    BOOST_REQUIRE( !graph->GetPotentialNetChains().empty() );
+    SCH_NETCHAIN* chain = graph->CreateNetChainFromPotential( graph->GetPotentialNetChains().front().get(), "REAL_TERMINAL" );
+    BOOST_REQUIRE( chain );
+    const KIID originalA = chain->GetTerminalPinA(), originalB = chain->GetTerminalPinB();
+    const wxString oldRef = chain->GetTerminalRef( 0 ), oldNumber = chain->GetTerminalPinNum( 0 );
+    const wxString otherRef = chain->GetTerminalRef( 1 ), otherNumber = chain->GetTerminalPinNum( 1 );
+    SCH_PIN* replacement = nullptr;
+    SCH_SHEET_PATH replacementPath;
+    for( const SCH_SHEET_PATH& path : sheets )
+    {
+        for( SCH_ITEM* item : path.LastScreen()->Items() )
+        {
+            auto* symbol = dynamic_cast<SCH_SYMBOL*>( item );
+            if( !symbol ) continue;
+            for( SCH_PIN* pin : symbol->GetPins() )
+            {
+                auto* connection = pin->Connection( &path );
+                if( !replacement && pin->m_Uuid != originalA && pin->m_Uuid != originalB
+                        && connection && graph->GetNetChainForNet( connection->Name() ) == chain )
+                {
+                    replacement = pin;
+                    replacementPath = path;
+                }
+            }
+        }
+    }
+    BOOST_REQUIRE( replacement );
+    SCH_NETCHAIN_TERMINAL_CHANGE change;
+    change.chain = "REAL_TERMINAL";
+    change.terminal = 0;
+    change.expectedPin = originalA;
+    change.expectedReference = oldRef;
+    change.expectedNumber = oldNumber;
+    change.selectedPin = replacement->m_Uuid;
+    change.selectedPath = replacementPath.Path();
+    auto bad = change; bad.terminal = 2;
+    BOOST_CHECK( !graph->SetNetChainTerminal( bad, *replacement, replacementPath ) );
+    bad = change; bad.expectedPin = KIID();
+    BOOST_CHECK( !graph->SetNetChainTerminal( bad, *replacement, replacementPath ) );
+    bad = change; bad.expectedReference = "unrelated";
+    BOOST_CHECK( !graph->SetNetChainTerminal( bad, *replacement, replacementPath ) );
+    bad = change; bad.selectedPath.push_back( KIID() );
+    BOOST_CHECK( !graph->SetNetChainTerminal( bad, *replacement, replacementPath ) );
+    bad = change; bad.selectedPin = KIID();
+    BOOST_CHECK( !graph->SetNetChainTerminal( bad, *replacement, replacementPath ) );
+    BOOST_CHECK( chain->GetTerminalPinA() == originalA );
+    BOOST_CHECK( chain->GetTerminalRef( 0 ) == oldRef );
+
+    BOOST_REQUIRE( graph->SetNetChainTerminal( change, *replacement, replacementPath ) );
+    const auto definition = graph->GetNetChainDefinitions().at( "REAL_TERMINAL" );
+    const wxString newRef = replacement->GetParentSymbol()->GetRef( &replacementPath );
+    BOOST_CHECK( definition.terminals.first.ref == newRef );
+    BOOST_CHECK( definition.terminals.first.pin == replacement->GetNumber() );
+    BOOST_CHECK( definition.terminals.second.ref == otherRef );
+    BOOST_CHECK( definition.terminals.second.pin == otherNumber );
+    BOOST_CHECK( !graph->SetNetChainTerminal( change, *replacement, replacementPath ) ); // stale
+    change.expectedPin = replacement->m_Uuid; change.expectedReference = newRef;
+    change.expectedNumber = replacement->GetNumber();
+    BOOST_CHECK( !graph->SetNetChainTerminal( change, *replacement, replacementPath ) ); // unchanged
+    const KIID newId = replacement->m_Uuid;
+    graph->Recalculate( sheets, true );
+    chain = graph->GetNetChainByName( "REAL_TERMINAL" );
+    BOOST_REQUIRE( chain );
+    BOOST_CHECK( chain->GetTerminalPinA() == newId );
+    BOOST_CHECK( chain->GetTerminalPinB() == originalB );
+    BOOST_CHECK( chain->GetTerminalRef( 0 ) == newRef );
+    BOOST_CHECK( graph->GetNetChainDefinitions().at( "REAL_TERMINAL" ).terminals.first.ref == newRef );
 }

@@ -1828,15 +1828,20 @@ int SCH_EDITOR_CONTROL::HighlightNetCursor( const TOOL_EVENT& aEvent )
 int SCH_EDITOR_CONTROL::ReplaceTerminalPin( const TOOL_EVENT& aEvent )
 {
     SCH_EDIT_FRAME* editFrame = static_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
-    auto ids = aEvent.Parameter<std::pair<wxString, wxString>>();
-    wxString oldStr = ids.first;
-    wxString newStr = ids.second;
-    KIID oldPin( oldStr );
-    KIID newPin( newStr );
-    wxString sig = editFrame->GetHighlightedNetChain();
-
-    if( !sig.IsEmpty() )
-        editFrame->Schematic().ConnectionGraph()->ReplaceNetChainTerminalPin( sig, oldPin, newPin );
+    const auto change = aEvent.Parameter<SCH_NETCHAIN_TERMINAL_CHANGE>();
+    const auto& selection = m_toolMgr->GetTool<SCH_SELECTION_TOOL>()->GetSelection();
+    if( selection.GetSize() != 1 ) return 0;
+    auto* pin = dynamic_cast<SCH_PIN*>( selection.Front() );
+    if( !pin || pin->m_Uuid != change.selectedPin || editFrame->GetCurrentSheet().Path() != change.selectedPath )
+        return 0;
+    auto* graph = editFrame->Schematic().ConnectionGraph();
+    if( !graph ) return 0;
+    SCH_COMMIT commit( editFrame );
+    if( commit.StageNetChainEdit( {} ) && graph->SetNetChainTerminal( change, *pin, editFrame->GetCurrentSheet() ) )
+    {
+        commit.Push( _( "Replace terminal pin" ) );
+        editFrame->UpdateNetHighlightStatus();
+    }
 
     return 0;
 }

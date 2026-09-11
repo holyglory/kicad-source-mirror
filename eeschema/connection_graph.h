@@ -51,6 +51,7 @@ class SCHEMATIC;
 class SCH_EDIT_FRAME;
 class SCH_HIERLABEL;
 class SCH_PIN;
+struct SCH_NETCHAIN_TERMINAL_CHANGE;
 class SCH_SHEET_PIN;
 class SCH_NETCHAIN;
 
@@ -460,6 +461,8 @@ public:
     SCH_NETCHAIN* GetNetChainForNet( const wxString& aNet );
     SCH_NETCHAIN* GetNetChainByName( const wxString& aName );
     void ReplaceNetChainTerminalPin( const wxString& aNetChain, const KIID& aPrev, const KIID& aNew );
+    bool SetNetChainTerminal( const SCH_NETCHAIN_TERMINAL_CHANGE& aChange,
+                             const SCH_PIN& aPin, const SCH_SHEET_PATH& aPath );
     void SetNetChainTerminalOverrides( const std::map<wxString, std::pair<KIID, KIID>>& aOverrides );
 
     /**

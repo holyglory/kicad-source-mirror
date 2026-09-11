@@ -1605,7 +1605,13 @@ command = ["cmake", "-S", ".", "-B", "automation/artifacts/native", "-G", "Ninja
 [[test.native-net-chains.check]]
 name = "native-build"
 tier = "development"
-command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "kicad-cli", "eeschema_kiface", "pcbnew_kiface", "cvpcb_kiface", "schema_build_copy", "api_schema_build_copy", "bitmap_archive_build"]
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "kicad-cli", "eeschema_kiface", "pcbnew_kiface", "cvpcb_kiface", "schema_build_copy", "api_schema_build_copy", "bitmap_archive_build", "qa_symbol_graphic_identity"]
+
+[[test.native-net-chains.check]]
+name = "native-terminal-contracts"
+tier = "development"
+requires = ["native-build"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_net_chain_terminals$", "--output-on-failure", "--no-tests=error"]
 
 [[test.native-net-chains.check]]
 name = "native-chains"

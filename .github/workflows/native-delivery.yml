@@ -237,7 +237,7 @@ jobs:
           $env:KICAD_WINDOWS_UI_ORIGIN = 'https://kicad.vr.ae/platforms/win-x64/'
           $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
           dotnet test KiCad.Automation.slnx --configuration Release `
-            --filter 'FullyQualifiedName~WindowsCaptionActionTests|FullyQualifiedName~WindowsUiDriverTests' `
+            --filter 'FullyQualifiedName~WindowsCaptionActionTests|FullyQualifiedName~WindowsUiDriverTests|FullyQualifiedName~WindowsNativeLogTests' `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight/driver"
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows UI preflight failed.' }
           $kicad_pair_filter = 'TestCategory=NativeWindowsIntegratedUpdate'

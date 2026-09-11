@@ -201,7 +201,7 @@ public sealed class WindowsIntegratedUpdateTests
                 while (true)
                 {
                     Assert.AreEqual(design.Identity, WindowsProcessIdentity.Read(design.Identity.ProcessId));
-                    string log = File.Exists(path) ? await File.ReadAllTextAsync(path, ready.Token) : "";
+                    string log = File.Exists(path) ? await WindowsNativeLog.ReadAsync(path, ready.Token) : "";
                     if (log.Contains("\"status\":\"candidate_available\"", StringComparison.Ordinal)) return;
                     Assert.IsFalse(log.Contains("\"status\":\"failed\"", StringComparison.Ordinal), "Native update preparation failed; see retained native.log.");
                     await changed.WaitAsync(TimeSpan.FromSeconds(2), ready.Token);

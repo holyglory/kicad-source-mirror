@@ -48,7 +48,7 @@ public sealed class WindowsInstalledPackageTests
                     await File.WriteAllTextAsync(project, "{\"meta\":{\"version\":3}}", deadline.Token);
                     var started = await mcp.Tool("kicad_instance_start", new { executable = nativeExecutable, projectPath = project,
                         softwareRendering = true });
-                    string id = started.GetProperty("structuredContent").GetProperty("instanceId").GetString()!;
+                    string id = McpToolPayload.Object(started).GetProperty("instanceId").GetString()!;
                     Assert.IsTrue(Guid.TryParseExact(id, "D", out _));
                     var record = JsonSerializer.Deserialize<InstanceRecord>(await File.ReadAllTextAsync(Path.Combine(state, id + ".json"), deadline.Token))!;
                     Assert.AreEqual(id, record.InstanceId); Assert.AreEqual(project, record.ProjectPath);
@@ -125,7 +125,12 @@ public sealed class WindowsInstalledPackageTests
         }
         finally
         {
-            job?.Dispose(); // Includes unacknowledged native launches, never pre-existing processes.
+            if (job is not null)
+            {
+                using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                try { await job.StopAndWaitAsync(cleanup.Token); }
+                finally { job.Dispose(); }
+            }
             foreach (var process in nativeProcesses)
             {
                 using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -140,7 +145,7 @@ public sealed class WindowsInstalledPackageTests
                 if (!Directory.Exists(runtime)) continue;
                 foreach (string log in Directory.GetFiles(runtime, "*.log"))
                     File.Copy(log, Path.Combine(evidence, id + "-" + Path.GetFileName(log)), overwrite: false);
-                Directory.Delete(runtime, true);
+                await WindowsFixtureCleanup.RemoveOwnedRuntimeDirectoryAsync(runtime);
             }
             await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(scratch);
         }

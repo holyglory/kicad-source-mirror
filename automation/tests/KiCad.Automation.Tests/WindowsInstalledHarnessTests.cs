@@ -45,6 +45,9 @@ public sealed class WindowsInstalledHarnessTests
                 syntheticProtocol = true, nativeInheritedPipe = true, disconnectMilliseconds = timer.ElapsedMilliseconds,
                 childPreserved = true, originalKiCadJourneyVerified = false }), deadline.Token);
             TestContext.AddResultFile(receipt);
+            await job.StopAndWaitAsync(deadline.Token);
+            Assert.IsTrue(child.HasExited, "Final job cleanup must await its native children, unlike MCP disconnect.");
+            await job.StopAndWaitAsync(deadline.Token); // Idempotent cleanup of an empty owned job.
         }
         finally
         {

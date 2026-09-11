@@ -14,6 +14,24 @@ public sealed class WindowsFixtureCleanupTests
     }
 
     [TestMethod]
+    public async Task NativeRuntimeCleanupHasAnExactInstanceBoundary()
+    {
+        if (!OperatingSystem.IsWindows()) { Assert.Inconclusive("Native Windows cleanup boundary."); return; }
+        string parent = Path.Combine(Path.GetTempPath(), "kicad-automation");
+        string owned = Directory.CreateDirectory(Path.Combine(parent, Guid.NewGuid().ToString("D"))).FullName;
+        string other = Directory.CreateDirectory(Path.Combine(parent, Guid.NewGuid().ToString("D"))).FullName;
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(owned, "native.log"), "Fixture log");
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => WindowsFixtureCleanup.RemoveOwnedRuntimeDirectoryAsync(parent));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => WindowsFixtureCleanup.RemoveOwnedRuntimeDirectoryAsync(Path.GetTempPath()));
+            await WindowsFixtureCleanup.RemoveOwnedRuntimeDirectoryAsync(owned);
+            Assert.IsFalse(Directory.Exists(owned)); Assert.IsTrue(Directory.Exists(other));
+        }
+        finally { if (Directory.Exists(owned)) Directory.Delete(owned, true); Directory.Delete(other, true); }
+    }
+
+    [TestMethod]
     public async Task NativeSharingReleaseAndCancellationLeaveUnrelatedFilesAlone()
     {
         if (!OperatingSystem.IsWindows()) { Assert.Inconclusive("Requires Windows file-sharing semantics."); return; }

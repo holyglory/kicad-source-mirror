@@ -120,7 +120,7 @@ public sealed class WindowsIntegratedUpdateTests
                 await File.WriteAllTextAsync(project, "{\"meta\":{\"version\":3}}", deadline.Token);
                 var started = await mcp!.Tool("kicad_instance_start", new { executable = installed.Version.NativeExecutable,
                     projectPath = project, softwareRendering = true });
-                string id = started.GetProperty("structuredContent").GetProperty("instanceId").GetString()!;
+                string id = McpToolPayload.Object(started).GetProperty("instanceId").GetString()!;
                 var record = JsonSerializer.Deserialize<InstanceRecord>(await File.ReadAllTextAsync(Path.Combine(state, id + ".json"), deadline.Token))!;
                 Assert.AreEqual(project, record.ProjectPath); Assert.IsNotNull(record.ProcessId);
                 var process = Process.GetProcessById(record.ProcessId.Value);
@@ -233,7 +233,11 @@ public sealed class WindowsIntegratedUpdateTests
         catch (Exception error) { await File.WriteAllTextAsync(Path.Combine(evidence, "failure.txt"), error.ToString()); throw; }
         finally
         {
-            job.Dispose();
+            using (var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
+            {
+                try { await job.StopAndWaitAsync(cleanup.Token); }
+                finally { job.Dispose(); }
+            }
             foreach (var process in processes)
             {
                 using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -248,7 +252,7 @@ public sealed class WindowsIntegratedUpdateTests
             {
                 string destination = Directory.CreateDirectory(Path.Combine(evidence, Path.GetFileName(directory))).FullName;
                 foreach (string file in Directory.GetFiles(directory, "*.log")) File.Copy(file, Path.Combine(destination, Path.GetFileName(file)));
-                Directory.Delete(directory, recursive: true); // Exact recorded runtime directory; all owned processes have exited.
+                await WindowsFixtureCleanup.RemoveOwnedRuntimeDirectoryAsync(directory);
             }
             string handovers = Path.Combine(root, "handovers");
             foreach (string file in Directory.Exists(handovers) ? Directory.GetFiles(handovers, "*.json", SearchOption.AllDirectories) : [])

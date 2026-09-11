@@ -27,7 +27,7 @@ on:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
         default: all
-        options: [all, package-staging, handoff, caption, harness, registry, json-link, instance-errors, integrated-update, integrated-mcp-update]
+        options: [all, package-staging, handoff, caption, harness, registry, json-link, instance-errors, installed-diagnostic, integrated-update, integrated-mcp-update]
       mac_update_baseline_commit:
         description: With integrated-update, exact baseline commit with a retained signed envelope for each selected Mac architecture
         type: string
@@ -276,7 +276,7 @@ jobs:
           if ($env:WINDOWS_FIXTURE -eq 'harness') {
             if ($env:CHECKS_ONLY -ne 'true') { throw 'Harness verification is a checks-only fixture.' }
             dotnet test KiCad.Automation.slnx --configuration Release `
-              --filter 'FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsDiagnosticPackageTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests' `
+              --filter 'FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~McpToolPayloadTests|FullyQualifiedName~WindowsDiagnosticPackageTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests' `
               --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
             if ($LASTEXITCODE -ne 0) { throw 'Windows harness fixture failed.' }
             exit 0
@@ -295,6 +295,32 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows delivery preflight failed.' }
           $split = Test-Path 'tools/KiCad.Automation.Validation/HostedWindowsCheckpoint.cs'
           "split=$($split.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - name: Operate the retained corrected Windows application without a rebuild
+        if: inputs.windows_fixture == 'installed-diagnostic'
+        timeout-minutes: 30
+        working-directory: automation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ($env:CHECKS_ONLY -ne 'true') { throw 'Retained package operation is checks-only.' }
+          $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
+          dotnet test KiCad.Automation.slnx --configuration Release `
+            --filter 'FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~McpToolPayloadTests' `
+            --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight/harness"
+          if ($LASTEXITCODE -ne 0) { throw 'Native harness preflight failed.' }
+          gh run download 34555975985 --repo holyglory/kicad-source-mirror `
+            --name native-windows-x64-433c5e1fdf5954955a19df546236dce78e78b5b0-1 `
+            --dir "$env:RUNNER_TEMP/kicad-retained-application"
+          if ($LASTEXITCODE -ne 0) { throw 'Retained Windows artifact unavailable.' }
+          $env:KICAD_RETAINED_WINDOWS_ARCHIVE = "$env:RUNNER_TEMP/kicad-retained-application/kicad-delivery/diagnostics/unqualified-windows-433c5e1fdf5954955a19df546236dce78e78b5b0.zip"
+          $env:KICAD_RETAINED_WINDOWS_RECEIPT = "$env:RUNNER_TEMP/kicad-retained-application/kicad-delivery/receipt.json"
+          $env:KICAD_RETAINED_WINDOWS_COMMIT = '433c5e1fdf5954955a19df546236dce78e78b5b0'
+          $env:KICAD_RETAINED_WINDOWS_SHA256 = 'cd5381d6ebe716c7a63990a0bf3930fec0200a66f6f284e0433f1ea1e8c6dcc6'
+          dotnet test KiCad.Automation.slnx --configuration Release --no-build `
+            --filter 'TestCategory=NativeWindowsRetainedPackage' --logger trx `
+            --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight/retained"
+          if ($LASTEXITCODE -ne 0) { throw 'Actual retained Windows editor journey failed.' }
       - name: Stage and verify the exact retained Windows archive
         if: inputs.windows_fixture == 'package-staging' || inputs.windows_fixture == 'handoff'
         working-directory: automation

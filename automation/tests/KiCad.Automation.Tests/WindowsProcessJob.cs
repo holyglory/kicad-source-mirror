@@ -34,6 +34,30 @@ internal sealed class WindowsProcessJob : IDisposable
 
     public void Dispose() => handle.Dispose();
 
+    // Final fixture cleanup only. MCP disconnection must never call this.
+    // Closing a kill-on-close handle alone does not wait for unacknowledged
+    // native children to exit and release their files.
+    public async Task StopAndWaitAsync(CancellationToken token)
+    {
+        if (handle.IsClosed) return;
+        if (!TerminateJobObject(handle, 1)) throw new Win32Exception();
+        int delay = 50;
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            if (!QueryInformationJobObject(handle, 1, out BASIC_ACCOUNTING_INFORMATION accounting,
+                    (uint)Marshal.SizeOf<BASIC_ACCOUNTING_INFORMATION>(), out _)) throw new Win32Exception();
+            if (accounting.ActiveProcesses == 0) return;
+            await Task.Delay(delay, token); delay = Math.Min(delay * 2, 500);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)] private struct BASIC_ACCOUNTING_INFORMATION
+    {
+        public long TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime;
+        public uint TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses;
+    }
+
     [StructLayout(LayoutKind.Sequential)] private struct BASIC_LIMIT_INFORMATION
     {
         public long PerProcessTime, PerJobTime; public uint Flags; public nuint MinWorkingSet, MaxWorkingSet;
@@ -55,4 +79,9 @@ internal sealed class WindowsProcessJob : IDisposable
     private static extern bool AssignProcessToJobObject(SafeFileHandle job, SafeProcessHandle process);
     [DllImport("kernel32", SetLastError = true)]
     private static extern bool IsProcessInJob(SafeProcessHandle process, SafeFileHandle job, out bool result);
+    [DllImport("kernel32", SetLastError = true)]
+    private static extern bool TerminateJobObject(SafeFileHandle job, uint exitCode);
+    [DllImport("kernel32", SetLastError = true)]
+    private static extern bool QueryInformationJobObject(SafeFileHandle job, int informationClass,
+        out BASIC_ACCOUNTING_INFORMATION information, uint size, out uint returnedLength);
 }

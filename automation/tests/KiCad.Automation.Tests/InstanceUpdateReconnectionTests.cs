@@ -54,4 +54,52 @@ public sealed class InstanceUpdateReconnectionTests
         finally { Directory.Delete(state, true); }
     }
     private static string Endpoint(string name) => NativeIpcEndpoint.FromSocketPath(Path.Combine(Path.GetTempPath(), "reconnect-" + name + ".sock"));
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CancellationBeforeOrAfterReceiptCanRetryTheSameVerifiedOperation(bool afterReceipt)
+    {
+        string state = Directory.CreateTempSubdirectory("kicad-reconnect-cancel-").FullName;
+        try
+        {
+            var peer = new NativeClientTests.FixtureTransport { ProjectPath = Path.Combine(state, "design.kicad_pro") };
+            var registry = new InstanceRegistry(peer, state);
+            var previous = await registry.AttachAsync(Endpoint("old"), peer.InstanceId);
+            var held = registry.Client(peer.InstanceId);
+            byte[] original = await File.ReadAllBytesAsync(Path.Combine(state, peer.InstanceId + ".json"));
+            Guid operation = Guid.NewGuid(); peer.Epoch = "new-epoch";
+            var proof = new UpdateReplacementProof(operation, Guid.Parse(peer.InstanceId), peer.ProjectPath,
+                new(previous.Endpoint, previous.Epoch), 11, 22, Endpoint("new"), peer.Epoch);
+            using var cancel = new CancellationTokenSource();
+            if (afterReceipt)
+                await Assert.ThrowsAsync<OperationCanceledException>(() => registry.AdoptVerifiedReplacementAsync(previous,
+                    proof.Endpoint, proof.Epoch, proof.ReplacementProcessId, operation, cancel.Token, cancel.Cancel));
+            else
+            {
+                cancel.Cancel();
+                await Assert.ThrowsAsync<OperationCanceledException>(() => InstanceUpdateReconnection.AdoptInspectedAsync(registry,
+                    peer.InstanceId, operation, previous.Epoch, proof, cancel.Token));
+            }
+            CollectionAssert.AreEqual(original, await File.ReadAllBytesAsync(Path.Combine(state, peer.InstanceId + ".json")));
+            Assert.AreSame(held, registry.Client(peer.InstanceId));
+            string receipt = Path.Combine(state, "replacements", operation.ToString("D") + ".json");
+            Assert.AreEqual(afterReceipt, File.Exists(receipt));
+            byte[]? retained = afterReceipt ? await File.ReadAllBytesAsync(receipt) : null;
+            Assert.AreEqual(0, Directory.GetFiles(state, "*.tmp", SearchOption.AllDirectories).Length);
+
+            // Retry through the service proof binding after an MCP restart,
+            // not by bypassing it with ordinary attach or a new operation ID.
+            var restarted = new InstanceRegistry(peer, state);
+            var adopted = await InstanceUpdateReconnection.AdoptInspectedAsync(restarted,
+                peer.InstanceId, operation, previous.Epoch, proof, default);
+            Assert.IsFalse(adopted.Reused);
+            Assert.AreEqual(peer.Epoch, adopted.Instance.Epoch);
+            Assert.IsTrue((await InstanceUpdateReconnection.AdoptInspectedAsync(restarted,
+                peer.InstanceId, operation, previous.Epoch, proof, default)).Reused);
+            if (retained is not null) CollectionAssert.AreEqual(retained, await File.ReadAllBytesAsync(receipt));
+            Assert.AreEqual(1, Directory.GetFiles(Path.GetDirectoryName(receipt)!, "*.json").Length);
+        }
+        finally { Directory.Delete(state, true); }
+    }
 }

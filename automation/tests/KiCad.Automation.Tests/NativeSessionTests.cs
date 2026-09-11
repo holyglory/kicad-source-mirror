@@ -9,20 +9,32 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace KiCad.Automation.Tests;
 
-// Actual KiCad manager processes on a test-owned X server. This is NOT the
-// schematic/PCB rendered editing acceptance journey and does not claim it is.
+// Real KiCad manager/editor processes on a test-owned X server. Focused
+// diagnostic entry points reuse the same fixture; full qualification is separate.
 [TestClass]
 [TestCategory("NativeSession")]
 public sealed partial class NativeSessionTests
 {
     [TestMethod, TestCategory("NativeSourceSession")]
-    public async Task TwoNativeProjectsHaveIndependentEpochsAndCanReattach()
+    public Task TwoNativeProjectsHaveIndependentEpochsAndCanReattach() => RunNativeSessions(NativeJourney.Foundation);
+
+    [TestMethod, TestCategory("NativeTableVariant")]
+    public Task TableVariantActionsPreserveNativeHistory() => RunNativeSessions(NativeJourney.TableVariants);
+
+    [TestMethod, TestCategory("NativeNetChains")]
+    public Task NetChainMetadataPreservesNativeHistory() => RunNativeSessions(NativeJourney.NetChains);
+
+    private enum NativeJourney { Foundation, TableVariants, NetChains }
+
+    private async Task RunNativeSessions(NativeJourney journey)
     {
         Assert.IsTrue(OperatingSystem.IsLinux(), "This virtual-display check is Linux-only, not native Mac evidence.");
         string root = FindRoot();
         string executable = Path.Combine(root, "automation", "artifacts", "native", "kicad", "kicad");
         Assert.IsTrue(File.Exists(executable), "The linked native manager must be built first.");
-        string evidence = NativeEvidenceDirectory.Begin(Path.Combine(root, "automation", "artifacts"));
+        string artifacts = Path.Combine(root, "automation", "artifacts");
+        string evidence = NativeEvidenceDirectory.Begin(journey == NativeJourney.Foundation ? artifacts
+            : Path.Combine(artifacts, journey == NativeJourney.TableVariants ? "native-table-variants" : "native-net-chains"));
         string temporary = Directory.CreateTempSubdirectory("kicad-native-").FullName;
         // Aggregate ceiling for the expanded editor journey. Local startup,
         // undo and competing-instance deadlines remain separately bounded.
@@ -40,10 +52,13 @@ public sealed partial class NativeSessionTests
             captures.Add(Capture(display.StandardError, Path.Combine(evidence, "xvfb.stderr.log")));
             string? displayNumber = await display.StandardOutput.ReadLineAsync(deadline.Token);
             Assert.IsTrue(int.TryParse(displayNumber, out _), "Xvfb did not allocate a display.");
-            await VerifyCliCreationRejection(executable, ":" + displayNumber, temporary, evidence, deadline.Token);
-            await VerifyRootCreationRejections(executable, ":" + displayNumber, temporary, evidence, deadline.Token);
-            await VerifyInterruptedStartup(executable, ":" + displayNumber, temporary, evidence, deadline.Token);
-            await VerifyFailedStartup(executable, temporary, evidence, deadline.Token);
+            if (journey == NativeJourney.Foundation)
+            {
+                await VerifyCliCreationRejection(executable, ":" + displayNumber, temporary, evidence, deadline.Token);
+                await VerifyRootCreationRejections(executable, ":" + displayNumber, temporary, evidence, deadline.Token);
+                await VerifyInterruptedStartup(executable, ":" + displayNumber, temporary, evidence, deadline.Token);
+                await VerifyFailedStartup(executable, temporary, evidence, deadline.Token);
+            }
             var registry = new InstanceRegistry(new NngTransport(), Path.Combine(temporary, "registry"));
             var launched = new List<(string Id, string Endpoint, string Project, string RootId)>();
             for (int index = 0; index < 2; index++)
@@ -217,6 +232,20 @@ public sealed partial class NativeSessionTests
                 Assert.AreEqual(3, rejectedPreview.Status);
                 Assert.AreEqual(opened.Document, (await client.InvokeAsync<CaptureSchematicPreview, SchematicPreview>(
                     new() { Document = opened.Document }, deadline.Token)).Document);
+                if (journey != NativeJourney.Foundation)
+                {
+                    int focusProcessId = processes.Single(p => p.StartInfo.ArgumentList.Contains(target.Project)).Id;
+                    await client.InvokeAsync<SaveDocument, Empty>(new() { Document = opened.Document }, deadline.Token);
+                    Console.WriteLine($"Focused {journey} {target.Id} reached its target at {elapsed.Elapsed.TotalSeconds:F1}s.");
+                    if (journey == NativeJourney.TableVariants)
+                        await VerifyTableVariantEdits(client, opened.Document, schematic, focusProcessId,
+                            ":" + displayNumber, evidence, deadline.Token);
+                    else
+                        await VerifyNetChainMetadata(client, opened.Document, schematic, electrical, focusProcessId,
+                            ":" + displayNumber, deadline.Token);
+                    Console.WriteLine($"Focused {journey} {target.Id} completed at {elapsed.Elapsed.TotalSeconds:F1}s.");
+                    continue;
+                }
                 var journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(
                     new() { Document = opened.Document }, deadline.Token);
                 Assert.IsTrue(journal.ResetRequired);

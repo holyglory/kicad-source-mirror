@@ -41,7 +41,14 @@ public sealed partial class NativeSessionTests
             {
                 try { return await client.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(new() { Document = root }, limit.Token); }
                 catch (NativeApiException error) when (error.Status == 7) // native AS_BUSY, not arbitrary failure
-                { await Task.Delay(50, limit.Token); }
+                {
+                    try { await Task.Delay(50, limit.Token); }
+                    catch (OperationCanceledException)
+                    {
+                        await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "table-variant-busy.png"), CancellationToken.None);
+                        throw;
+                    }
+                }
             }
         }
         Task<SchematicHierarchyDataSnapshot> Read() => ReadReady(token);
@@ -90,7 +97,9 @@ public sealed partial class NativeSessionTests
         }
         async Task<SchematicHierarchyDataSnapshot> UndoRedo(string key, SchematicHierarchyDataSnapshot previous)
         {
-            NativeKeyboard.SchematicShortcut(display, processId, key);
+            // The dialog has restored editor focus. An extra canvas click can
+            // activate a page border after undo changes the current variant.
+            NativeKeyboard.SchematicShortcut(display, processId, key, focusCanvas: false);
             using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
             limit.CancelAfter(TimeSpan.FromSeconds(5));
             while (true)

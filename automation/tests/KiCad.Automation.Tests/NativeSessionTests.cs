@@ -15,7 +15,7 @@ namespace KiCad.Automation.Tests;
 [TestCategory("NativeSession")]
 public sealed partial class NativeSessionTests
 {
-    [TestMethod]
+    [TestMethod, TestCategory("NativeSourceSession")]
     public async Task TwoNativeProjectsHaveIndependentEpochsAndCanReattach()
     {
         Assert.IsTrue(OperatingSystem.IsLinux(), "This virtual-display check is Linux-only, not native Mac evidence.");
@@ -138,6 +138,8 @@ public sealed partial class NativeSessionTests
                 // Saving the native-created root records its instance identity
                 // in the project. Reuse that identity in the populated fixture.
                 string rootId = emptyRoot.SheetPath.Path[0].Value;
+                string rootScreenId = Guid.NewGuid().ToString("D");
+                Assert.AreNotEqual(rootId, rootScreenId, "Exercise distinct project-instance and file-screen identities.");
                 string textId = Guid.NewGuid().ToString("D");
                 var electrical = MakeElectricalFixture(rootId);
                 var hierarchyFixture = await MakeHierarchyFixture(rootId, Path.GetDirectoryName(schematic)!, deadline.Token);
@@ -147,7 +149,7 @@ public sealed partial class NativeSessionTests
                 // must repair it to page 2 without a modal acknowledgement.
                 string repairableHierarchy = hierarchyFixture.Contents.Replace("(page \"2\")", "(page \"1\")", StringComparison.Ordinal);
                 await File.WriteAllTextAsync(schematic,
-                    $"(kicad_sch (version 20250114) (generator eeschema) (uuid {Guid.NewGuid()}) (paper \"A4\") " + electrical.Contents + repairableHierarchy +
+                    $"(kicad_sch (version 20250114) (generator eeschema) (uuid {rootScreenId}) (paper \"A4\") " + electrical.Contents + repairableHierarchy +
                     "(text \"Native automation fixture\" (at 50 50 0) (effects (font (size 1.27 1.27))) " +
                     $"(uuid {textId})) (sheet_instances (path \"/\" (page \"1\"))) {embeddedAsset.Native})", deadline.Token);
                 // The native-created empty document was saved and checked above.
@@ -469,7 +471,7 @@ public sealed partial class NativeSessionTests
                 await VerifySheetXml(client, opened.Document, hierarchyFixture, evidence, target.Id,
                     nativeProcessId, ":" + displayNumber, deadline.Token);
                 await VerifyMetadataXml(client, opened.Document, hierarchyFixture, evidence, target.Id,
-                    embeddedAsset.Expected, nativeProcessId, ":" + displayNumber, deadline.Token);
+                    embeddedAsset.Expected, rootScreenId, nativeProcessId, ":" + displayNumber, deadline.Token);
                 await VerifyNativeAssetRestore(client, opened.Document, textId, nativeProcessId,
                     ":" + displayNumber, deadline.Token);
                 await VerifyTitleBatch(client, opened.Document, nativeProcessId, ":" + displayNumber, deadline.Token);

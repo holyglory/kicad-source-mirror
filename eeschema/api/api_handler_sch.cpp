@@ -48,6 +48,7 @@
 #include <sch_netchain.h>
 #include <sch_commit.h>
 #include <api/api_sch_formatting.h>
+#include <api/api_sch_erc_settings.h>
 #include <api/api_sch_field_text_modes.h>
 #include <sch_symbol_cache_state.h>
 #include <sch_root_instance.h>
@@ -1061,6 +1062,18 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicItemBatchResult> API_HANDLER_SCH:
                     result.set_library_cache_changed( true );
                 }
             }
+            else if( operation.has_set_erc_settings() )
+            {
+                SCH_ERC_SETTINGS::PREPARED candidate;
+                std::string failure;
+                if( !SCH_ERC_SETTINGS::Prepare( operation.set_erc_settings(), *schematic(), candidate, failure ) )
+                    return reject( prefix + failure );
+                const bool changed = SCH_ERC_SETTINGS::Capture( *schematic() ).SerializeAsString()
+                                     != candidate.canonical.SerializeAsString();
+                if( changed && !nativeCommit->SetErcSettings( candidate, failure ) )
+                    return reject( prefix + failure );
+                result.set_erc_settings_changed( result.erc_settings_changed() || changed );
+            }
             else if( operation.has_replace_embedded_files() )
             {
                 const auto& state = operation.replace_embedded_files();
@@ -1738,6 +1751,7 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicMetadataSnapshot> API_HANDLER_SCH
     }
 
     *metadata->mutable_formatting() = SCH_FORMATTING::Capture( schematic()->Settings() );
+    *metadata->mutable_erc_settings() = SCH_ERC_SETTINGS::Capture( *schematic() );
     const auto ratios = schematic()->Settings().DrawingRatios();
     auto* drawing = metadata->mutable_drawing_ratios();
     drawing->set_dash_length_ratio( ratios[0] );

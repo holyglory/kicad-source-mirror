@@ -8,7 +8,7 @@ namespace KiCad.Automation.Tests;
 
 public sealed partial class NativeSessionTests
 {
-    [TestMethod]
+    [TestMethod, TestCategory("NativeSourceSession")]
     [TestCategory("NativeEmptyManager")]
     [TestCategory("NativeUpdateOrigin")]
     public async Task EmptyUpdateManagerHasExactIdentityAndCannotInventAnEngineeringProject()

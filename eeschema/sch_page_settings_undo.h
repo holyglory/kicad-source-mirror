@@ -16,6 +16,7 @@
 #include <connection_graph.h>
 #include <sch_painter.h>
 #include <api/api_sch_formatting.h>
+#include <api/api_sch_erc_settings.h>
 
 // A page dialog can export settings to several screens. Keep the native
 // worksheet snapshot plus each screen's exact identity and page/title state;
@@ -30,6 +31,8 @@ public:
         m_variantNames = aFrame->Schematic().GetVariantNames();
         m_drawingRatios = aFrame->Schematic().Settings().DrawingRatios();
         m_formatting = SCH_FORMATTING::Capture( aFrame->Schematic().Settings() );
+        m_ercPolicy = SCH_ERC_SETTINGS::Capture( aFrame->Schematic() );
+        m_ercPolicy.clear_exclusions(); // marker undo owns exclusion flags and added markers
         m_currentVariant = aFrame->Schematic().GetCurrentVariant();
         m_netChains = aFrame->Schematic().ConnectionGraph()->GetNetChainDefinitions();
         for( const auto& alias : aFrame->Schematic().GetAllBusAliases() )
@@ -69,6 +72,11 @@ public:
             ApplyDrawingRatios( aFrame, m_drawingRatios );
         if( m_restoreFormatting )
             ApplyFormatting( aFrame, m_formatting );
+        if( m_restoreErcPolicy )
+        {
+            SCH_ERC_SETTINGS::RestorePolicy( aFrame->Schematic().ErcSettings(), m_ercPolicy );
+            aFrame->RefreshErcDialog();
+        }
         for( const SCH_SHEET_PATH& path : aFrame->Schematic().Hierarchy() )
         {
             SCH_SCREEN* screen = path.LastScreen();
@@ -117,6 +125,7 @@ public:
     void IncludeNetChains() { m_restoreNetChains = true; }
     void IncludeDrawingRatios() { m_restoreDrawingRatios = true; }
     void IncludeFormatting() { m_restoreFormatting = true; }
+    void IncludeErcPolicy() { m_restoreErcPolicy = true; }
     static void ApplyFormatting( SCH_EDIT_FRAME* aFrame, const SCH_FORMATTING::MESSAGE& aValue )
     {
         const bool operatingChanged = SCH_FORMATTING::Capture( aFrame->Schematic().Settings() )
@@ -171,6 +180,7 @@ public:
         m_restoreNetChains = aOther.m_restoreNetChains;
         m_restoreDrawingRatios = aOther.m_restoreDrawingRatios;
         m_restoreFormatting = aOther.m_restoreFormatting;
+        m_restoreErcPolicy = aOther.m_restoreErcPolicy;
     }
 
     bool TextVariablesMatch( SCH_EDIT_FRAME* aFrame ) const
@@ -218,6 +228,8 @@ private:
     bool m_restoreDrawingRatios = false;
     bool m_restoreFormatting = false;
     SCH_FORMATTING::MESSAGE m_formatting;
+    bool m_restoreErcPolicy = false;
+    SCH_ERC_SETTINGS::MESSAGE m_ercPolicy;
     std::array<double, 5> m_drawingRatios;
     std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION> m_netChains;
     std::map<KIID, std::optional<SCH_SHEET_INSTANCE>> m_roots;

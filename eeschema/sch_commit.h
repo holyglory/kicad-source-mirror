@@ -33,6 +33,8 @@ namespace kiapi::schematic::types { class SchematicFormattingSettings; }
 class BUS_ALIAS;
 class SCH_EMBEDDED_FILES_UNDO_ITEM;
 class SCH_PAGE_SETTINGS_UNDO_ITEM;
+class SCH_MARKER;
+namespace SCH_ERC_SETTINGS { struct PREPARED; }
 class SCH_LIBRARY_CACHE_UNDO_ITEM;
 class SCH_SYMBOL_CACHE_EDIT_SCOPE;
 class SCH_SYMBOL_CACHE_STATE;
@@ -87,6 +89,7 @@ public:
     void StageVariantRegistry();
     void SetDrawingRatios( const std::array<double, 5>& aRatios );
     void SetFormatting( const kiapi::schematic::types::SchematicFormattingSettings& aFormatting );
+    bool SetErcSettings( SCH_ERC_SETTINGS::PREPARED& aPrepared, std::string& aFailure );
     void SetVariantRegistry( const std::map<wxString, wxString>& aDescriptions );
     void SetNetChainDefinitions( const std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION>& aDefinitions );
     void SetPageSettings( SCH_SCREEN* aScreen, const PAGE_INFO& aPage,
@@ -99,6 +102,7 @@ public:
 private:
     std::string m_originId;
     std::string m_operationId;
+    std::vector<std::unique_ptr<SCH_MARKER>> m_ercAddedMarkers;
     EDA_ITEM* undoLevelItem( EDA_ITEM* aItem ) const override;
 
     EDA_ITEM* makeImage( EDA_ITEM* aItem ) const override;

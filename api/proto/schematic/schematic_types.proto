@@ -25,6 +25,7 @@ package kiapi.schematic.types;
 import "google/protobuf/any.proto";
 import "common/types/base_types.proto";
 import "common/types/embedded_files.proto";
+import "schematic/schematic_rules.proto";
 
 // One native screen's top-level objects and settings collected in one handler.
 // Nested fields/pins/cells remain inside their owning objects. This is not a
@@ -106,6 +107,36 @@ message SchematicMetadata
   map<string, string> variant_descriptions = 14;
   SchematicDrawingRatios drawing_ratios = 15;
   SchematicFormattingSettings formatting = 16;
+  // Absence means this peer did not capture ERC settings, not default policy
+  // or permission to clear exclusions. Complete-project coverage is separate.
+  SchematicErcSettings erc_settings = 17;
+}
+
+// Project-owned ERC policy and saved exclusions. A complete replacement has
+// every persisted rule and every ordered pair of native electrical pin types.
+// The exclusion list may be explicitly empty. Native capture/restore support
+// must be qualified separately from this shared data contract.
+message SchematicErcSettings
+{
+  repeated kiapi.schematic.ErcSeveritySetting rule_severities = 1;
+  repeated SchematicErcPinRule pin_map = 2;
+  repeated kiapi.schematic.ErcExclusion exclusions = 3;
+}
+
+enum SchematicErcPinConflict
+{
+  SEPC_UNKNOWN = 0;
+  SEPC_NONE = 1;
+  SEPC_WARNING = 2;
+  SEPC_ERROR = 3;
+  SEPC_UNCONNECTED = 4;
+}
+
+message SchematicErcPinRule
+{
+  kiapi.common.types.ElectricalPinType first = 1;
+  kiapi.common.types.ElectricalPinType second = 2;
+  SchematicErcPinConflict conflict = 3;
 }
 
 // Persisted project formatting, independent of object positions and of the

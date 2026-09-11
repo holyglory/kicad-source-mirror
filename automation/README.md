@@ -1147,6 +1147,26 @@ undo support from this change. Read-only settings capture preserves stores and
 dirty flags, follows nested/parent parameter ownership, and compares persisted
 values rather than transient preset flags; genuine serialization failures remain
 conservative invalidations. Ordinary best-effort saving is unchanged.
+
+ERC override edits now advance the native journal when an exclusion flag,
+exclusion comment, or stored severity changes. Cancelling a comment or accepting
+the same text leaves the revision and dirty state unchanged. The rendered Linux
+journey exercises the real context menu, comment cancellation/edit/no-op,
+restoring an exclusion, changing severity, rejecting a stale native batch, and
+saving the resulting project settings while another project remains unchanged.
+These are existing KiCad controls with improved change tracking, not a new
+annotation interface or automatic XML synchronization. ERC settings do not gain
+undo support from this change.
+
+The `native-foundation` development graph restores locked managed dependencies
+and builds CVPCB and the package-manager schemas needed by a fresh source editor.
+It runs source-editor journeys separately from package updater journeys, which
+retain their signed-catalogue checks. Frozen Linux checkpoint
+`t20260911T124004Z-a428dd` passed all eleven checks at commit
+`9e3d57faf5dccee669d0d295b07db69d8b4cbbc5` with unchanged source. This is native
+development evidence, not a published package, native-Mac qualification, or full
+ERC/settings revision coverage.
+
 The journal still reports
 `tracking_complete=false`: other direct settings/property paths,
 complete change payloads and exhaustive revision tracking remain open. Native

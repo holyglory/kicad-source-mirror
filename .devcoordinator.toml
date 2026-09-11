@@ -1316,6 +1316,40 @@ name = "native-objects"
 tier = "development"
 command = ["cmake", "--build", "automation/artifacts/native", "--target", "kiapi", "common/CMakeFiles/kicommon.dir/api/api_server.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad_manager_frame.cpp.o"]
 
+[test.erc-model]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.erc-model.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.erc-model.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~SchematicErcSettingsTests|FullyQualifiedName~SchematicDataXmlTests|FullyQualifiedName~SchematicItemDeltaTests|FullyQualifiedName~SchematicHierarchyMergeTests", "--logger", "trx", "--results-directory", "automation/artifacts/erc-model"]
+retained_artifacts = [{ name = "erc-model", path = "automation/artifacts/erc-model", max_bytes = 16777216 }]
+
+[test.native-erc-dialog]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.native-erc-dialog.check]]
+name = "managed-build"
+tier = "development"
+role = "preflight"
+invalidates = ["dialog-observation"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.native-erc-dialog.check]]
+name = "dialog-observation"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeErcDialog", "--logger", "trx", "--results-directory", "automation/artifacts/native-erc-dialog"]
+retained_artifacts = [{ name = "native-erc-dialog", path = "automation/artifacts/native-erc-dialog", max_bytes = 33554432 }]
+
 [test.native-erc-overrides]
 timeout_seconds = 3600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
@@ -1341,6 +1375,13 @@ command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex"
 [test.native-foundation]
 timeout_seconds = 3600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.native-foundation.check]]
+name = "restore"
+tier = "development"
+role = "preflight"
+invalidates = ["managed-build", "native-build", "native-session", "native-erc-exclusion"]
+command = ["dotnet", "restore", "automation/KiCad.Automation.slnx", "--locked-mode"]
 
 [[test.native-foundation.check]]
 name = "managed-build"
@@ -1384,7 +1425,7 @@ retained_artifacts = [{ name = "recovery-model-results", path = "automation/arti
 [[test.native-foundation.check]]
 name = "native-build"
 tier = "development"
-command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "kicad-cli", "eeschema_kiface", "pcbnew_kiface", "api_schema_build_copy", "bitmap_archive_build", "qa_document_change_journal", "qa_symbol_graphic_identity"]
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "kicad-cli", "eeschema_kiface", "pcbnew_kiface", "cvpcb_kiface", "schema_build_copy", "api_schema_build_copy", "bitmap_archive_build", "qa_document_change_journal", "qa_symbol_graphic_identity"]
 
 [[test.native-foundation.check]]
 name = "native-journal"
@@ -1402,8 +1443,18 @@ command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex"
 name = "native-session"
 tier = "development"
 requires = ["native-build"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSession&TestCategory!=NativePackage&TestCategory!=NativePackageArchive&TestCategory!=NativeUpdateArchive&TestCategory!=NativeUpdater&TestCategory!=NativeCaptionUpdate", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
+# Source-editor journeys use the freshly built modules. Updater journeys remain
+# in their separate catalogue-bound graphs; they are not source-build fixtures.
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSourceSession", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
 retained_artifacts = [{ name = "native-session-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
+
+[[test.native-foundation.check]]
+name = "native-erc-exclusion"
+tier = "development"
+requires = ["native-build"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeErcDialog", "--logger", "trx", "--results-directory", "automation/artifacts/native-erc-foundation"]
+retained_artifacts = [{ name = "native-erc-exclusion", path = "automation/artifacts/native-erc-foundation", max_bytes = 33554432 }]
+
 [test.mac-runtime-contracts]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_TEST_NNG_LIBRARY = "/usr/lib/x86_64-linux-gnu/libnng.so" }

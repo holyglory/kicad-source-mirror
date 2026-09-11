@@ -21,8 +21,16 @@ public sealed partial class NativeSessionTests
         {
             using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
             limit.CancelAfter(TimeSpan.FromSeconds(5));
-            while (NativeKeyboard.HasWindow(display, processId, title) != visible)
-                await Task.Delay(100, limit.Token);
+            try
+            {
+                while (NativeKeyboard.HasWindow(display, processId, title) != visible)
+                    await Task.Delay(100, limit.Token);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "table-variant-window-failed.png"), token);
+                throw new InvalidOperationException($"Expected variant window '{title}' visible={visible}; see retained screenshot.");
+            }
         }
         Task<SchematicHierarchyDataSnapshot> Read() =>
             client.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(new() { Document = root }, token);
@@ -34,9 +42,14 @@ public sealed partial class NativeSessionTests
             for (int i = 0; i < 10; i++) Key("Up", "Schematic Editor");
             Key("Return", "Schematic Editor"); await Window(table, true);
             await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "table-variants-open.png"), token);
+            var geometry = new List<string>();
+            // The variant list is immediately above its bottom button row.
+            // A 75px offset hits the section label when only one row is visible.
             NativeKeyboard.SchematicShortcut(display, processId, "click", table, controlKey: false,
-                focusCanvas: true, clickFromLeft: 40, clickFromBottom: 75);
+                focusCanvas: true, clickFromLeft: 40, clickFromBottom: 45, describe: geometry.Add);
             Key("Home"); Key("Down");
+            await File.WriteAllLinesAsync(Path.Combine(evidence, "table-variant-window-geometry.txt"), geometry, token);
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "table-variant-selection.png"), token);
             for (int i = 0; i < tabs; i++) Key("Tab");
             Key("space"); await Window(title, true);
         }

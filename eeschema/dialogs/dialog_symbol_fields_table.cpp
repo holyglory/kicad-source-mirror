@@ -1219,8 +1219,9 @@ void DIALOG_SYMBOL_FIELDS_TABLE::onRenameVariant( wxCommandEvent& aEvent )
         }
     }
 
-    m_parent->Schematic().RenameVariant( oldVariantName, newVariantName );
-    m_parent->OnModify();
+    SCH_COMMIT commit( m_parent );
+    m_parent->Schematic().RenameVariant( oldVariantName, newVariantName, &commit );
+    commit.Push( _( "Rename Design Variant" ) );
 
     wxArrayString ctrlContents = m_variantListBox->GetStrings();
     ctrlContents.Remove( oldVariantName );
@@ -1276,8 +1277,9 @@ void DIALOG_SYMBOL_FIELDS_TABLE::onCopyVariant( wxCommandEvent& aEvent )
         return;
     }
 
-    m_parent->Schematic().CopyVariant( sourceVariantName, newVariantName );
-    m_parent->OnModify();
+    SCH_COMMIT commit( m_parent );
+    m_parent->Schematic().CopyVariant( sourceVariantName, newVariantName, &commit );
+    commit.Push( _( "Copy Design Variant" ) );
 
     wxArrayString ctrlContents = m_variantListBox->GetStrings();
     ctrlContents.Add( newVariantName );
@@ -1337,8 +1339,9 @@ void DIALOG_SYMBOL_FIELDS_TABLE::onEditVariantDescription( wxCommandEvent& aEven
 
     wxString newDesc = descCtrl->GetValue().Trim().Trim( false );
 
-    m_parent->Schematic().SetVariantDescription( variantName, newDesc );
-    m_parent->OnModify();
+    SCH_COMMIT commit( m_parent );
+    commit.SetVariantDescription( variantName, newDesc );
+    commit.Push( _( "Edit Variant Description" ) );
 }
 
 

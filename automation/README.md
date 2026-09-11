@@ -15,9 +15,10 @@ companion STDIO executable is `kicad-mcp`. macOS 15.7+ is required. These builds
 are ad-hoc signed, not notarized.
 
 Both native builds passed `34530295753`. Public check `9dcab8` verified all 38
-downloads and signed feeds on September 11 at 00:17–00:18 UTC. Generation 23
-serves Apple Silicon sequence 5 and Intel sequence 4, preserving Linux sequence
-9 and all prior downloads. The source contains the concurrent-preparation,
+downloads and signed feeds on September 11 at 00:17–00:18 UTC. That generation-23
+checkpoint served Apple Silicon sequence 5 and Intel sequence 4, preserving the
+then-current Linux sequence 9 and prior downloads. Later Linux deliveries below
+preserve those Mac feeds. The source contains the concurrent-preparation,
 caption-visibility and shared callback-class fixes described below.
 
 The fixed `2149b1d48295d00ee97a48295b285a064dba9a18` baseline remains available
@@ -102,6 +103,30 @@ candidate at `cd4934ad7b` is now published for Apple Silicon above; the Intel
 job in `34507122230` remains in progress.
 
 ## Latest preliminary Linux update — September 11, 2026
+
+[Linux application](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T015249Z-3ac5af02cb7e-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T015249Z-3ac5af02cb7e-source.tar.gz)
+identify `3ac5af02cb7eee653578e0d5c85b7d841eb8724a`, version
+`preview-20260911T015249Z-3ac5af02cb7e`. Generation 25 publishes Linux feed
+sequence 11, retaining both Mac feeds and all 42 downloads. The application
+archive SHA-256 is `0a098f179e6abc7b82ecf4e0ab6f8b9241a5e3dc304b5276856c5f9b8ea7ce31`.
+Use the verified `--install-package` bootstrap described below for managed updates.
+
+Package `bcd1ab` and signed staging `91a534` passed. Public run
+`t20260911T021009Z-7786f9` passed at 02:15:00 UTC using the authentic `de1dc4303ab2`
+baseline. It exercised actual caption rejection/Cancel/Save/restart, stable
+schematic text objects, two packaged-MCP reconnections through verified native
+origin, matching images/state, and an MCP restart using the candidate binary.
+The same-operation retry was idempotent and the other design remained usable.
+The unsaved-document fixture uses the identity returned by creation; it does
+not save early or reopen a nonexistent file to make the test pass.
+
+This closes the Linux public-update-to-MCP evidence gap, not the full cross-platform
+outcome. Mac and Windows origin-aware package pairs and their MCP journeys remain
+in progress. Automatic XML synchronization, actual Codex Desktop and full
+engineering qualification remain open; receipt qualification flags are unchanged.
+
+### Earlier Linux checkpoint — September 11, 2026
 
 [Linux application](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T005514Z-de1dc4303ab2-debian13-x64.tar.gz)
 and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T005514Z-de1dc4303ab2-source.tar.gz)

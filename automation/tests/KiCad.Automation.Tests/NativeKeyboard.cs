@@ -136,7 +136,7 @@ internal static class NativeKeyboard
             XSync(display, 0);
             if (key is "click" or "right-click" or "motion") return;
             byte control = XKeysymToKeycode(display, XStringToKeysym(altKey ? "Alt_L" : "Control_L"));
-            nuint requested = XStringToKeysym(key);
+            nuint requested = LiteralKeysym(key) ?? XStringToKeysym(key);
             byte character = XKeysymToKeycode(display, requested);
             if (control == 0 || character == 0) throw new InvalidOperationException("Fixture keymap lacks the requested shortcut.");
             bool shifted = RequiresShift(requested, XkbKeycodeToKeysym(display, character, 0, 0),
@@ -160,6 +160,11 @@ internal static class NativeKeyboard
         }
         finally { XCloseDisplay(display); }
     }
+
+    // Printable Latin-1 keysyms equal their character values. Xlib names such
+    // as "underscore" are not interchangeable with the literal "_" string.
+    internal static nuint? LiteralKeysym(string key) =>
+        key.Length == 1 && key[0] is >= ' ' and <= '\u00ff' ? key[0] : null;
 
     internal static bool RequiresShift(nuint requested, nuint plain, nuint shifted)
     {

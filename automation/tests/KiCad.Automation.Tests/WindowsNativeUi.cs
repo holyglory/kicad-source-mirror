@@ -278,7 +278,7 @@ internal static class WindowsNativeUi
     {
         Validate(owner, window);
         if (IsIconic(window)) ShowWindow(window, 9);
-        SetForegroundWindow(window);
+        bool accepted = SetForegroundWindow(window);
         // Cross-input-queue foreground activation completes asynchronously.
         // A bounded no-op message waits for that window to process the nudge;
         // never attach input queues or weaken the final ownership/focus check.
@@ -286,7 +286,26 @@ internal static class WindowsNativeUi
             throw new InvalidOperationException("The owned native window did not acknowledge foreground activation.");
         Validate(owner, window);
         if (GetForegroundWindow() != window)
-            throw new InvalidOperationException("The owned native window could not receive foreground input.");
+        {
+            // A dismissed owned dialog can still be completing activation.
+            // Idle is only a bounded synchronization point, never input proof.
+            if (owner.WaitForInputIdle(1000))
+            {
+                Validate(owner, window);
+                accepted = SetForegroundWindow(window);
+                if (SendMessageTimeoutW(window, 0, 0, 0, 2, 2000, out _) == 0)
+                    throw new InvalidOperationException("The native window did not acknowledge activation after dialog dismissal.");
+            }
+        }
+        Validate(owner, window);
+        if (GetForegroundWindow() != window)
+        {
+            nint foreground = GetForegroundWindow();
+            uint thread = GetWindowThreadProcessId(foreground, out uint foregroundProcess);
+            var info = new GUITHREADINFO { Size = (uint)Marshal.SizeOf<GUITHREADINFO>() };
+            _ = GetGUIThreadInfo(thread, ref info);
+            throw new InvalidOperationException($"The owned native window could not receive foreground input. Requested={window}; foreground={foreground}; foregroundProcess={foregroundProcess}; accepted={accepted}; active={info.Active}; focus={info.Focus}; menuOwner={info.MenuOwner}; flags={info.Flags}.");
+        }
     }
 
     internal static nint ObservedForegroundWindow => GetForegroundWindow();

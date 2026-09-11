@@ -1788,6 +1788,49 @@ tier = "development"
 requires = ["sign"]
 command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-platform-feeds", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/windows-79-import", "--output", "/mnt/build-storage/codex/kicad/public-candidates/windows-79-signed-000003", "--publisher", "/home/holyglory/kicad/automation/distribution/preview-publisher.spki", "--sources", "/mnt/build-storage/codex/kicad/worktrees/delivery-next.HAjDme/automation/distribution/releases/platform-windows-000003.json"]
 
+[test.windows-d65-stage]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.windows-d65-stage.check]]
+name = "restore"
+tier = "development"
+role = "preflight"
+invalidates = ["build", "contracts", "stage", "sign", "feeds"]
+command = ["dotnet", "restore", "automation/KiCad.Automation.slnx", "--locked-mode"]
+
+[[test.windows-d65-stage.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts", "stage", "sign", "feeds"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.windows-d65-stage.check]]
+name = "contracts"
+tier = "development"
+role = "preflight"
+invalidates = ["stage", "sign", "feeds"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~UpstreamReleaseTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-d65-stage-contracts"]
+retained_artifacts = [{ name = "windows-d65-stage-contracts", path = "automation/artifacts/windows-d65-stage-contracts", max_bytes = 16777216 }]
+
+[[test.windows-d65-stage.check]]
+name = "stage"
+tier = "development"
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-hosted", "--candidate", "/mnt/build-storage/codex/kicad/evidence/github-34629502985-windows-d65/kicad-delivery", "--commit", "d65efa14659714985312fd57e68110ed67278729", "--platform", "win-x64", "--run-id", "34629502985", "--version", "preview-20260911-d65efa146597", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/windows-79-signed-000003", "--output", "/mnt/build-storage/codex/kicad/public-candidates/windows-d65-import"]
+
+[[test.windows-d65-stage.check]]
+name = "sign"
+tier = "development"
+requires = ["stage"]
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "release-sign", "--release", "/mnt/build-storage/codex/kicad/worktrees/windows-d65-publish.6kyqCu/automation/distribution/releases/preview-win-x64-000004.json", "--artifacts", "/mnt/build-storage/codex/kicad/public-candidates/windows-d65-import", "--private", "/mnt/build-storage/codex/kicad/signing/preview-publisher.pkcs8", "--output", "/mnt/build-storage/codex/kicad/public-candidates/windows-preview-000004.signed.json", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/windows-79-signed-000003/updates/platforms/win-x64/preview.json"]
+
+[[test.windows-d65-stage.check]]
+name = "feeds"
+tier = "development"
+requires = ["sign"]
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-platform-feeds", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/windows-d65-import", "--output", "/mnt/build-storage/codex/kicad/public-candidates/windows-d65-signed-000004", "--publisher", "/home/holyglory/kicad/automation/distribution/preview-publisher.spki", "--sources", "/mnt/build-storage/codex/kicad/worktrees/windows-d65-publish.6kyqCu/automation/distribution/releases/platform-windows-000004.json"]
+
 [test.native-update-metadata]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

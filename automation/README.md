@@ -818,9 +818,16 @@ the `net-reconciliation` development graph; `native-foundation` additionally
 checks a real manual disconnection and Undo against the proposed model. This
 source-only tool is not yet included in public packages; automatic publication
 and Mac/Windows/actual-Desktop qualification remain unfinished.
+Native run `t20260911T195851Z-e88a9a` passed all 11 foundation checks on
+`a4519ba6a0ec8068c27eaccee6ea836063f5a5db`, with unchanged source. Its real
+manual disconnection produced two proposed nets and an unresolved original
+requirement; native Undo returned the exact original engineering XML. The
+saved recovery baseline and intentionally invalid desired bytes were preserved.
+The same run passed the exhaustive partition oracle, identity-collision guard,
+independent/convergent/conflicting edit cases and compiled STDIO tool checks.
 
-Successful plans include merged XML, ordered native operations and explicit
-coverage gaps. This tool does not access files, apply a batch, resolve electrical
+Successful `kicad_schematic_hierarchy_reconcile` plans include merged XML,
+ordered native operations and explicit coverage gaps. That tool does not access files, apply a batch, resolve electrical
 intent or advance the synchronized baseline. Concurrent edits inside a reparented
 branch can still require explicit conflict resolution. Linux native tests verify
 independent text/placement reconciliation, repeated-sheet operation deduplication,

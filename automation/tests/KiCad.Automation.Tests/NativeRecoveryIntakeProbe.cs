@@ -16,6 +16,7 @@ internal sealed class NativeRecoveryIntakeProbe : IAsyncDisposable
     private readonly string instanceId, intakeId, baselineXml, recoveryPath;
     private readonly CancellationToken token;
     private ulong sequence;
+    private FileStream? persistenceLock;
 
     private NativeRecoveryIntakeProbe(StdioMcpFixture mcp, NativeClient native, DocumentSpecifier document,
         DesignRecoveryStore recovery, string recoveryPath, string instanceId, string intakeId, string baselineXml, CancellationToken token)
@@ -65,6 +66,16 @@ internal sealed class NativeRecoveryIntakeProbe : IAsyncDisposable
         {
             var status = Success(await mcp.Tool("kicad_design_native_intake_wait", new { instanceId, intakeId, afterSequence = sequence }));
             sequence = status.GetProperty("sequence").GetUInt64();
+            if (persistenceLock is not null && status.GetProperty("phase").GetString() == "Paused")
+            {
+                Assert.AreEqual("design_recovery_io", status.GetProperty("errorCode").GetString());
+                Assert.IsTrue(recovery.Read()!.State.NativeRevision.Sequence < revision);
+                persistenceLock.Dispose(); persistenceLock = null;
+                var stale = await mcp.Tool("kicad_design_native_intake_resume", new { instanceId, intakeId, expectedSequence = sequence - 1 });
+                Assert.AreEqual("native_intake_changed", stale.GetProperty("structuredContent").GetProperty("errorCode").GetString());
+                Success(await mcp.Tool("kicad_design_native_intake_resume", new { instanceId, intakeId, expectedSequence = sequence }));
+                continue;
+            }
             Assert.AreEqual("Watching", status.GetProperty("phase").GetString(), status.GetRawText());
         } while (recovery.Read()!.State.NativeRevision.Sequence < revision);
         var saved = recovery.Read()!;
@@ -75,6 +86,9 @@ internal sealed class NativeRecoveryIntakeProbe : IAsyncDisposable
         CollectionAssert.AreEqual(new byte[] { 0xff, 0x3c }, saved.State.DesiredFileBytes);
         Assert.IsNull(saved.State.PendingMutation);
     }
+
+    public void BlockNextPersistence() => persistenceLock = new FileStream(recoveryPath + ".lock",
+        FileMode.Open, FileAccess.ReadWrite, FileShare.None);
 
     public async Task VerifyStopAndMcpDisconnect()
     {
@@ -88,6 +102,7 @@ internal sealed class NativeRecoveryIntakeProbe : IAsyncDisposable
         Success(await mcp.Tool("kicad_design_native_intake_wait", new { instanceId, intakeId = replacementId, afterSequence = 0 }));
         // Disconnect with an active observer, not only after manual stop.
         await mcp.DisposeAsync();
+        Assert.IsFalse(mcp.ForcedTermination, "MCP must await its native observer on normal input disconnect, not require forced termination.");
         Assert.AreEqual(before, await native.InvokeAsync<ReadSchematicSaveState, SchematicSaveState>(new() { Document = document }, token));
         Assert.AreEqual(savedToken, recovery.Read()!.RevisionToken);
     }
@@ -97,5 +112,9 @@ internal sealed class NativeRecoveryIntakeProbe : IAsyncDisposable
         Assert.IsFalse(result.TryGetProperty("isError", out var error) && error.GetBoolean(), result.GetRawText());
         return result.GetProperty("structuredContent");
     }
-    public ValueTask DisposeAsync() => mcp.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        persistenceLock?.Dispose(); persistenceLock = null;
+        await mcp.DisposeAsync();
+    }
 }

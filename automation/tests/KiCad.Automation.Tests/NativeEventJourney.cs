@@ -40,6 +40,7 @@ public sealed partial class NativeSessionTests
             Description = "Native event delivery fixture"
         };
         batch.Operations.Add(new SchematicItemOperation { Update = Any.Pack(moved) });
+        intake.BlockNextPersistence();
         await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(batch, token);
         var committed = await Change(1);
         Assert.AreEqual(batch.OperationId, committed.SchematicCommit.Change.OperationId);

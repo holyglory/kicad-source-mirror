@@ -31,6 +31,18 @@ synchronization, or complete Desktop qualification. Those outcomes remain open.
 
 ### Latest Intel preview — September 11, 2026
 
+[Intel application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-3ac5af02cb7eee653578e0d5c85b7d841eb8724a-macos-x64.tar.gz)
+now uses the same `3ac5af02cb7eee653578e0d5c85b7d841eb8724a` source as Apple
+Silicon above. Native build `34552278753`, signed staging `b27812` and public
+verification `9679c0` passed. Generation 30 serves Intel feed 6, preserving ARM
+feed 7, Linux feed 12 and 50 downloads. Its native `670961b39bb1` to `3ac5af02cb7e`
+MCP-update journey remains under verification: `34564869650` exposed text-only
+render-readiness handling in the test, fixed in the harness and rerun as
+`34565539266`. The download is preliminary, not a completed Intel MCP or full
+engineering qualification. macOS 15.7+; ad-hoc signed, not notarized.
+
+### Earlier Intel baseline — September 11, 2026
+
 [Intel application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-670961b39bb12d162b71f38e36ce0755653e92db-macos-x64.tar.gz)
 uses `670961b39bb12d162b71f38e36ce0755653e92db`, version
 `preview-20260911-670961b39bb1`. Native build `34546456670`, signed staging

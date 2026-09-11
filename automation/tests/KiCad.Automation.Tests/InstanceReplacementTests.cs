@@ -78,6 +78,35 @@ public sealed class InstanceReplacementTests
     private static string Endpoint(string name) => NativeIpcEndpoint.FromSocketPath(Path.Combine(Path.GetTempPath(), "replacement-" + name + ".sock"));
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CompetingMcpRegistriesCommitOnlyOneReplacementIntent(bool sameOperation)
+    {
+        string state = Directory.CreateTempSubdirectory("kicad-replacement-race-").FullName;
+        try
+        {
+            var peer = new NativeClientTests.FixtureTransport { ProjectPath = Path.Combine(state, "one.kicad_pro") };
+            var first = new InstanceRegistry(peer, state); var second = new InstanceRegistry(peer, state);
+            var previous = await first.AttachAsync(Endpoint("old"), peer.InstanceId);
+            peer.Epoch = "replacement"; Guid operation = Guid.NewGuid();
+            var attempts = await Task.WhenAll(Attempt(first, operation), Attempt(second, sameOperation ? operation : Guid.NewGuid()));
+            Assert.AreEqual(sameOperation ? 2 : 1, attempts.Count(value => value.Result is not null));
+            Assert.AreEqual(sameOperation ? 1 : 0, attempts.Count(value => value.Result?.Reused == true));
+            if (!sameOperation) Assert.AreEqual("instance_changed", attempts.Single(value => value.Error is not null).Error);
+            Assert.AreEqual(1, Directory.GetFiles(Path.Combine(state, "replacements"), "*.json").Length);
+            var saved = (await new InstanceRegistry(peer, state).SavedSessionsAsync()).Single();
+            Assert.AreEqual(peer.Epoch, saved.Epoch); Assert.AreEqual(Endpoint("new"), saved.Endpoint);
+
+            async Task<(InstanceReplacementResult? Result, string? Error)> Attempt(InstanceRegistry registry, Guid id)
+            {
+                try { return (await registry.AdoptVerifiedReplacementAsync(previous, Endpoint("new"), peer.Epoch, 42, id), null); }
+                catch (AutomationException error) { return (null, error.Code); }
+            }
+        }
+        finally { Directory.Delete(state, true); }
+    }
+
+    [TestMethod]
     public async Task InterruptedPublicationPreservesBothIdentitiesAndRetriesExactlyOnce()
     {
         string state = Directory.CreateTempSubdirectory("kicad-replacement-").FullName;

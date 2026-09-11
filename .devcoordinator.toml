@@ -80,7 +80,7 @@ env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", FORMAL_WEB_UI_SKILL_DIR = "
 [[test.landing-rendered.check]]
 name = "layout"
 tier = "development"
-command = ["devcoordinator2-tooling", "formal-ui", "verify", "--config", "/tmp/kicad-landing-formal.json", "--fail-on", "critical", "--json-out", "/mnt/build-storage/codex/kicad/evidence/landing-formal-v1/report.json", "--markdown-out", "/mnt/build-storage/codex/kicad/evidence/landing-formal-v1/report.md"]
+command = ["devcoordinator2-tooling", "formal-ui", "verify", "--config", "/tmp/kicad-landing-formal.json", "--fail-on", "critical", "--json-out", "/mnt/build-storage/codex/kicad/evidence/landing-formal-v2/report.json", "--markdown-out", "/mnt/build-storage/codex/kicad/evidence/landing-formal-v2/report.md"]
 
 # Authorized by kicad-update-signing-standing-authority on 2026-09-08.
 # Already provisioned: re-running refuses to replace either existing key file.

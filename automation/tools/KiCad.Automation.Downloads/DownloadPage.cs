@@ -6,8 +6,22 @@ using KiCad.Automation.Distribution;
 
 namespace KiCad.Automation.Downloads;
 
-public sealed class DownloadPage(DownloadCatalogue catalogue, SignedUpdateCatalogue updates)
+public sealed class DownloadPage
 {
+    private readonly DownloadCatalogue catalogue;
+    private readonly SignedUpdateCatalogue updates;
+    private readonly Dictionary<(string Platform, string Theme), string> pages = new();
+
+    public DownloadPage(DownloadCatalogue catalogue, SignedUpdateCatalogue updates)
+    {
+        this.catalogue = catalogue;
+        this.updates = updates;
+        // The verified catalogue is immutable for this deployment. Prepare the
+        // finite variants once; never cache arbitrary request keys or user data.
+        foreach (string platform in Platforms.Concat(["mac", ""]))
+            foreach (string theme in new[] { "", "light", "dark" })
+                pages.Add((platform, theme), RenderCore(platform, theme));
+    }
     private const string Repository = "https://github.com/holyglory/kicad-source-mirror";
     public static string DetectPlatform(string userAgent, string hintPlatform = "", string hintArchitecture = "")
     {
@@ -41,6 +55,11 @@ public sealed class DownloadPage(DownloadCatalogue catalogue, SignedUpdateCatalo
         if (!Platforms.Contains(selected)) selected = DetectPlatform(request.Headers.UserAgent.ToString(),
             request.Headers["Sec-CH-UA-Platform"].ToString(), request.Headers["Sec-CH-UA-Arch"].ToString());
         string theme = request.Query["theme"] is var value && value == "light" ? "light" : value == "dark" ? "dark" : "";
+        return pages[(selected, theme)];
+    }
+
+    private string RenderCore(string selected, string theme)
+    {
         var latest = Platforms.ToDictionary(x => x, Latest);
         string choice = selected == "mac" ? "<p class=chip-hint>Choose your Mac’s chip</p><div class=mac-choice>" + Button(latest["osx-arm64"], "Apple Silicon", "primary") + Button(latest["osx-x64"], "Intel", "outline") + "</div>"
             : latest.TryGetValue(selected, out var recommended) && recommended is not null

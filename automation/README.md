@@ -4,6 +4,24 @@ Development branch: `main` (the original `feature/codex-kicad-automation` branch
 `f638a860a05b3e48d1074314a656ad9b8f597466`. This is an incomplete implementation
 of the approved six-milestone program, not a release.
 
+## Linux preview — September 11, 2026
+
+[Linux application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T163551Z-dd74f7aca989-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T163551Z-dd74f7aca989-source.tar.gz)
+identify `dd74f7aca9892b4301a2a200dbc64db9fa77a578`, signed preview sequence 15.
+Extract and run `./kicad-codex`; use `./kicad-mcp` for the matching STDIO tools.
+This build adds continuous native-event intake into saved recovery state and
+typed ERC configuration capture/restore. Intake is not yet automatic design-XML
+write-back or full bidirectional synchronization.
+
+Public run `t20260911T165510Z-2f9025` verified all 60 existing/new downloads and
+the real Linux update/Save/restart journey with two designs, same-process MCP
+reconnection, matching images/state and a subsequent MCP restart. Legacy MCP
+clients receive an explicit missing-ERC coverage warning instead of unknown
+fields they cannot preserve; current clients request the complete supported
+snapshot. Native Mac/Windows and actual Codex Desktop qualification of this
+increment remain open. Older previews and platform feeds remain available.
+
 ## Windows preview — September 11, 2026
 
 [Windows x64 application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-433c5e1fdf5954955a19df546236dce78e78b5b0-windows-x64.zip)

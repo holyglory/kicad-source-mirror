@@ -80,19 +80,20 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: automation/global.json
       - name: Verify pinned ancestry
         shell: bash
         run: |
           test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
-          upstream_base=f638a860a05b3e48d1074314a656ad9b8f597466
           if [ -f automation/distribution/upstream.json ]; then
-            upstream_base=$(python3 -c 'import json; print(json.load(open("automation/distribution/upstream.json"))["commit"])')
+            dotnet run --project automation/tools/KiCad.Automation.Validation --configuration Release -- \
+              upstream-verify --repository "$GITHUB_WORKSPACE" --commit "$SOURCE_COMMIT" \
+              --output "$RUNNER_TEMP/kicad-upstream-provenance.json"
+          else
+            git merge-base --is-ancestor f638a860a05b3e48d1074314a656ad9b8f597466 HEAD
           fi
-          [[ "$upstream_base" =~ ^[0-9a-f]{40}$ ]]
-          git merge-base --is-ancestor "$upstream_base" HEAD
-      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
-        with:
-          global-json-file: automation/global.json
       - name: Check native Mac dependency relocation and failure detection
         working-directory: automation
         shell: bash

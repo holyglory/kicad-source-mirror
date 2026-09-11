@@ -80,7 +80,7 @@ env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", FORMAL_WEB_UI_SKILL_DIR = "
 [[test.landing-rendered.check]]
 name = "layout"
 tier = "development"
-command = ["devcoordinator2-tooling", "formal-ui", "verify", "--config", "/tmp/kicad-landing-formal.json", "--fail-on", "critical", "--json-out", "/mnt/build-storage/codex/kicad/evidence/landing-formal-v4/report.json", "--markdown-out", "/mnt/build-storage/codex/kicad/evidence/landing-formal-v4/report.md"]
+command = ["devcoordinator2-tooling", "formal-ui", "verify", "--config", "automation/qualification/landing-page.json", "--fail-on", "critical"]
 
 # Authorized by kicad-update-signing-standing-authority on 2026-09-08.
 # Already provisioned: re-running refuses to replace either existing key file.
@@ -132,7 +132,7 @@ retained_artifacts = [{ name = "public-caption-tests", path = "automation/artifa
 [[test.public-caption-update.check]]
 name = "landing"
 tier = "development"
-command = ["devcoordinator2-tooling", "formal-ui", "verify", "--config", "automation/qualification/landing-page.json", "--fail-on", "critical", "--json-out", "/mnt/build-storage/codex/kicad/evidence/landing-public-v1/report.json", "--markdown-out", "/mnt/build-storage/codex/kicad/evidence/landing-public-v1/report.md"]
+command = ["devcoordinator2-tooling", "formal-ui", "verify", "--config", "automation/qualification/landing-page.json", "--fail-on", "critical"]
 
 [test.preview-nine-stage]
 timeout_seconds = 600

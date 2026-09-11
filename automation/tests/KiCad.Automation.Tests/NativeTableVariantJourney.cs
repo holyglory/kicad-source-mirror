@@ -50,8 +50,12 @@ public sealed partial class NativeSessionTests
             Key("Home"); Key("Down");
             await File.WriteAllLinesAsync(Path.Combine(evidence, "table-variant-window-geometry.txt"), geometry, token);
             await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "table-variant-selection.png"), token);
-            for (int i = 0; i < tabs; i++) Key("Tab");
-            Key("space"); await Window(title, true);
+            // Native bitmap buttons do not share a portable GTK tab order.
+            // Target their measured, rendered centers in the bottom-left row.
+            NativeKeyboard.SchematicShortcut(display, processId, "click", table, controlKey: false,
+                focusCanvas: true, clickFromLeft: tabs switch { 2 => 46, 3 => 76, 4 => 106, _ => throw new ArgumentOutOfRangeException(nameof(tabs)) },
+                clickFromBottom: 20);
+            await Window(title, true);
         }
         async Task CloseTable()
         {

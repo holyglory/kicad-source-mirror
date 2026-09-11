@@ -6,6 +6,18 @@ namespace KiCad.Automation.Tests;
 public sealed class NativeKeyboardTests
 {
     [TestMethod]
+    public void RequestedLetterCaseAndPunctuationChooseTheActualKeymapLevel()
+    {
+        Assert.IsFalse(NativeKeyboard.RequiresShift('a', 'a', 'A'));
+        Assert.IsTrue(NativeKeyboard.RequiresShift('A', 'a', 'A'));
+        Assert.IsFalse(NativeKeyboard.RequiresShift('-', '-', '_'));
+        Assert.IsTrue(NativeKeyboard.RequiresShift('_', '-', '_'));
+        Assert.IsFalse(NativeKeyboard.RequiresShift(0xff0d, 0xff0d, 0xff0d)); // Return, not text case
+        Assert.ThrowsExactly<InvalidOperationException>(() => NativeKeyboard.RequiresShift('x', 'a', 'A'));
+        Assert.ThrowsExactly<InvalidOperationException>(() => NativeKeyboard.RequiresShift(0, 0, 0));
+    }
+
+    [TestMethod]
     public void OnlyMissingWindowsDuringReadOnlyEnumerationAreRecoverable()
     {
         foreach (byte request in new byte[] { 3, 14, 15, 20 })

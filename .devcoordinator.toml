@@ -1495,7 +1495,7 @@ tier = "development"
 role = "preflight"
 requires = ["managed-build"]
 invalidates = ["native-build", "native-session"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NativeEventCursorTests|FullyQualifiedName~NativeEventToolContractTests|FullyQualifiedName~McpProcessTests|FullyQualifiedName~ConnectedMoveToolTests|FullyQualifiedName~SchematicElectricalComparisonTests", "--logger", "trx", "--results-directory", "automation/artifacts/event-model-results"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NativeEventCursorTests|FullyQualifiedName~NativeEventToolContractTests|FullyQualifiedName~McpProcessTests|FullyQualifiedName~ConnectedMoveToolTests|FullyQualifiedName~SchematicElectricalComparisonTests|FullyQualifiedName~NativeKeyboardTests", "--logger", "trx", "--results-directory", "automation/artifacts/event-model-results"]
 
 [[test.native-foundation.check]]
 name = "field-fidelity-model"

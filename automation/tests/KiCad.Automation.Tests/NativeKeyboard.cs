@@ -136,22 +136,36 @@ internal static class NativeKeyboard
             XSync(display, 0);
             if (key is "click" or "right-click" or "motion") return;
             byte control = XKeysymToKeycode(display, XStringToKeysym(altKey ? "Alt_L" : "Control_L"));
-            byte character = XKeysymToKeycode(display, XStringToKeysym(key));
+            nuint requested = XStringToKeysym(key);
+            byte character = XKeysymToKeycode(display, requested);
             if (control == 0 || character == 0) throw new InvalidOperationException("Fixture keymap lacks the requested shortcut.");
+            bool shifted = RequiresShift(requested, XkbKeycodeToKeysym(display, character, 0, 0),
+                XkbKeycodeToKeysym(display, character, 0, 1));
+            byte shift = shifted ? XKeysymToKeycode(display, XStringToKeysym("Shift_L")) : (byte)0;
+            if (shifted && shift == 0) throw new InvalidOperationException("Fixture keymap lacks Shift.");
             try
             {
                 if (((controlKey || altKey) && XTestFakeKeyEvent(display, control, 1, 0) == 0)
+                    || (shifted && XTestFakeKeyEvent(display, shift, 1, 0) == 0)
                     || XTestFakeKeyEvent(display, character, 1, 0) == 0)
                     throw new InvalidOperationException("XTest rejected fixture keyboard input.");
             }
             finally
             {
                 XTestFakeKeyEvent(display, character, 0, 0);
+                if (shifted) XTestFakeKeyEvent(display, shift, 0, 0);
                 if (controlKey || altKey) XTestFakeKeyEvent(display, control, 0, 0);
                 XSync(display, 0);
             }
         }
         finally { XCloseDisplay(display); }
+    }
+
+    internal static bool RequiresShift(nuint requested, nuint plain, nuint shifted)
+    {
+        if (requested != 0 && requested == plain) return false;
+        if (requested != 0 && requested == shifted) return true;
+        throw new InvalidOperationException("Requested fixture key is not available in the unshifted or shifted keymap.");
     }
 
     internal static bool IsWindowEnumerationRace(byte error, byte request) =>
@@ -243,6 +257,7 @@ internal static class NativeKeyboard
     [DllImport("libX11.so.6")] private static extern int XSync(nint display, int discard);
     [DllImport("libX11.so.6")] private static extern nuint XStringToKeysym(string name);
     [DllImport("libX11.so.6")] private static extern byte XKeysymToKeycode(nint display, nuint keysym);
+    [DllImport("libX11.so.6")] private static extern nuint XkbKeycodeToKeysym(nint display, byte keycode, int group, int level);
     [DllImport("libXtst.so.6")] private static extern int XTestFakeKeyEvent(nint display, uint keycode, int isPress, nuint delay);
     [DllImport("libXtst.so.6")] private static extern int XTestFakeButtonEvent(nint display, uint button, int isPress, nuint delay);
     [DllImport("libXtst.so.6")] private static extern int XTestFakeMotionEvent(nint display, int screen, int x, int y, nuint delay);

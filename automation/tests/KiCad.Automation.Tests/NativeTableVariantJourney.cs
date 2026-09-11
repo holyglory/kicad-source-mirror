@@ -1,3 +1,4 @@
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using KiCad.Automation.Native;
 using KiCad.Automation.Protocol;
@@ -32,8 +33,28 @@ public sealed partial class NativeSessionTests
                 throw new InvalidOperationException($"Expected variant window '{title}' visible={visible}; see retained screenshot.");
             }
         }
-        Task<SchematicHierarchyDataSnapshot> Read() =>
-            client.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(new() { Document = root }, token);
+        async Task<SchematicHierarchyDataSnapshot> ReadReady(CancellationToken cancellation)
+        {
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            limit.CancelAfter(TimeSpan.FromSeconds(5));
+            while (true)
+            {
+                try { return await client.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(new() { Document = root }, limit.Token); }
+                catch (NativeApiException error) when (error.Status == 7) // native AS_BUSY, not arbitrary failure
+                { await Task.Delay(50, limit.Token); }
+            }
+        }
+        Task<SchematicHierarchyDataSnapshot> Read() => ReadReady(token);
+        async Task Same(IMessage expected, IMessage actual, string name)
+        {
+            bool equal = expected.Equals(actual);
+            if (!equal)
+            {
+                await File.WriteAllTextAsync(Path.Combine(evidence, name + "-expected.json"), SchematicJson.Formatter.Format(expected), token);
+                await File.WriteAllTextAsync(Path.Combine(evidence, name + "-actual.json"), SchematicJson.Formatter.Format(actual), token);
+            }
+            Assert.IsTrue(equal, "Native state differs; see retained " + name + " snapshots.");
+        }
         async Task Open(string title, int tabs)
         {
             // The full-project Tools menu has ten selectable entries between
@@ -74,7 +95,7 @@ public sealed partial class NativeSessionTests
             limit.CancelAfter(TimeSpan.FromSeconds(5));
             while (true)
             {
-                var current = await client.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(new() { Document = root }, limit.Token);
+                var current = await ReadReady(limit.Token);
                 if (!current.Revision.Equals(previous.Revision)) return current;
                 await Task.Delay(100, limit.Token);
             }
@@ -141,14 +162,14 @@ public sealed partial class NativeSessionTests
             var rejected = await Assert.ThrowsExactlyAsync<NativeApiException>(() =>
                 client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(stale, token));
             StringAssert.Contains(rejected.Message.ToLowerInvariant(), "revision");
-            Assert.AreEqual(changed, await Read());
+            await Same(changed, await Read(), $"table-variant-{tabs}-stale");
 
             var undone = await UndoRedo("z", changed);
-            Assert.AreEqual(before.Data, undone.Data, "Undo must restore every affected sheet and project variant.");
+            await Same(before.Data, undone.Data, $"table-variant-{tabs}-undo");
             var redone = await UndoRedo("y", undone);
-            Assert.AreEqual(changed.Data, redone.Data);
+            await Same(changed.Data, redone.Data, $"table-variant-{tabs}-redo");
             undone = await UndoRedo("z", redone);
-            Assert.AreEqual(before.Data, undone.Data);
+            await Same(before.Data, undone.Data, $"table-variant-{tabs}-restore");
             await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
             await File.WriteAllTextAsync(Path.Combine(evidence, $"table-variant-{tabs}-state.xml"),
                 SchematicDataXml.Write(changed.Data), token);

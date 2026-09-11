@@ -529,8 +529,9 @@ public sealed class McpProcessTests
             string launchId = Guid.NewGuid().ToString("D");
             Directory.CreateDirectory(Path.Combine(state, "launches"));
             await File.WriteAllTextAsync(Path.Combine(state, "launches", launchId + ".json"),
-                JsonSerializer.Serialize(new UnverifiedInstanceLaunch(launchId, "/fixture/interrupted.kicad_pro",
-                    $"ipc:///tmp/kicad-automation/{launchId}/api.sock", null, DateTimeOffset.UtcNow)), timeout.Token);
+                JsonSerializer.Serialize(new UnverifiedInstanceLaunch(launchId, Path.Combine(state, "interrupted.kicad_pro"),
+                    NativeIpcEndpoint.FromSocketPath(Path.Combine(NativeIpcEndpoint.RuntimeDirectory(launchId), "api.sock")),
+                    null, DateTimeOffset.UtcNow)), timeout.Token);
             var pendingLaunches = await Request(36, "tools/call", new { name = "kicad_instance_pending_launches", arguments = new { } });
             var launches = JsonSerializer.Deserialize<UnverifiedInstanceLaunch[]>(pendingLaunches.GetProperty("result")
                 .GetProperty("content")[0].GetProperty("text").GetString()!, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
@@ -543,8 +544,9 @@ public sealed class McpProcessTests
             CollectionAssert.Contains(names, "kicad_instance_saved_sessions");
             string savedId = Guid.NewGuid().ToString("D");
             await File.WriteAllTextAsync(Path.Combine(state, savedId + ".json"),
-                JsonSerializer.Serialize(new InstanceRecord(savedId, "/fixture/saved.kicad_pro",
-                    "ipc:///tmp/saved-fixture.sock", "historical-epoch", null, DateTimeOffset.UtcNow)), timeout.Token);
+                JsonSerializer.Serialize(new InstanceRecord(savedId, Path.Combine(state, "saved.kicad_pro"),
+                    NativeIpcEndpoint.FromSocketPath(Path.Combine(NativeIpcEndpoint.RuntimeDirectory(savedId), "api.sock")),
+                    "historical-epoch", null, DateTimeOffset.UtcNow)), timeout.Token);
             var savedList = await Request(38, "tools/call", new { name = "kicad_instance_saved_sessions", arguments = new { } });
             var savedViews = JsonSerializer.Deserialize<InstanceView[]>(savedList.GetProperty("result")
                 .GetProperty("content")[0].GetProperty("text").GetString()!, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;

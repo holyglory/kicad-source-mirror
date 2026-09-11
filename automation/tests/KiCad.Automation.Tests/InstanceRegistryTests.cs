@@ -33,9 +33,9 @@ public sealed class InstanceRegistryTests
         string state = Directory.CreateTempSubdirectory("kicad-launch-test-").FullName;
         try
         {
-            var transport = new NativeClientTests.FixtureTransport();
-            var launch = new UnverifiedInstanceLaunch(transport.InstanceId, "/fixture/test.kicad_pro",
-                $"ipc:///tmp/kicad-automation/{transport.InstanceId}/api.sock", 12345, DateTimeOffset.UtcNow);
+            var transport = new NativeClientTests.FixtureTransport { ProjectPath = Path.Combine(state, "test.kicad_pro") };
+            var launch = new UnverifiedInstanceLaunch(transport.InstanceId, transport.ProjectPath,
+                LaunchEndpoint(transport.InstanceId), 12345, DateTimeOffset.UtcNow);
             string receipt = await WriteLaunch(state, launch);
             var registry = new InstanceRegistry(transport, state);
             Assert.AreEqual(0, registry.List().Count);
@@ -61,10 +61,10 @@ public sealed class InstanceRegistryTests
         string state = Directory.CreateTempSubdirectory("kicad-launch-test-").FullName;
         try
         {
-            var transport = new NativeClientTests.FixtureTransport();
+            var transport = new NativeClientTests.FixtureTransport { ProjectPath = Path.Combine(state, "test.kicad_pro") };
             string id = wrongIdentity ? Guid.NewGuid().ToString("D") : transport.InstanceId;
-            var launch = new UnverifiedInstanceLaunch(id, "/other/project.kicad_pro",
-                $"ipc:///tmp/kicad-automation/{id}/api.sock", null, DateTimeOffset.UtcNow);
+            var launch = new UnverifiedInstanceLaunch(id, Path.Combine(state, "other.kicad_pro"),
+                LaunchEndpoint(id), null, DateTimeOffset.UtcNow);
             string receipt = await WriteLaunch(state, launch);
             var registry = new InstanceRegistry(transport, state);
             var error = await Assert.ThrowsExactlyAsync<AutomationException>(() => registry.ReattachAsync(id));
@@ -82,10 +82,10 @@ public sealed class InstanceRegistryTests
         string state = Directory.CreateTempSubdirectory("kicad-launch-test-").FullName;
         try
         {
-            var transport = new NativeClientTests.FixtureTransport();
+            var transport = new NativeClientTests.FixtureTransport { ProjectPath = Path.Combine(state, "test.kicad_pro") };
             string id = transport.InstanceId;
-            var launch = new UnverifiedInstanceLaunch(id, "/fixture/test.kicad_pro",
-                $"ipc:///tmp/kicad-automation/{id}/api.sock", null, DateTimeOffset.UtcNow);
+            var launch = new UnverifiedInstanceLaunch(id, transport.ProjectPath,
+                LaunchEndpoint(id), null, DateTimeOffset.UtcNow);
             await new InstanceRegistry(transport, state).AttachAsync(launch.Endpoint, id);
             string receipt = await WriteLaunch(state, launch);
             transport.Epoch = "replacement-process";
@@ -111,7 +111,7 @@ public sealed class InstanceRegistryTests
             var missing = await Assert.ThrowsExactlyAsync<AutomationException>(() => registry.ReattachAsync(id));
             Assert.AreEqual("unknown_instance", missing.Code);
             string receipt = await WriteLaunch(state, new(id, "relative.kicad_pro",
-                $"ipc:///tmp/kicad-automation/{id}/api.sock", null, DateTimeOffset.UtcNow));
+                LaunchEndpoint(id), null, DateTimeOffset.UtcNow));
             var invalid = await Assert.ThrowsExactlyAsync<AutomationException>(() => registry.ReattachAsync(id));
             Assert.AreEqual("invalid_registry", invalid.Code);
             await File.WriteAllTextAsync(receipt, "{invalid");
@@ -136,10 +136,10 @@ public sealed class InstanceRegistryTests
         string state = Directory.CreateTempSubdirectory("kicad-launch-test-").FullName;
         try
         {
-            var transport = new NativeClientTests.FixtureTransport();
+            var transport = new NativeClientTests.FixtureTransport { ProjectPath = Path.Combine(state, "test.kicad_pro") };
             string id = transport.InstanceId;
-            await WriteLaunch(state, new(id, "/fixture/test.kicad_pro",
-                $"ipc:///tmp/kicad-automation/{id}/api.sock", null, DateTimeOffset.UtcNow));
+            await WriteLaunch(state, new(id, transport.ProjectPath,
+                LaunchEndpoint(id), null, DateTimeOffset.UtcNow));
             await File.WriteAllTextAsync(Path.Combine(state, id + ".json"), "{}");
             var registry = new InstanceRegistry(transport, state);
             var error = await Assert.ThrowsExactlyAsync<AutomationException>(() => registry.ReattachAsync(id));
@@ -158,9 +158,9 @@ public sealed class InstanceRegistryTests
         string state = Directory.CreateTempSubdirectory("kicad-registry-test-").FullName;
         try
         {
-            var transport = new NativeClientTests.FixtureTransport();
+            var transport = new NativeClientTests.FixtureTransport { ProjectPath = Path.Combine(state, "test.kicad_pro") };
             var first = new InstanceRegistry(transport, state);
-            await first.AttachAsync("ipc:///tmp/registry-fixture.sock", transport.InstanceId);
+            await first.AttachAsync(LaunchEndpoint(transport.InstanceId), transport.InstanceId);
             Assert.AreSame(first.Client(transport.InstanceId), first.Client(transport.InstanceId));
             var second = new InstanceRegistry(transport, state);
             Assert.AreEqual(0, second.List().Count);
@@ -193,4 +193,7 @@ public sealed class InstanceRegistryTests
         }
         finally { Directory.Delete(state, true); }
     }
+
+    private static string LaunchEndpoint(string id) => NativeIpcEndpoint.FromSocketPath(
+        Path.Combine(NativeIpcEndpoint.RuntimeDirectory(id), "api.sock"));
 }

@@ -29,7 +29,7 @@ command = ["dotnet", "automation/artifacts/download-host/kicad-downloads.dll"]
 port = true
 route = true
 health = { path = "/healthz", timeout_seconds = 300 }
-env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/windows-79-signed-000003", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
+env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/windows-d65-signed-000004", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
 
 [test]
 default = "automation"
@@ -107,7 +107,7 @@ command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net
 
 [test.public-caption-update]
 timeout_seconds = 900
-env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_CAPTION_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260911T052623Z-7b22b31c2c74", KICAD_CAPTION_CANDIDATE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260911T163551Z-dd74f7aca989", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/windows-79-signed-000003", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/mnt/build-storage/codex/kicad/worktrees/delivery-next.HAjDme/automation/artifacts/public-download-evidence", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki", KICAD_CAPTION_INSTALLED_ENVELOPE = "/mnt/build-storage/codex/kicad/public-candidates/windows-pair-0d4-433-verified/updates/preview.json" }
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_CAPTION_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260911T052623Z-7b22b31c2c74", KICAD_CAPTION_CANDIDATE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260911T163551Z-dd74f7aca989", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/windows-d65-signed-000004", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/mnt/build-storage/codex/kicad/worktrees/windows-d65-publish.6kyqCu/automation/artifacts/public-download-evidence", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki", KICAD_CAPTION_INSTALLED_ENVELOPE = "/mnt/build-storage/codex/kicad/public-candidates/windows-pair-0d4-433-verified/updates/preview.json" }
 
 [[test.public-caption-update.check]]
 name = "build"
@@ -132,7 +132,7 @@ retained_artifacts = [{ name = "public-caption-tests", path = "automation/artifa
 [[test.public-caption-update.check]]
 name = "landing"
 tier = "development"
-command = ["devcoordinator2-tooling", "formal-ui", "verify", "--config", "automation/qualification/landing-page.json", "--review-against", "/mnt/build-storage/codex/kicad/evidence/preview15-visual-review/manual-review.json", "--fail-on", "critical"]
+command = ["devcoordinator2-tooling", "formal-ui", "verify", "--config", "automation/qualification/landing-page.json", "--review-against", "/mnt/build-storage/codex/kicad/evidence/windows79-page-review/manual-review.json", "--fail-on", "critical"]
 
 [test.preview-nine-stage]
 timeout_seconds = 600

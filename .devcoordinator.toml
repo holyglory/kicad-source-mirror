@@ -29,7 +29,7 @@ command = ["dotnet", "automation/artifacts/download-host/kicad-downloads.dll"]
 port = true
 route = true
 health = { path = "/healthz", timeout_seconds = 60 }
-env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/windows-pair-0d4-433", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
+env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/windows-pair-0d4-433-verified", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
 
 [test]
 default = "automation"
@@ -59,7 +59,7 @@ command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net
 
 [test.public-caption-update]
 timeout_seconds = 900
-env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_CAPTION_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260911T043346Z-8776ebe319af", KICAD_CAPTION_CANDIDATE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260911T052623Z-7b22b31c2c74", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/windows-pair-0d4-433", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/home/holyglory/kicad/automation/artifacts/public-download-evidence", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki", KICAD_CAPTION_INSTALLED_ENVELOPE = "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000012/updates/preview.json" }
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_CAPTION_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260911T043346Z-8776ebe319af", KICAD_CAPTION_CANDIDATE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/20260911T052623Z-7b22b31c2c74", KICAD_PUBLIC_DOWNLOAD_URL = "https://kicad.vr.ae/", KICAD_PACKAGE_CATALOGUE = "/mnt/build-storage/codex/kicad/public-candidates/windows-pair-0d4-433-verified", KICAD_PUBLIC_DOWNLOAD_EVIDENCE = "/home/holyglory/kicad/automation/artifacts/public-download-evidence", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki", KICAD_CAPTION_INSTALLED_ENVELOPE = "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000012/updates/preview.json" }
 
 [[test.public-caption-update.check]]
 name = "build"

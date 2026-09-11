@@ -27,7 +27,7 @@ on:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
         default: all
-        options: [all, package-staging, handoff, caption, harness, registry, json-link, instance-errors, installed-diagnostic, integrated-update, integrated-mcp-update]
+        options: [all, package-staging, handoff, caption, harness, registry, json-link, instance-errors, installed-diagnostic, public-feed, integrated-update, integrated-mcp-update]
       mac_update_baseline_commit:
         description: With integrated-update, exact baseline commit with a retained signed envelope for each selected Mac architecture
         type: string
@@ -41,7 +41,7 @@ on:
         description: With integrated-update, exact different candidate commit in the public Windows feed
         type: string
       windows_retained_package:
-        description: With installed-diagnostic, frozen build run/attempt/source commit/archive SHA-256
+        description: With installed-diagnostic or public-feed, frozen build run/attempt/source commit/archive SHA-256
         type: string
         default: '34555975985/1/433c5e1fdf5954955a19df546236dce78e78b5b0/cd5381d6ebe716c7a63990a0bf3930fec0200a66f6f284e0433f1ea1e8c6dcc6'
 
@@ -300,6 +300,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows delivery preflight failed.' }
           $split = Test-Path 'tools/KiCad.Automation.Validation/HostedWindowsCheckpoint.cs'
           "split=$($split.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - name: Check the installed Windows helper against its real public feed
+        if: inputs.windows_fixture == 'public-feed'
+        timeout-minutes: 20
+        working-directory: automation
+        shell: pwsh
+        run: |
+          if ($env:CHECKS_ONLY -ne 'true') { throw 'Public feed verification is checks-only.' }
+          $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
+          $env:KICAD_WINDOWS_PUBLIC_PUBLISHER = "$env:GITHUB_WORKSPACE/automation/distribution/preview-publisher.spki"
+          dotnet test KiCad.Automation.slnx --configuration Release `
+            --filter 'TestCategory=NativeWindowsPublicFeed' --logger trx `
+            --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight/public-feed"
+          if ($LASTEXITCODE -ne 0) { throw 'The installed Windows helper did not verify its public feed.' }
       - name: Operate the retained corrected Windows application without a rebuild
         if: inputs.windows_fixture == 'installed-diagnostic'
         timeout-minutes: 30

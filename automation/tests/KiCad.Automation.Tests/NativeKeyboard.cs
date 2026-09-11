@@ -128,12 +128,13 @@ internal static class NativeKeyboard
                 XTestFakeMotionEvent(display, -1, pointerX, pointerY, 0);
                 if (key != "motion")
                 {
-                    XTestFakeButtonEvent(display, 1, 1, 0);
-                    XTestFakeButtonEvent(display, 1, 0, 0);
+                    uint button = key == "right-click" ? 3U : 1U;
+                    XTestFakeButtonEvent(display, button, 1, 0);
+                    XTestFakeButtonEvent(display, button, 0, 0);
                 }
             }
             XSync(display, 0);
-            if (key is "click" or "motion") return;
+            if (key is "click" or "right-click" or "motion") return;
             byte control = XKeysymToKeycode(display, XStringToKeysym(altKey ? "Alt_L" : "Control_L"));
             byte character = XKeysymToKeycode(display, XStringToKeysym(key));
             if (control == 0 || character == 0) throw new InvalidOperationException("Fixture keymap lacks the requested shortcut.");

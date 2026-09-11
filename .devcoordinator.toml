@@ -1263,6 +1263,23 @@ name = "native-objects"
 tier = "development"
 command = ["cmake", "--build", "automation/artifacts/native", "--target", "kiapi", "common/CMakeFiles/kicommon.dir/api/api_server.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad_manager_frame.cpp.o"]
 
+[test.native-erc-dialog]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_ERC_NATIVE_EXECUTABLE = "/home/holyglory/kicad/automation/artifacts/native/kicad/kicad" }
+
+[[test.native-erc-dialog.check]]
+name = "managed-build"
+tier = "development"
+role = "preflight"
+invalidates = ["dialog-observation"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.native-erc-dialog.check]]
+name = "dialog-observation"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeErcDialog", "--logger", "trx", "--results-directory", "automation/artifacts/native-erc-dialog"]
+retained_artifacts = [{ name = "native-erc-dialog", path = "automation/artifacts/native-erc-dialog", max_bytes = 33554432 }]
+
 [test.native-erc-overrides]
 timeout_seconds = 3600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

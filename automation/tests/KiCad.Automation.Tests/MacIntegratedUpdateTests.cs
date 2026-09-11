@@ -246,9 +246,11 @@ public sealed class MacIntegratedUpdateTests
                 await ui.SelectMenuAsync(identity, manager, "Tools", "PCB Editor", token);
                 using var ready = CancellationTokenSource.CreateLinkedTokenSource(token);
                 ready.CancelAfter(TimeSpan.FromSeconds(60));
+                string expectedBoard = Path.GetFileName(Path.ChangeExtension(project, ".kicad_pcb"));
                 GetOpenDocumentsResponse? boards = null;
                 int delay = 50;
-                while (boards is null || boards.Documents.Count == 0)
+                bool LoadedTarget() => boards?.Documents.Count == 1 && boards.Documents[0].BoardFilename == expectedBoard;
+                while (!LoadedTarget())
                 {
                     Assert.AreEqual(identity, MacProcessIdentity.Read(identity.ProcessId));
                     try { boards = await client.InvokeAsync<GetOpenDocuments, GetOpenDocumentsResponse>(new() { Type = (DocumentType)3 }, ready.Token); }
@@ -256,11 +258,11 @@ public sealed class MacIntegratedUpdateTests
                     // event loop. Until its handler registers, AS_UNHANDLED is
                     // a startup state, not a completed PCB observation.
                     catch (NativeApiException error) when (error.Status is 4 or 5 or 7) { }
-                    if (boards is null || boards.Documents.Count == 0)
+                    if (!LoadedTarget())
                     { await Task.Delay(delay, ready.Token); delay = Math.Min(delay * 2, 1000); }
                 }
-                var board = boards.Documents.Single();
-                Assert.AreEqual(Path.GetFileName(Path.ChangeExtension(project, ".kicad_pcb")), board.BoardFilename);
+                var board = boards!.Documents.Single();
+                Assert.AreEqual(expectedBoard, board.BoardFilename);
                 Assert.AreEqual(Path.GetDirectoryName(project), Path.TrimEndingDirectorySeparator(board.Project.Path));
                 var sheets = await client.InvokeAsync<GetOpenDocuments, GetOpenDocumentsResponse>(new() { Type = (DocumentType)1 }, ready.Token);
                 Assert.AreEqual(1, sheets.Documents.Count, "The schematic editor must remain open in the same native instance.");

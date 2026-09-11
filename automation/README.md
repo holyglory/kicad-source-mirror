@@ -4,7 +4,28 @@ Implementation branch: `feature/codex-kicad-automation`, based on
 `f638a860a05b3e48d1074314a656ad9b8f597466`. This is an incomplete implementation
 of the approved six-milestone program, not a release.
 
-## Latest preliminary Mac builds — September 11, 2026
+## Latest Apple Silicon preview — September 11, 2026
+
+[Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-670961b39bb12d162b71f38e36ce0755653e92db-macos-arm64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-670961b39bb12d162b71f38e36ce0755653e92db-source.tar.gz)
+identify `670961b39bb12d162b71f38e36ce0755653e92db`, version
+`preview-20260911-670961b39bb1`. Extract and open `install/KiCad.app`; the
+companion STDIO entry is `kicad-mcp`. macOS 15.7+ is required; this is ad-hoc
+signed, not notarized. Managed updating uses the verified installer described below.
+
+Native build `34546456670` passed for Apple Silicon. Signed staging `5ad528`
+and public `be8fc2` passed; generation 26 serves ARM feed 6 while retaining
+Linux feed 11 and Intel feed 4. All 44 downloads were checked. Native journey
+`34556263479` verified the actual public `98c458670f26` to `670961b39bb1`
+Update/Cancel/Save path, two preserved designs and manager/schematic/PCB modules.
+
+This build contains verified native-session origin and MCP reconnection support.
+The preceding build lacks that origin, so this update journey is not proof of
+post-update MCP adoption on Mac. The next origin-aware pair remains under native
+verification. Intel's latest published build is still `98c458670f26` below.
+Windows delivery and full engineering/Codex Desktop qualification remain open.
+
+### Previous paired Mac checkpoint — September 11, 2026
 
 [Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-98c458670f26dd7da6a2cf55aea1077ffb744f49-macos-arm64.tar.gz),
 [Intel application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-98c458670f26dd7da6a2cf55aea1077ffb744f49-macos-x64.tar.gz),

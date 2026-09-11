@@ -14,14 +14,15 @@ public static class DownloadServer
         var app = builder.Build();
         updates ??= SignedUpdateCatalogue.Empty;
         var landing = new DownloadPage(catalogue, updates);
-        app.MapGet("/healthz", () => Results.Ok(new { status = "ok", artifacts = catalogue.Files.Count }));
+        byte[] health = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { status = "ok", artifacts = catalogue.Files.Count });
+        app.MapGet("/healthz", () => Results.Bytes(health, "application/json"));
         app.MapMethods("/", ["GET", "HEAD"], (HttpContext context) =>
         {
             // Older machine callers did not request HTML; preserve their contract.
             context.Response.Headers.Vary = "Accept, User-Agent, Sec-CH-UA-Platform, Sec-CH-UA-Arch";
             context.Response.Headers.CacheControl = "no-cache";
             return context.Request.GetTypedHeaders().Accept?.Any(x => x.MediaType == "text/html" && (x.Quality ?? 1) > 0) == true
-                ? Results.Content(landing.Render(context.Request), "text/html; charset=utf-8")
+                ? Results.Bytes(landing.Render(context.Request), "text/html; charset=utf-8")
                 : Results.Json(catalogue.Manifest, DownloadCatalogue.JsonOptions);
         });
         app.MapMethods("/site/{name}", ["GET", "HEAD"], (string name) => DownloadPage.Asset(name));

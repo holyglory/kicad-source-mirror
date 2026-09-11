@@ -10,7 +10,7 @@ public sealed class DownloadPage
 {
     private readonly DownloadCatalogue catalogue;
     private readonly SignedUpdateCatalogue updates;
-    private readonly Dictionary<(string Platform, string Theme), string> pages = new();
+    private readonly Dictionary<(string Platform, string Theme), byte[]> pages = new();
 
     public DownloadPage(DownloadCatalogue catalogue, SignedUpdateCatalogue updates)
     {
@@ -20,7 +20,7 @@ public sealed class DownloadPage
         // finite variants once; never cache arbitrary request keys or user data.
         foreach (string platform in Platforms.Concat(["mac", ""]))
             foreach (string theme in new[] { "", "light", "dark" })
-                pages.Add((platform, theme), RenderCore(platform, theme));
+                pages.Add((platform, theme), System.Text.Encoding.UTF8.GetBytes(RenderCore(platform, theme)));
     }
     private const string Repository = "https://github.com/holyglory/kicad-source-mirror";
     public static string DetectPlatform(string userAgent, string hintPlatform = "", string hintArchitecture = "")
@@ -49,7 +49,7 @@ public sealed class DownloadPage
             .OrderByDescending(x => x.Version, StringComparer.Ordinal).ThenBy(x => x.FileName, StringComparer.Ordinal).FirstOrDefault();
     }
 
-    public string Render(HttpRequest request)
+    public byte[] Render(HttpRequest request)
     {
         string selected = request.Query["platform"].ToString();
         if (!Platforms.Contains(selected)) selected = DetectPlatform(request.Headers.UserAgent.ToString(),

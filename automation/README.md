@@ -4,7 +4,32 @@ Implementation branch: `feature/codex-kicad-automation`, based on
 `f638a860a05b3e48d1074314a656ad9b8f597466`. This is an incomplete implementation
 of the approved six-milestone program, not a release.
 
-## Latest preliminary Mac builds — September 10, 2026
+## Latest preliminary Mac builds — September 11, 2026
+
+[Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-98c458670f26dd7da6a2cf55aea1077ffb744f49-macos-arm64.tar.gz),
+[Intel application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-98c458670f26dd7da6a2cf55aea1077ffb744f49-macos-x64.tar.gz),
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-98c458670f26dd7da6a2cf55aea1077ffb744f49-source.tar.gz)
+identify `98c458670f26dd7da6a2cf55aea1077ffb744f49`, version
+`preview-20260910-98c458670f26`. Extract and open `install/KiCad.app`; the
+companion STDIO executable is `kicad-mcp`. macOS 15.7+ is required. These builds
+are ad-hoc signed, not notarized.
+
+Both native builds passed `34530295753`. Public check `9dcab8` verified all 38
+downloads and signed feeds on September 11 at 00:17–00:18 UTC. Generation 23
+serves Apple Silicon sequence 5 and Intel sequence 4, preserving Linux sequence
+9 and all prior downloads. The source contains the concurrent-preparation,
+caption-visibility and shared callback-class fixes described below.
+
+The fixed `2149b1d48295d00ee97a48295b285a064dba9a18` baseline remains available
+for [Apple Silicon](https://kicad.vr.ae/artifacts/kicad-codex-2149b1d48295d00ee97a48295b285a064dba9a18-macos-arm64.tar.gz)
+and [Intel](https://kicad.vr.ae/artifacts/kicad-codex-2149b1d48295d00ee97a48295b285a064dba9a18-macos-x64.tar.gz).
+The first fixed-pair UI run (`34546066845`) failed before clicking Update:
+preparation and visible-window readiness need separate verification. The native
+journey is being repaired without changing these frozen package bytes. These
+downloads are not full updater, Codex Desktop or engineering qualification.
+They also predate the newer verified-origin MCP reconnection code.
+
+### Earlier Mac checkpoint — September 10, 2026
 
 [Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-cd4934ad7bcb28c50d35586e6d022bda0d2ffee8-macos-arm64.tar.gz),
 [Intel application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-cd4934ad7bcb28c50d35586e6d022bda0d2ffee8-macos-x64.tar.gz),
@@ -38,8 +63,8 @@ and one runtime callback class with independent per-window callbacks. These fixe
 are not present in the published `969193`/`cd4934` pair. A fixed package pair and
 the real two-project journey remain required; the concrete gaps are tracked as
 `p90e20f6eae915471`, `p75f1ac017c017371`, and `p2e0d3607542a597b`.
-Full fixed-baseline Apple Silicon build `34523682888` and Intel build
-`34524407792` at `2149b1d482` are running. That source also refreshes a background
+Fixed-baseline Apple Silicon build `34523682888` and Intel build
+`34524407792` at `2149b1d482` subsequently passed and are retained above. That source also refreshes a background
 registration's internal selection snapshot after download; user activation and
 native document stale checks are not relaxed.
 
@@ -501,6 +526,24 @@ verified records also pin the process epoch. The Linux native journey cancels
 before the first handshake, confirms the process survives and recovers it from
 a fresh registry. Linux startup defaults to native software rendering; it still
 requires an available graphical display. Native Mac validation remains pending.
+
+After a verified application update, `kicad_instance_reconnect_after_update`
+accepts `instanceId`, `installationRoot`, `operationId` and `expectedOldEpoch`.
+It uses the private handoff's original native-session proof and verified live
+replacement, then atomically replaces the saved connection and its pinned
+client. Reusing the same operation is safe after a lost reply or MCP restart.
+Ordinary attach/reattach cannot overwrite a saved different epoch. Legacy
+handoffs without verified origin metadata are not guessed into a new binding.
+
+The result supplies the new process and event epochs and requires fresh native
+document snapshots before more edits or resumed event consumption. Linux native
+journey `3b3475` verifies this through the actual STDIO MCP server after a real
+KiCad restart, preserving a schematic object's text and UUID, observing a new
+document epoch, rejecting old event cursors and repeating from a new MCP process.
+That fixture uses isolated release metadata; it is not a full cross-platform
+update or automatic XML synchronization claim. Native registry contracts passed
+on Windows and both Mac architectures; their full application-update/MCP
+reconnection journeys remain open.
 
 `kicad_schematic_save_state` reads native schematic save flags and the modified
 sheet-instance paths without changing the visible sheet. It checks loaded

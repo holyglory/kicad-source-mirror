@@ -166,7 +166,8 @@ public:
 
     SEVERITY GetSeverity( int aErrorCode ) const;
 
-    void SetSeverity( int aErrorCode, SEVERITY aSeverity );
+    // Return true only when the stored override changes.
+    bool SetSeverity( int aErrorCode, SEVERITY aSeverity );
 
     void ResetPinMap();
 
@@ -300,8 +301,9 @@ public:
      *
      * @param aExcluded true to exclude the marker, false to restore it.
      * @param aComment optional exclusion comment.
+     * @return true when the exclusion flag or comment changes.
      */
-    void SetMarkerExcluded( SCH_MARKER* aMarker, bool aExcluded,
+    bool SetMarkerExcluded( SCH_MARKER* aMarker, bool aExcluded,
                             const wxString& aComment = wxEmptyString );
 
 private:

@@ -56,12 +56,12 @@ wxDEFINE_EVENT( EDA_EVT_CLOSE_ERC_DIALOG, wxCommandEvent );
 
 
 // Route marker exclusion through the provider so its cached severity counts stay in sync.
-static void setMarkerExcluded( const std::shared_ptr<RC_ITEMS_PROVIDER>& aProvider,
+static bool setMarkerExcluded( const std::shared_ptr<RC_ITEMS_PROVIDER>& aProvider,
                                SCH_MARKER* aMarker, bool aExcluded,
                                const wxString& aComment = wxEmptyString )
 {
-    static_cast<SHEETLIST_ERC_ITEMS_PROVIDER&>( *aProvider ).SetMarkerExcluded( aMarker, aExcluded,
-                                                                                aComment );
+    return static_cast<SHEETLIST_ERC_ITEMS_PROVIDER&>( *aProvider ).SetMarkerExcluded(
+            aMarker, aExcluded, aComment );
 }
 
 
@@ -832,11 +832,10 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
             if( dlg.ShowModal() == wxID_CANCEL )
                 break;
 
-            setMarkerExcluded( m_markerProvider, marker, true, dlg.GetValue() );
+            modified = setMarkerExcluded( m_markerProvider, marker, true, dlg.GetValue() );
 
             // Update view
             static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->ValueChanged( node );
-            modified = true;
         }
 
         break;
@@ -844,7 +843,7 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
     case ID_REMOVE_EXCLUSION:
         if( SCH_MARKER* marker = dynamic_cast<SCH_MARKER*>( node->m_RcItem->GetParent() ) )
         {
-            setMarkerExcluded( m_markerProvider, marker, false );
+            modified = setMarkerExcluded( m_markerProvider, marker, false );
             m_parent->GetCanvas()->GetView()->Update( marker );
 
             // The restored severity may fall outside the current filter, so re-filter when it no
@@ -854,8 +853,6 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
             else
                 static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markerProvider,
                                                                           getSeverities() );
-
-            modified = true;
         }
 
         break;
@@ -876,7 +873,7 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
                 comment = dlg.GetValue();
             }
 
-            setMarkerExcluded( m_markerProvider, marker, true, comment );
+            modified = setMarkerExcluded( m_markerProvider, marker, true, comment );
 
             m_parent->GetCanvas()->GetView()->Update( marker );
 
@@ -887,8 +884,6 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
             else
                 static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markerProvider,
                                                                           getSeverities() );
-
-            modified = true;
         }
 
         break;
@@ -902,7 +897,10 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
         break;
 
     case ID_SET_SEVERITY_TO_ERROR:
-        settings.SetSeverity( rcItem->GetErrorCode(), RPT_SEVERITY_ERROR );
+        modified = settings.SetSeverity( rcItem->GetErrorCode(), RPT_SEVERITY_ERROR );
+
+        if( !modified )
+            break;
 
         for( SCH_ITEM* item : m_parent->GetScreen()->Items().OfType( SCH_MARKER_T ) )
         {
@@ -914,11 +912,13 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
 
         // Rebuild model and view
         static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markerProvider, getSeverities() );
-        modified = true;
         break;
 
     case ID_SET_SEVERITY_TO_WARNING:
-        settings.SetSeverity( rcItem->GetErrorCode(), RPT_SEVERITY_WARNING );
+        modified = settings.SetSeverity( rcItem->GetErrorCode(), RPT_SEVERITY_WARNING );
+
+        if( !modified )
+            break;
 
         for( SCH_ITEM* item : m_parent->GetScreen()->Items().OfType( SCH_MARKER_T ) )
         {
@@ -930,15 +930,17 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
 
         // Rebuild model and view
         static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markerProvider, getSeverities() );
-        modified = true;
         break;
 
     case ID_SET_SEVERITY_TO_IGNORE:
     {
-        settings.SetSeverity( rcItem->GetErrorCode(), RPT_SEVERITY_IGNORE );
+        modified = settings.SetSeverity( rcItem->GetErrorCode(), RPT_SEVERITY_IGNORE );
 
         if( rcItem->GetErrorCode() == ERCE_PIN_TO_PIN_ERROR )
-            settings.SetSeverity( ERCE_PIN_TO_PIN_WARNING, RPT_SEVERITY_IGNORE );
+            modified |= settings.SetSeverity( ERCE_PIN_TO_PIN_WARNING, RPT_SEVERITY_IGNORE );
+
+        if( !modified )
+            break;
 
         wxListItem listItem;
         listItem.SetId( m_ignoredList->GetItemCount() );
@@ -956,7 +958,6 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
 
         // Rebuild model and view
         static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markerProvider, getSeverities() );
-        modified = true;
         break;
     }
 
@@ -978,6 +979,8 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
         updateDisplayedCounts();
         redrawDrawPanel();
         m_parent->OnModify();
+        m_parent->Schematic().RecordCommittedChange( DOCUMENT_CHANGE_JOURNAL::KIND::COMMIT,
+                                                    "Edit ERC overrides" );
     }
 }
 
@@ -1005,6 +1008,8 @@ void DIALOG_ERC::OnIgnoredItemRClick( wxListEvent& event )
             updateDisplayedCounts();
             redrawDrawPanel();
             m_parent->OnModify();
+            m_parent->Schematic().RecordCommittedChange( DOCUMENT_CHANGE_JOURNAL::KIND::COMMIT,
+                                                        "Edit ERC overrides" );
         }
     }
 }
@@ -1098,6 +1103,8 @@ void DIALOG_ERC::ExcludeMarker( SCH_MARKER* aMarker )
     updateDisplayedCounts();
     redrawDrawPanel();
     m_parent->OnModify();
+    m_parent->Schematic().RecordCommittedChange( DOCUMENT_CHANGE_JOURNAL::KIND::COMMIT,
+                                                "Edit ERC overrides" );
 }
 
 

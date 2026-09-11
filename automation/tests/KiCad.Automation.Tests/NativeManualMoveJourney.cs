@@ -31,7 +31,33 @@ public sealed partial class NativeSessionTests
 
         var before = await Snapshot(token);
         var netsBefore = await Nets();
-        var model = ProbeElectricalModel(await client.InvokeAsync<ReadSchematicElectricalState, SchematicElectricalState>(new() { Document = document }, token));
+        var electricalBefore = await client.InvokeAsync<ReadSchematicElectricalState, SchematicElectricalState>(new() { Document = document }, token);
+        var model = ProbeElectricalModel(electricalBefore);
+        var recovery = new DesignRecoveryStore(Path.Combine(evidence, instanceId + "-manual-electrical-recovery.json"));
+        var recoveryState = recovery.Save(new(Guid.NewGuid(), Guid.Parse(instanceId),
+            new(electricalBefore.Hierarchy.Revision.Epoch, electricalBefore.Hierarchy.Revision.Sequence), electricalBefore.Hierarchy.TrackingComplete,
+            model, [0xff], electricalBefore.Hierarchy.Data.Clone(), []), null);
+        var initialized = await DesignRecoveryInspector.InitializeElectricalBaselineAsync(recovery, client, recoveryState.RevisionToken, token);
+        await using var intake = await DesignNativeIntakeSession.CreateAsync(recovery, client, token);
+        ulong intakeSequence = 0;
+        // Attach the event stream before moving, so the first stream-recovery
+        // capture is not deliberately raced against an uncommitted GUI edit.
+        DesignNativeIntakeStatus attached;
+        do
+        {
+            attached = await intake.WaitAsync(intakeSequence, token); intakeSequence = attached.Sequence;
+            Assert.AreEqual(DesignNativeIntakePhase.Watching, attached.Phase, attached.ErrorMessage);
+        } while (attached.Observation?.Delivery is null);
+        async Task ObserveSaved(ulong revision)
+        {
+            while (recovery.Read()!.State.NativeRevision.Sequence < revision)
+            {
+                var status = await intake.WaitAsync(intakeSequence, token); intakeSequence = status.Sequence;
+                Assert.AreEqual(DesignNativeIntakePhase.Watching, status.Phase, status.ErrorMessage);
+            }
+            Assert.AreEqual(initialized.State.BaselineElectrical, recovery.Read()!.State.BaselineElectrical);
+            CollectionAssert.AreEqual(new byte[] { 0xff }, recovery.Read()!.State.DesiredFileBytes);
+        }
         Assert.AreEqual(NetOf(netsBefore, fixture.PinA), NetOf(netsBefore, fixture.PinB));
         var select = new AddToSelection { Header = header };
         select.Items.Add(new KIID { Value = fixture.Symbol });
@@ -89,6 +115,8 @@ public sealed partial class NativeSessionTests
                 n.Sheets.SelectMany(s => s.Items).Any(id => id.Value == fixture.PinA)
                 && n.Sheets.SelectMany(s => s.Items).Any(id => id.Value == fixture.PinB));
             Assert.IsFalse(Connected(electrical), "The same-revision electrical read must include the real manual disconnection.");
+            await ObserveSaved(electrical.Hierarchy.Revision.Sequence);
+            Assert.AreEqual(electrical, recovery.Read()!.State.ObservedElectrical);
             var difference = SchematicElectricalComparison.Compare(model, electrical, []);
             Assert.IsTrue(difference.PinBindingsComplete, string.Join(',', difference.Issues.Select(i => i.Code)));
             Assert.IsFalse(difference.ConnectivityEquivalent);
@@ -125,6 +153,8 @@ public sealed partial class NativeSessionTests
                 { Document = document, ExpectedRevision = restored.Revision }, token);
             Assert.AreEqual(restored.Revision, restoredElectrical.Hierarchy.Revision);
             Assert.IsTrue(Connected(restoredElectrical));
+            await ObserveSaved(restoredElectrical.Hierarchy.Revision.Sequence);
+            Assert.AreEqual(restoredElectrical, recovery.Read()!.State.ObservedElectrical);
             Assert.IsTrue(SchematicElectricalComparison.Compare(model, restoredElectrical, []).ConnectivityEquivalent);
         }
         catch

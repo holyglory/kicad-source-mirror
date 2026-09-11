@@ -277,7 +277,12 @@ public sealed class DesignRecoveryNativeObserverTests
         public Fixture(string root)
         {
             RecoveryPath = Path.Combine(root, "recovery.json");
-            Store = new(RecoveryPath); Saved = Store.Save(DesignRecoveryStoreTests.Fixture(), null);
+            Store = new(RecoveryPath);
+            var state = DesignRecoveryStoreTests.Fixture();
+            state = state with { ObservedElectrical = new() { Hierarchy = new()
+            { Data = state.Observed.Clone(), Revision = new() { Epoch = state.NativeRevision.Epoch, Sequence = state.NativeRevision.Sequence },
+                TrackingComplete = state.TrackingComplete } } };
+            Saved = Store.Save(state, null);
             Transport = new(Saved.State); Source = new(Transport.Session);
             Transport.Source = Source;
         }
@@ -334,10 +339,12 @@ public sealed class DesignRecoveryNativeObserverTests
             var message = ApiRequest.Parser.ParseFrom(request).Message;
             IMessage response;
             if (message.Is(GetAutomationSession.Descriptor)) response = Session.Clone();
-            else if (message.Is(ReadSchematicHierarchyData.Descriptor))
+            else if (message.Is(ReadSchematicHierarchyData.Descriptor) || message.Is(ReadSchematicElectricalState.Descriptor))
             {
                 Assert.IsTrue(Source!.Subscribed, "Subscribe before capturing the initial native state.");
-                ++Snapshots; BeforeSnapshot?.Invoke(); response = Snapshot.Clone();
+                ++Snapshots; BeforeSnapshot?.Invoke();
+                response = message.Is(ReadSchematicElectricalState.Descriptor)
+                    ? new SchematicElectricalState { Hierarchy = Snapshot.Clone() } : Snapshot.Clone();
             }
             else { ++Mutations; throw new AssertFailedException("Native intake must not dispatch mutations."); }
             return Task.FromResult(new ApiResponse { Header = new() { KicadToken = "process-epoch" },

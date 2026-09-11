@@ -66,6 +66,8 @@ public sealed class RecoveryTools
             snapshotToken = DesignRecoveryStore.HierarchySnapshotToken(saved.State),
             savedNativeRevision = saved.State.NativeRevision, trackingComplete = saved.State.TrackingComplete,
             pendingOperationId = saved.State.PendingMutation?.OperationId,
+            electricalBaselineAvailable = saved.State.BaselineElectrical is not null,
+            electricalObservationAvailable = saved.State.ObservedElectrical is not null,
             liveMutationAuthorized = false, canPlan = plan.CanApply,
             choices = saved.State.HierarchyResolution?.Choices.ToDictionary(p => p.Key, p => p.Value.ToString().ToLowerInvariant()),
             mergedXml = plan.Merged is null ? null : SchematicDataXml.Write(plan.Merged),

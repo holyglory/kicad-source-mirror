@@ -16,7 +16,7 @@ public sealed record DesignRecoveryInspection(string RevisionToken, DesignRecove
     SchematicOperationReceipt? Receipt);
 
 public sealed record DesignRecoveryObservation(DesignRecoveryInspection Inspection,
-    SchematicHierarchyDataSnapshot Snapshot);
+    SchematicHierarchyDataSnapshot Snapshot, SchematicElectricalState? Electrical = null);
 
 /// <summary>Inspect the saved operation only. Never submit, clear a pending edit,
 /// replace the desired file, or advance the synchronized baseline.</summary>
@@ -27,7 +27,7 @@ public static class DesignRecoveryInspector
     /// cannot silently drop it or overwrite the revision required for an identical retry.</summary>
     public static async Task<StoredDesignRecovery> RefreshAsync(DesignRecoveryStore store,
         NativeClient client, string expectedRevisionToken, CancellationToken cancellationToken = default,
-        KiCad.Automation.Model.DocumentRevision? minimumRevision = null)
+        KiCad.Automation.Model.DocumentRevision? minimumRevision = null, bool includeElectrical = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var saved = store.Read();
@@ -36,7 +36,7 @@ public static class DesignRecoveryInspector
         if (saved.State.PendingMutation is not null)
             throw new AutomationException("pending_recovery_requires_reconciliation",
                 "Inspect and reconcile the saved pending operation before replacing its observed revision.");
-        var observed = await ObserveAsync(store, client, cancellationToken);
+        var observed = await ObserveAsync(store, client, cancellationToken, includeElectrical);
         if (observed.Inspection.RevisionToken != expectedRevisionToken)
             throw new AutomationException("design_recovery_changed", "Recovery state changed during native refresh.");
         cancellationToken.ThrowIfCancellationRequested();
@@ -48,6 +48,8 @@ public static class DesignRecoveryInspector
             || snapshot.Revision.Epoch != saved.State.NativeRevision.Epoch
             || snapshot.Revision.Sequence != saved.State.NativeRevision.Sequence
             || snapshot.TrackingComplete != saved.State.TrackingComplete;
+        bool electricalChanged = observed.Electrical is not null && saved.State.ObservedElectrical is not null
+            && !Equals(observed.Electrical, saved.State.ObservedElectrical);
         // The store performs the final compare-and-swap under its file lock. Even an
         // unchanged observation must pass that check rather than return a stale success.
         return store.Save(saved.State with
@@ -55,7 +57,8 @@ public static class DesignRecoveryInspector
             Observed = snapshot.Data,
             NativeRevision = new(snapshot.Revision.Epoch, snapshot.Revision.Sequence),
             TrackingComplete = snapshot.TrackingComplete,
-            HierarchyResolution = changed ? null : saved.State.HierarchyResolution
+            ObservedElectrical = observed.Electrical ?? (changed ? null : saved.State.ObservedElectrical),
+            HierarchyResolution = changed || electricalChanged ? null : saved.State.HierarchyResolution
         }, expectedRevisionToken);
     }
 
@@ -63,7 +66,7 @@ public static class DesignRecoveryInspector
     /// include undo or unrelated edits; never treat it as the operation's original result.
     /// Return both observations for reconciliation without changing the recovery record.</summary>
     public static async Task<DesignRecoveryObservation> ObserveAsync(DesignRecoveryStore store,
-        NativeClient client, CancellationToken cancellationToken = default)
+        NativeClient client, CancellationToken cancellationToken = default, bool includeElectrical = false)
     {
         var saved = store.Read() ?? throw new AutomationException("missing_design_recovery", "No saved design recovery state exists.");
         var inspection = await InspectAsync(store, client, cancellationToken);
@@ -74,9 +77,12 @@ public static class DesignRecoveryInspector
         var session = await client.HandshakeAsync(cancellationToken);
         if (session.InstanceId != saved.State.InstanceId.ToString("D"))
             throw new AutomationException("recovery_instance_mismatch", "Reattach the exact instance recorded by this design before recovery.");
-        var snapshot = await client.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(
-            new() { Document = (saved.State.PendingMutation?.Document ?? saved.State.Baseline.Schematic.Document).Clone() },
-            cancellationToken);
+        var target = (saved.State.PendingMutation?.Document ?? saved.State.Baseline.Schematic.Document).Clone();
+        var electrical = includeElectrical ? await client.InvokeAsync<ReadSchematicElectricalState, SchematicElectricalState>(
+            new() { Document = target }, cancellationToken) : null;
+        var snapshot = includeElectrical
+            ? electrical?.Hierarchy ?? throw new AutomationException("invalid_recovery_snapshot", "The electrical response has no hierarchy snapshot.")
+            : await client.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(new() { Document = target }, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (store.Read()?.RevisionToken != saved.RevisionToken)
             throw new AutomationException("design_recovery_changed", "Recovery state changed during observation; reload it before continuing.");
@@ -90,7 +96,41 @@ public static class DesignRecoveryInspector
         // Validate supported typed serialization before handing data to reconciliation.
         // Explicit coverage gaps and incomplete tracking remain in the returned snapshot.
         _ = SchematicDataXml.Read(SchematicDataXml.Write(snapshot.Data));
-        return new(inspection, snapshot);
+        return new(inspection, snapshot, electrical);
+    }
+
+    /// <summary>Bootstrap only a missing electrical baseline after proving that
+    /// the native hierarchy and mapped circuit pins still match the saved baseline.</summary>
+    public static async Task<StoredDesignRecovery> InitializeElectricalBaselineAsync(DesignRecoveryStore store,
+        NativeClient client, string expectedRevisionToken, CancellationToken token = default)
+    {
+        token.ThrowIfCancellationRequested();
+        var saved = store.Read();
+        if (saved is null || saved.RevisionToken != expectedRevisionToken)
+            throw new AutomationException("design_recovery_changed", "Reload recovery before initializing its electrical baseline.");
+        if (saved.State.PendingMutation is not null)
+            throw new AutomationException("pending_recovery_requires_reconciliation", "Reconcile the pending edit before initializing a baseline.");
+        if (saved.State.BaselineElectrical is not null)
+            throw new AutomationException("electrical_baseline_exists", "An established electrical baseline cannot be replaced by initialization.");
+        var observed = await ObserveAsync(store, client, token, includeElectrical: true);
+        if (observed.Inspection.RevisionToken != expectedRevisionToken)
+            throw new AutomationException("design_recovery_changed", "Recovery changed during electrical baseline observation.");
+        if (!saved.State.Baseline.Schematic.Equals(observed.Snapshot.Data))
+            throw new AutomationException("electrical_baseline_mismatch", "Reconcile native edits before establishing the missing electrical baseline.");
+        var comparison = SchematicElectricalComparison.Compare(saved.State.Baseline, observed.Electrical!, saved.State.KnowledgeLibraries, token);
+        if (!comparison.PinBindingsComplete || !comparison.ConnectivityEquivalent)
+            throw new AutomationException("electrical_baseline_mismatch", "The saved circuit and exact native pin connections do not agree.");
+        token.ThrowIfCancellationRequested();
+        return store.Save(saved.State with
+        {
+            Observed = observed.Snapshot.Data, NativeRevision = new(observed.Snapshot.Revision.Epoch, observed.Snapshot.Revision.Sequence),
+            TrackingComplete = observed.Snapshot.TrackingComplete, BaselineElectrical = observed.Electrical,
+            ObservedElectrical = observed.Electrical,
+            HierarchyResolution = observed.Snapshot.Data.Equals(saved.State.Observed)
+                && observed.Snapshot.Revision.Epoch == saved.State.NativeRevision.Epoch
+                && observed.Snapshot.Revision.Sequence == saved.State.NativeRevision.Sequence
+                && observed.Snapshot.TrackingComplete == saved.State.TrackingComplete ? saved.State.HierarchyResolution : null
+        }, expectedRevisionToken);
     }
 
     public static async Task<DesignRecoveryInspection> InspectAsync(DesignRecoveryStore store,

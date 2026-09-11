@@ -68,6 +68,30 @@ public sealed partial class NativeSessionTests
         Assert.IsTrue(compared.GetProperty("structuredContent").GetProperty("connectivityEquivalent").GetBoolean());
         Assert.IsTrue((await mcp.Tool("kicad_schematic_electrical_state", new
             { instanceId, requestJson = SchematicJson.Formatter.Format(stale) })).GetProperty("isError").GetBoolean());
+
+        string recoveryPath = Path.Combine(evidence, instanceId + "-electrical-baseline-recovery.json");
+        var recovery = new DesignRecoveryStore(recoveryPath);
+        var recoveryState = new DesignRecoveryState(Guid.NewGuid(), Guid.Parse(instanceId),
+            new(state.Hierarchy.Revision.Epoch, state.Hierarchy.Revision.Sequence), state.Hierarchy.TrackingComplete,
+            model, [0xff, 0x3c], state.Hierarchy.Data.Clone(), []);
+        var savedRecovery = recovery.Save(recoveryState, null);
+        async Task<System.Text.Json.JsonElement> Initialize(string expected, string target) =>
+            await mcp.Tool("kicad_design_electrical_baseline_initialize", new { instanceId = target, recoveryPath, expectedRevisionToken = expected });
+        Assert.IsTrue((await Initialize("stale", instanceId)).GetProperty("isError").GetBoolean());
+        Assert.IsTrue((await Initialize(savedRecovery.RevisionToken, Guid.NewGuid().ToString("D"))).GetProperty("isError").GetBoolean());
+        using (var held = new FileStream(recoveryPath + ".lock", FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Assert.IsTrue((await Initialize(savedRecovery.RevisionToken, instanceId)).GetProperty("isError").GetBoolean());
+        Assert.AreEqual(savedRecovery.RevisionToken, recovery.Read()!.RevisionToken);
+        var wrongCircuit = model with { Engineering = model.Engineering with { Circuit = model.Engineering.Circuit with { Nets = [] } } };
+        var wrongRecovery = recovery.Save(recoveryState with { Baseline = wrongCircuit }, savedRecovery.RevisionToken);
+        Assert.IsTrue((await Initialize(wrongRecovery.RevisionToken, instanceId)).GetProperty("isError").GetBoolean());
+        savedRecovery = recovery.Save(recoveryState, wrongRecovery.RevisionToken);
+        var initialized = await Initialize(savedRecovery.RevisionToken, instanceId); RequireToolSuccess(initialized);
+        Assert.AreEqual(state, recovery.Read()!.State.BaselineElectrical);
+        Assert.AreEqual(state, recovery.Read()!.State.ObservedElectrical);
+        CollectionAssert.AreEqual(recoveryState.DesiredFileBytes, recovery.Read()!.State.DesiredFileBytes);
+        Assert.IsTrue((await Initialize(recovery.Read()!.RevisionToken, instanceId)).GetProperty("isError").GetBoolean());
+        Assert.AreEqual(before, await client.InvokeAsync<ReadSchematicSaveState, SchematicSaveState>(new() { Document = document }, token));
     }
 
     private static SchematicDesign ProbeElectricalModel(SchematicElectricalState state)

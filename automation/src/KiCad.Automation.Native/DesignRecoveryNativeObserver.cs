@@ -92,10 +92,12 @@ public sealed class DesignRecoveryNativeObserver : IDisposable
                     var eventRevision = pendingDelivery?.Event.SchematicCommit?.Revision;
                     var minimum = eventRevision is null ? null
                         : new KiCad.Automation.Model.DocumentRevision(eventRevision.Epoch, eventRevision.Sequence);
-                    var refreshed = await DesignRecoveryInspector.RefreshAsync(store, client, before.RevisionToken, token, minimum);
+                    var refreshed = await DesignRecoveryInspector.RefreshAsync(store, client, before.RevisionToken, token, minimum, includeElectrical: true);
                     bool changed = !before.State.Observed.Equals(refreshed.State.Observed)
                         || before.State.NativeRevision != refreshed.State.NativeRevision
                         || before.State.TrackingComplete != refreshed.State.TrackingComplete;
+                    changed |= before.State.ObservedElectrical is not null
+                        && !Equals(before.State.ObservedElectrical, refreshed.State.ObservedElectrical);
                     var result = new DesignRecoveryNativeObservation(reason, pendingDelivery,
                         refreshed.RevisionToken, changed,
                         before.State.HierarchyResolution is not null && refreshed.State.HierarchyResolution is null,

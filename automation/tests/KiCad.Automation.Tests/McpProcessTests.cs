@@ -62,6 +62,7 @@ public sealed class McpProcessTests
             CollectionAssert.Contains(names, "kicad_schematic_create");
             CollectionAssert.Contains(names, "kicad_schematic_preview");
             CollectionAssert.Contains(names, "kicad_schematic_electrical_state");
+            CollectionAssert.Contains(names, "kicad_design_electrical_baseline_initialize");
             CollectionAssert.Contains(names, "kicad_design_connectivity_compare");
             var electricalFixture = SchematicElectricalComparisonTests.Fixture();
             var compare = await Request(9070, "tools/call", new { name = "kicad_design_connectivity_compare", arguments = new

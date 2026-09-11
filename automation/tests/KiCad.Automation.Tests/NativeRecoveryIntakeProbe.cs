@@ -82,6 +82,9 @@ internal sealed class NativeRecoveryIntakeProbe : IAsyncDisposable
         Assert.AreEqual(revision, saved.State.NativeRevision.Sequence);
         var live = await native.InvokeAsync<ReadSchematicHierarchyData, SchematicHierarchyDataSnapshot>(new() { Document = document }, token);
         Assert.IsTrue(saved.State.Observed.Equals(live.Data), "The continuously saved observation must match the native hierarchy.");
+        var electrical = await native.InvokeAsync<ReadSchematicElectricalState, SchematicElectricalState>(new() { Document = document }, token);
+        Assert.AreEqual(saved.State.ObservedElectrical, electrical);
+        Assert.IsNull(saved.State.BaselineElectrical, "Observation must not initialize an unverified electrical baseline.");
         Assert.AreEqual(baselineXml, SchematicDesignXml.Write(saved.State.Baseline, saved.State.KnowledgeLibraries));
         CollectionAssert.AreEqual(new byte[] { 0xff, 0x3c }, saved.State.DesiredFileBytes);
         Assert.IsNull(saved.State.PendingMutation);

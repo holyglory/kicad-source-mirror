@@ -12,7 +12,8 @@ namespace KiCad.Automation.Native;
 public sealed record DesignRecoveryState(Guid OriginId, Guid InstanceId, NativeRevision NativeRevision,
     bool TrackingComplete, SchematicDesign Baseline, byte[] DesiredFileBytes,
     SchematicHierarchyData Observed, IReadOnlyList<ComponentKnowledgeLibrary> KnowledgeLibraries,
-    ApplySchematicItemBatch? PendingMutation = null, DesignHierarchyResolution? HierarchyResolution = null);
+    ApplySchematicItemBatch? PendingMutation = null, DesignHierarchyResolution? HierarchyResolution = null,
+    SchematicElectricalState? BaselineElectrical = null, SchematicElectricalState? ObservedElectrical = null);
 
 public sealed record DesignHierarchyResolution(string SnapshotToken,
     IReadOnlyDictionary<string, SchematicConflictChoice> Choices, string NativeEpoch, ulong NativeSequence);
@@ -36,7 +37,12 @@ public sealed class DesignRecoveryStore(string statePath)
         [property: JsonRequired] byte[] DesiredFileBytes, [property: JsonRequired] string ObservedXml,
         [property: JsonRequired] string[] KnowledgeLibraryXml,
         [property: JsonRequired] byte[]? PendingMutation,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DesignHierarchyResolution? HierarchyResolution = null);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DesignHierarchyResolution? HierarchyResolution = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ElectricalEnvelope? BaselineElectrical = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ElectricalEnvelope? ObservedElectrical = null);
+    private sealed record ElectricalEnvelope([property: JsonRequired] string Epoch,
+        [property: JsonRequired] ulong Sequence, [property: JsonRequired] bool TrackingComplete,
+        [property: JsonRequired] string[] NetsXml, [property: JsonRequired] string[] Limitations);
 
     public StoredDesignRecovery ResolveHierarchy(string expectedRevisionToken, string expectedSnapshotToken,
         IReadOnlyDictionary<string, SchematicConflictChoice> choices)
@@ -81,11 +87,13 @@ public sealed class DesignRecoveryStore(string statePath)
     public StoredDesignRecovery Save(DesignRecoveryState state, string? expectedRevisionToken)
     {
         Validate(state);
-        var envelope = new Envelope(state.HierarchyResolution is null ? 1 : 2, state.OriginId, state.InstanceId, state.NativeRevision.Epoch,
+        var envelope = new Envelope(state.BaselineElectrical is not null || state.ObservedElectrical is not null ? 3
+            : state.HierarchyResolution is null ? 1 : 2, state.OriginId, state.InstanceId, state.NativeRevision.Epoch,
             state.NativeRevision.Sequence, state.TrackingComplete,
             SchematicDesignXml.Write(state.Baseline, state.KnowledgeLibraries), state.DesiredFileBytes,
             SchematicDataXml.Write(state.Observed), state.KnowledgeLibraries.Select(ComponentKnowledgeXml.WriteLibrary).ToArray(),
-            state.PendingMutation?.ToByteArray(), state.HierarchyResolution);
+            state.PendingMutation?.ToByteArray(), state.HierarchyResolution,
+            EncodeElectrical(state.BaselineElectrical, state.Baseline.Schematic), EncodeElectrical(state.ObservedElectrical, state.Observed));
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(envelope, Json);
         // Verify complete recoverability before touching the previous recovery file.
         var next = Decode(bytes);
@@ -141,19 +149,38 @@ public sealed class DesignRecoveryStore(string statePath)
                 || json.RootElement.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count()
                     != json.RootElement.EnumerateObject().Count())
                 throw Failure("invalid_design_recovery", "Invalid or duplicate recovery fields.");
+            var objects = new Stack<JsonElement>(); objects.Push(json.RootElement);
+            while (objects.TryPop(out var element))
+            {
+                if (element.ValueKind == JsonValueKind.Object)
+                {
+                    var names = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        if (!names.Add(property.Name)) throw Failure("invalid_design_recovery", "Duplicate nested recovery field.");
+                        objects.Push(property.Value);
+                    }
+                }
+                else if (element.ValueKind == JsonValueKind.Array)
+                    foreach (var item in element.EnumerateArray()) objects.Push(item);
+            }
             var envelope = JsonSerializer.Deserialize<Envelope>(bytes, Json)
                 ?? throw Failure("invalid_design_recovery", "Missing recovery state.");
-            if (envelope.Version is not (1 or 2) || envelope.KnowledgeLibraryXml is null
+            bool electrical = envelope.BaselineElectrical is not null || envelope.ObservedElectrical is not null;
+            if (envelope.Version is not (1 or 2 or 3) || envelope.KnowledgeLibraryXml is null
                 || (envelope.Version == 1 && envelope.HierarchyResolution is not null)
-                || (envelope.Version == 2 && envelope.HierarchyResolution is null))
+                || (envelope.Version == 2 && envelope.HierarchyResolution is null)
+                || (envelope.Version == 3) != electrical)
                 throw Failure("invalid_design_recovery", "Unsupported or incomplete recovery state.");
             var libraries = envelope.KnowledgeLibraryXml.Select(ComponentKnowledgeXml.ReadLibrary).ToArray();
             var observed = SchematicDataXml.Read(envelope.ObservedXml) as SchematicHierarchyData
                 ?? throw Failure("invalid_design_recovery", "Recovery requires a typed native hierarchy.");
+            var baseline = SchematicDesignXml.Read(envelope.BaselineXml, libraries);
             var state = new DesignRecoveryState(envelope.OriginId, envelope.InstanceId,
                 new(envelope.NativeEpoch, envelope.NativeSequence), envelope.TrackingComplete,
-                SchematicDesignXml.Read(envelope.BaselineXml, libraries), envelope.DesiredFileBytes, observed, libraries,
-                envelope.PendingMutation is null ? null : ApplySchematicItemBatch.Parser.ParseFrom(envelope.PendingMutation), envelope.HierarchyResolution);
+                baseline, envelope.DesiredFileBytes, observed, libraries,
+                envelope.PendingMutation is null ? null : ApplySchematicItemBatch.Parser.ParseFrom(envelope.PendingMutation), envelope.HierarchyResolution,
+                DecodeElectrical(envelope.BaselineElectrical, baseline.Schematic), DecodeElectrical(envelope.ObservedElectrical, observed));
             Validate(state);
             return new(Convert.ToHexStringLower(SHA256.HashData(bytes)), state);
         }
@@ -172,6 +199,17 @@ public sealed class DesignRecoveryStore(string statePath)
             || !Guid.TryParseExact(document.SheetPath.Path[0].Value, "D", out var rootId) || rootId == Guid.Empty
             || !document.Equals(state.Observed.Document))
             throw Failure("invalid_design_recovery", "Native and baseline versions must identify the same hierarchy root.");
+        _ = EncodeElectrical(state.BaselineElectrical, state.Baseline.Schematic);
+        _ = EncodeElectrical(state.ObservedElectrical, state.Observed);
+        if (state.ObservedElectrical is { } current
+            && (current.Hierarchy.Revision.Epoch != state.NativeRevision.Epoch
+                || current.Hierarchy.Revision.Sequence != state.NativeRevision.Sequence
+                || current.Hierarchy.TrackingComplete != state.TrackingComplete))
+            throw Failure("invalid_electrical_recovery", "Current connectivity must match the saved native observation revision and coverage.");
+        if (state.BaselineElectrical is { } baseline
+            && baseline.Hierarchy.Revision.Epoch == state.NativeRevision.Epoch
+            && baseline.Hierarchy.Revision.Sequence > state.NativeRevision.Sequence)
+            throw Failure("invalid_electrical_recovery", "The electrical baseline cannot be newer than the current native observation.");
         if (state.HierarchyResolution is { } resolution)
         {
             if (string.IsNullOrWhiteSpace(resolution.SnapshotToken) || resolution.Choices is null
@@ -196,6 +234,35 @@ public sealed class DesignRecoveryStore(string statePath)
         }
         if (!SameOwner(pending.Document) || pending.Operations.Any(o => o.TargetDocument is not null && !SameOwner(o.TargetDocument)))
             throw Failure("invalid_design_recovery", "Pending mutation targets must belong to the recorded native design.");
+    }
+
+    private static ElectricalEnvelope? EncodeElectrical(SchematicElectricalState? state, SchematicHierarchyData hierarchy)
+    {
+        if (state is null) return null;
+        if (state.Hierarchy?.Revision is not { } revision || string.IsNullOrWhiteSpace(revision.Epoch)
+            || !Equals(state.Hierarchy.Data, hierarchy))
+            throw Failure("invalid_electrical_recovery", "Electrical checkpoints require their exact owning hierarchy and revision.");
+        var envelope = new ElectricalEnvelope(revision.Epoch, revision.Sequence, state.Hierarchy.TrackingComplete,
+            state.Nets.Select(SchematicDataXml.Write).ToArray(), state.Limitations.ToArray());
+        // Round-trip the complete message, not just its known fields. Future
+        // transport fields cannot silently disappear from a recovery record.
+        if (!state.Equals(DecodeElectrical(envelope, hierarchy)))
+            throw Failure("invalid_electrical_recovery", "The electrical checkpoint contains unsupported fields.");
+        return envelope;
+    }
+
+    private static SchematicElectricalState? DecodeElectrical(ElectricalEnvelope? envelope, SchematicHierarchyData hierarchy)
+    {
+        if (envelope is null) return null;
+        if (string.IsNullOrWhiteSpace(envelope.Epoch) || envelope.NetsXml is null || envelope.Limitations is null)
+            throw Failure("invalid_electrical_recovery", "Electrical checkpoint fields are incomplete.");
+        var result = new SchematicElectricalState { Hierarchy = new()
+        { Data = hierarchy.Clone(), Revision = new() { Epoch = envelope.Epoch, Sequence = envelope.Sequence }, TrackingComplete = envelope.TrackingComplete } };
+        foreach (string xml in envelope.NetsXml)
+            result.Nets.Add(SchematicDataXml.Read(xml) as SchematicNet
+                ?? throw Failure("invalid_electrical_recovery", "A checkpoint membership must be a typed native net."));
+        result.Limitations.Add(envelope.Limitations);
+        return result;
     }
 
     private static AutomationException Failure(string code, string message) => new(code, message);

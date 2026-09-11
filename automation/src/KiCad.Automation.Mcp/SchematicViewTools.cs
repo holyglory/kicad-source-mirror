@@ -14,6 +14,26 @@ namespace KiCad.Automation.Mcp;
 [McpServerToolType]
 public sealed class SchematicViewTools(InstanceRegistry registry)
 {
+    [McpServerTool(Name = "kicad_design_electrical_baseline_initialize"),
+     Description("Initialize only a missing electrical recovery baseline for one explicitly attached native instance and absolute recovery path. Requires the exact recovery revision token, no pending native operation, unchanged baseline hierarchy, and matching exact model/native pin connectivity. Preserves desired XML and requirements; never writes native design files, edits KiCad or replaces an established baseline. Old recovery files without electrical checkpoints remain readable. Full revision admission and automatic synchronization are still separate.")]
+    public Task<CallToolResult> InitializeElectricalBaseline(string instanceId, string recoveryPath,
+        string expectedRevisionToken, CancellationToken cancellationToken) => Execute(async () =>
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!Path.IsPathFullyQualified(recoveryPath))
+            throw new AutomationException("invalid_recovery_path", "Provide the absolute design recovery path.");
+        var store = new DesignRecoveryStore(recoveryPath);
+        var saved = store.Read() ?? throw new AutomationException("missing_design_recovery", "Create design recovery state first.");
+        if (saved.State.InstanceId.ToString("D") != instanceId)
+            throw new AutomationException("recovery_instance_mismatch", "The recovery record belongs to another instance.");
+        var initialized = await DesignRecoveryInspector.InitializeElectricalBaselineAsync(store, registry.Client(instanceId), expectedRevisionToken, cancellationToken);
+        var data = JsonSerializer.SerializeToElement(new { instanceId, recoveryRevisionToken = initialized.RevisionToken,
+            nativeRevision = initialized.State.NativeRevision, electricalBaselineInitialized = true,
+            netCount = initialized.State.BaselineElectrical!.Nets.Count, trackingComplete = initialized.State.TrackingComplete,
+            liveMutationAuthorized = false });
+        return new CallToolResult { Content = [new TextContentBlock { Text = data.GetRawText() }], StructuredContent = data };
+    });
+
     [McpServerTool(Name = "kicad_schematic_electrical_state", ReadOnly = true),
      Description("Capture the loaded schematic hierarchy and native scalar-net memberships together at one stable revision, for an explicit attached instance and loaded sheet target. Does not navigate the human view, save, annotate or repair the design. requestJson is ReadSchematicElectricalState protobuf JSON with document and optional expectedRevision. Net names are labels, not persistent net identities; membership uses exact sheet paths and UUIDs. Returns typed hierarchy XML, native revision, memberships and explicit coverage limitations. This is not full reconstruction, simulation or mutation admission.")]
     public Task<CallToolResult> ReadElectricalState(string instanceId, string requestJson, CancellationToken cancellationToken) => Execute(async () =>
@@ -71,6 +91,8 @@ public sealed class SchematicViewTools(InstanceRegistry registry)
         var structured = JsonSerializer.SerializeToElement(new
         {
             instanceId, recoveryRevisionToken = observed.Inspection.RevisionToken,
+            electricalBaselineAvailable = saved.State.BaselineElectrical is not null,
+            electricalObservationAvailable = saved.State.ObservedElectrical is not null,
             disposition = observed.Inspection.Disposition.ToString(), trackingComplete = observed.Snapshot.TrackingComplete,
             receipt = observed.Inspection.Receipt is null ? (JsonElement?)null :
                 JsonSerializer.Deserialize<JsonElement>(SchematicJson.Formatter.Format(observed.Inspection.Receipt)),

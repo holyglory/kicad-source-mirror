@@ -773,9 +773,14 @@ rejects changes across its capture. Net names are labels, not stable identities.
 the engineering model through explicit sheet, symbol and placed-pin identities,
 reporting split/joined pin partitions separately from missing bindings and
 serializer coverage. It never transfers net requirements or edits a design.
-These new electrical tools are under native qualification and are not yet in
-the published packages. Complete revision admission and automatic electrical
-propagation remain unfinished.
+These new electrical tools passed Linux native/MCP qualification in
+`t20260911T183246Z-7d102b` on `cde8c2a7d539afab0e93c351f2d4d80d87ba53e8`:
+the independently declared two-probe circuit matches before a manual
+disconnection, reports a split afterward, and matches again after native undo.
+Hidden/repeated sheets, exact revision rejection, unchanged save/view state and
+all existing foundation checks passed. The tools are not yet in the published
+packages. Complete revision admission, Mac/Windows/actual-Desktop qualification
+and automatic electrical propagation remain unfinished.
 
 Successful plans include merged XML, ordered native operations and explicit
 coverage gaps. This tool does not access files, apply a batch, resolve electrical

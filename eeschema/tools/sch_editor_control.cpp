@@ -1860,7 +1860,29 @@ int SCH_EDITOR_CONTROL::NameNetChain( const TOOL_EVENT& aEvent )
 
         if( !newName.IsEmpty() && newName != sig->GetName() )
         {
-            sig->SetName( newName );
+            if( !SCH_NETCHAIN::IsValidName( newName ) )
+            {
+                DisplayError( editFrame, _( "Chain name cannot contain spaces, quotes, or parentheses." ) );
+                return 0;
+            }
+            if( graph->GetNetChainByName( newName ) || graph->GetNetChainDefinitions().contains( newName ) )
+            {
+                DisplayError( editFrame, wxString::Format( _( "A net chain named '%s' already exists." ), newName ) );
+                return 0;
+            }
+            wxString oldName = sig->GetName();
+            const auto& members = sig->GetSymbols();
+            SCH_COMMIT commit( editFrame );
+            if( !commit.StageNetChainEdit( std::set<SCH_SYMBOL*>( members.begin(), members.end() ) )
+                    || !graph->RenameCommittedNetChain( oldName, newName ) )
+                return 0;
+            if( auto settings = editFrame->Prj().GetProjectFile().NetSettings() )
+            {
+                wxString chainClass = settings->GetNetChainClass( oldName );
+                settings->SetNetChainClass( oldName, wxEmptyString );
+                settings->SetNetChainClass( newName, chainClass );
+            }
+            commit.Push( _( "Name Net Chain" ) );
 
             editFrame->SetHighlightedNetChain( newName );
             TOOL_EVENT dummy;
@@ -1949,8 +1971,23 @@ int SCH_EDITOR_CONTROL::CreateNetChainBetweenPins( const TOOL_EVENT& aEvent )
         return 0; // cancelled
     }
 
+    if( !SCH_NETCHAIN::IsValidName( name ) )
+    {
+        DisplayError( editFrame, _( "Chain name cannot contain spaces, quotes, or parentheses." ) );
+        return 0;
+    }
+    if( graph->GetNetChainByName( name ) || graph->GetNetChainDefinitions().contains( name ) )
+    {
+        DisplayError( editFrame, wxString::Format( _( "A net chain named '%s' already exists." ), name ) );
+        return 0;
+    }
+    const auto& members = potential->GetSymbols();
+    SCH_COMMIT commit( editFrame );
+    if( !commit.StageNetChainEdit( std::set<SCH_SYMBOL*>( members.begin(), members.end() ) ) )
+        return 0;
     if( graph->CreateNetChainFromPotential( potential, name ) )
     {
+        commit.Push( _( "Create Net Chain" ) );
         // Replace temporary highlight with new chain name
         editFrame->SetHighlightedNetChain( name );
         editFrame->SetHighlightedConnection( wxEmptyString );

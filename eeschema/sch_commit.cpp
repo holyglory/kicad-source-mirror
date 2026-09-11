@@ -383,10 +383,27 @@ bool SCH_COMMIT::SetErcSettings( SCH_ERC_SETTINGS::PREPARED& aPrepared, std::str
     return true;
 }
 
-void SCH_COMMIT::SetNetChainDefinitions( const std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION>& aDefinitions )
+bool SCH_COMMIT::StageNetChainEdit( const std::set<SCH_SYMBOL*>& aSymbols )
 {
     auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
-    wxCHECK_RET( frame && !m_isLibEditor, "Net chain changes require a schematic editor" );
+    if( !frame || m_isLibEditor || !frame->Schematic().ConnectionGraph() )
+        return false;
+
+    std::vector<std::pair<SCH_SYMBOL*, SCH_SCREEN*>> owned;
+    std::set<SCH_SCREEN*> seen;
+    if( !aSymbols.empty() )
+    {
+        for( const SCH_SHEET_PATH& path : frame->Schematic().Hierarchy() )
+        {
+            SCH_SCREEN* screen = path.LastScreen();
+            if( !screen || !seen.insert( screen ).second ) continue;
+            for( SCH_ITEM* item : screen->Items() )
+                if( auto* symbol = dynamic_cast<SCH_SYMBOL*>( item ); symbol && aSymbols.contains( symbol ) )
+                    owned.emplace_back( symbol, screen );
+        }
+        if( owned.size() != aSymbols.size() ) return false;
+    }
+
     if( !m_pageSettingsUndo )
     {
         m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
@@ -394,6 +411,14 @@ void SCH_COMMIT::SetNetChainDefinitions( const std::map<wxString, CONNECTION_GRA
     }
     m_pageSettingsUndo->IncludeNetChains();
     m_connectivitySettingsChanged = true;
+    for( const auto& [symbol, screen] : owned ) Modify( symbol, screen );
+    return true;
+}
+
+void SCH_COMMIT::SetNetChainDefinitions( const std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION>& aDefinitions )
+{
+    wxCHECK_RET( StageNetChainEdit( {} ), "Net chain changes require a schematic editor" );
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
     frame->Schematic().ConnectionGraph()->SetNetChainDefinitions( aDefinitions );
 }
 

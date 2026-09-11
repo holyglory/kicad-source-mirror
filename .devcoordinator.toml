@@ -1569,7 +1569,6 @@ command = ["cmake", "-S", ".", "-B", "automation/artifacts/native", "-G", "Ninja
 name = "input-contracts"
 tier = "development"
 role = "preflight"
-requires = ["managed-build"]
 invalidates = ["native-build", "native-table"]
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NativeKeyboardTests", "--logger", "trx", "--results-directory", "automation/artifacts/native-input-results"]
 

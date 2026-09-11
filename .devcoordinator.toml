@@ -66,12 +66,21 @@ retained_artifacts = [{ name = "landing-tests", path = "automation/artifacts/lan
 
 [test.landing-verifier-self-test]
 timeout_seconds = 360
-env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", FORMAL_WEB_UI_SKILL_DIR = "/home/holyglory/.codex/skills/formal-web-ui-verification" }
+env = { TMPDIR = "/tmp", FORMAL_WEB_UI_SKILL_DIR = "/home/holyglory/.codex/skills/formal-web-ui-verification" }
 
 [[test.landing-verifier-self-test.check]]
 name = "verifier"
 tier = "development"
-command = ["devcoordinator2-tooling", "formal-ui", "self-test", "--workspace-parent", "/mnt/build-storage/codex/kicad/t", "--timeout-seconds", "300"]
+command = ["devcoordinator2-tooling", "formal-ui", "self-test", "--phase", "rendering", "--workspace-parent", "/tmp", "--timeout-seconds", "300"]
+
+[test.landing-rendered]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", FORMAL_WEB_UI_SKILL_DIR = "/home/holyglory/.codex/skills/formal-web-ui-verification" }
+
+[[test.landing-rendered.check]]
+name = "layout"
+tier = "development"
+command = ["devcoordinator2-tooling", "formal-ui", "verify", "--config", "/tmp/kicad-landing-formal.json", "--fail-on", "critical", "--json-out", "/mnt/build-storage/codex/kicad/evidence/landing-formal-v1/report.json", "--markdown-out", "/mnt/build-storage/codex/kicad/evidence/landing-formal-v1/report.md"]
 
 # Authorized by kicad-update-signing-standing-authority on 2026-09-08.
 # Already provisioned: re-running refuses to replace either existing key file.

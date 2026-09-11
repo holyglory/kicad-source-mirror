@@ -67,6 +67,12 @@ public sealed class DownloadPageTests
                 }
                 foreach (string name in new[] { "site.css", "site.js", "theme.js", "hero-dark.png", "hero-light.png", "inter.woff2", "apple.svg", "windows.svg", "linux.svg", "github.svg", "download.svg", "history.svg", "moon.svg", "sun.svg" })
                     Assert.AreEqual(HttpStatusCode.OK, (await http.GetAsync("/site/" + name)).StatusCode, name);
+                foreach (string name in new[] { "hero-dark.png", "hero-light.png" })
+                {
+                    byte[] image = await http.GetByteArrayAsync("/site/" + name);
+                    Assert.IsTrue(image.Length > 1000);
+                    CollectionAssert.AreEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, image[..8]);
+                }
                 foreach (string name in new[] { "DownloadPage.cs", "index.html", "../private", "preview-publisher.pkcs8" })
                     Assert.AreEqual(HttpStatusCode.NotFound, (await http.GetAsync("/site/" + name)).StatusCode);
                 using var range = new HttpRequestMessage(HttpMethod.Get, "/artifacts/win-x64.zip");

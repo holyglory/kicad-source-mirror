@@ -147,7 +147,7 @@ public sealed class SchematicViewTools(InstanceRegistry registry)
         });
 
     [McpServerTool(Name = "kicad_schematic_hierarchy_data", ReadOnly = true),
-     Description("Read every loaded schematic sheet instance and its supported objects/settings in one native dispatch, without navigating the visible editor. Supply the explicit currently displayed sheet target. Repeated instances retain separate paths and shared screen identities. Returns typed XML and explicit unsupported-state entries; incomplete tracking and serializer coverage are not full reconstruction or mutation-admission proof. No files or designs are changed.")]
+     Description("Read every loaded schematic sheet instance and its supported objects/settings in one native dispatch, without navigating the visible editor. Supply an explicit loaded sheet target; it need not be currently displayed. Repeated instances retain separate paths and shared screen identities. Returns typed XML and explicit unsupported-state entries; incomplete tracking and serializer coverage are not full reconstruction or mutation-admission proof. No files or designs are changed.")]
     public Task<CallToolResult> ReadHierarchyData(string instanceId, string documentJson, CancellationToken cancellationToken) =>
         Execute(async () =>
         {

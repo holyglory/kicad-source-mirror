@@ -80,6 +80,16 @@ public sealed partial class NativeSessionTests
             var netsAfter = await Nets();
             Assert.AreNotEqual(NetOf(netsAfter, fixture.PinA), NetOf(netsAfter, fixture.PinB),
                 "Moving the symbol away from its stationary wire must expose the resulting disconnection.");
+            var electrical = await client.InvokeAsync<ReadSchematicElectricalState, SchematicElectricalState>(new()
+                { Document = document, ExpectedRevision = moved.Revision }, token);
+            Assert.AreEqual(moved.Revision, electrical.Hierarchy.Revision);
+            Assert.AreEqual(moved.Data, electrical.Hierarchy.Data.Instances.Single(s => s.Metadata.Document.Equals(document)));
+            bool Connected(SchematicElectricalState state) => state.Nets.Any(n =>
+                n.Sheets.SelectMany(s => s.Items).Any(id => id.Value == fixture.PinA)
+                && n.Sheets.SelectMany(s => s.Items).Any(id => id.Value == fixture.PinB));
+            Assert.IsFalse(Connected(electrical), "The same-revision electrical read must include the real manual disconnection.");
+            await File.WriteAllTextAsync(Path.Combine(evidence, instanceId + "-manual-electrical-state.json"),
+                SchematicJson.Formatter.Format(electrical), token);
             var journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
             {
                 Document = document, DocumentEpoch = before.Revision.Epoch, AfterSequence = before.Revision.Sequence
@@ -106,6 +116,10 @@ public sealed partial class NativeSessionTests
             } while (restored.Revision.Sequence == moved.Revision.Sequence);
             Assert.AreEqual(before.Data, restored.Data, "Native undo must restore the manually moved symbol and all supported data.");
             CollectionAssert.AreEqual(Topology(netsBefore), Topology(await Nets()));
+            var restoredElectrical = await client.InvokeAsync<ReadSchematicElectricalState, SchematicElectricalState>(new()
+                { Document = document, ExpectedRevision = restored.Revision }, token);
+            Assert.AreEqual(restored.Revision, restoredElectrical.Hierarchy.Revision);
+            Assert.IsTrue(Connected(restoredElectrical));
         }
         catch
         {

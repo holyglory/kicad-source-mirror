@@ -98,12 +98,14 @@ public sealed class SchematicElectricalComparisonTests
     [TestMethod]
     public void UnknownDuplicateOrForeignMembershipsCannotProduceAnEquivalentResult()
     {
-        foreach (string error in new[] { "unknown-item", "duplicate-membership", "foreign-sheet", "missing-identity", "wrong-unit" })
+        foreach (string error in new[] { "unknown-item", "duplicate-membership", "foreign-sheet", "missing-identity", "wrong-unit", "empty-net", "empty-sheet" })
         {
             var f = Fixture();
             if (error == "unknown-item") f.State.Nets[0].Sheets[0].Items.Add(new Kiapi.Common.Types.KIID { Value = Guid.NewGuid().ToString("D") });
             else if (error == "duplicate-membership") f.State.Nets.Add(f.State.Nets[0].Clone());
             else if (error == "foreign-sheet") f.State.Nets[0].Sheets[0].Path.Path[0].Value = Guid.NewGuid().ToString("D");
+            else if (error == "empty-net") f.State.Nets[0].Sheets.Clear();
+            else if (error == "empty-sheet") f.State.Nets[0].Sheets[0].Items.Clear();
             else
             {
                 var screen = f.State.Hierarchy.Data.Instances[1];

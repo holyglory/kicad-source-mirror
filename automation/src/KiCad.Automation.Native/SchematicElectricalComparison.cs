@@ -90,18 +90,22 @@ public static class SchematicElectricalComparison
 
         var nativeMembership = new Dictionary<(string Path, string Id), int>();
         for (int index = 0; index < observed.Nets.Count; ++index)
-        foreach (var sheet in observed.Nets[index].Sheets)
         {
-            token.ThrowIfCancellationRequested(); string path = Path(sheet.Path);
-            if (!screens.ContainsKey(path))
-            { issues.Add(new("net_sheet_not_in_snapshot", path, null)); continue; }
-            foreach (var id in sheet.Items)
+            if (observed.Nets[index].Sheets.Count == 0) issues.Add(new("empty_native_net", null, null));
+            foreach (var sheet in observed.Nets[index].Sheets)
             {
-                if (!Id(id.Value)) { issues.Add(new("invalid_net_item_identity", path, id.Value)); continue; }
-                var key = (path, id.Value);
-                if (!knownItems.Contains(key)) issues.Add(new("net_item_not_in_snapshot", path, id.Value));
-                if (!nativeMembership.TryAdd(key, index))
-                    issues.Add(new("duplicate_net_item_membership", path, id.Value));
+                token.ThrowIfCancellationRequested(); string path = Path(sheet.Path);
+                if (sheet.Items.Count == 0) issues.Add(new("empty_net_sheet_membership", path, null));
+                if (!screens.ContainsKey(path))
+                { issues.Add(new("net_sheet_not_in_snapshot", path, null)); continue; }
+                foreach (var id in sheet.Items)
+                {
+                    if (!Id(id.Value)) { issues.Add(new("invalid_net_item_identity", path, id.Value)); continue; }
+                    var key = (path, id.Value);
+                    if (!knownItems.Contains(key)) issues.Add(new("net_item_not_in_snapshot", path, id.Value));
+                    if (!nativeMembership.TryAdd(key, index))
+                        issues.Add(new("duplicate_net_item_membership", path, id.Value));
+                }
             }
         }
         var endpointNets = new Dictionary<PinEndpoint, int?>();

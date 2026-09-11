@@ -23,9 +23,11 @@ caption-visibility and shared callback-class fixes described below.
 The fixed `2149b1d48295d00ee97a48295b285a064dba9a18` baseline remains available
 for [Apple Silicon](https://kicad.vr.ae/artifacts/kicad-codex-2149b1d48295d00ee97a48295b285a064dba9a18-macos-arm64.tar.gz)
 and [Intel](https://kicad.vr.ae/artifacts/kicad-codex-2149b1d48295d00ee97a48295b285a064dba9a18-macos-x64.tar.gz).
-The first fixed-pair UI run (`34546066845`) failed before clicking Update:
-preparation and visible-window readiness need separate verification. The native
-journey is being repaired without changing these frozen package bytes. These
+The first fixed-pair UI run (`34546066845`) failed before clicking Update.
+Separating preparation from UI readiness and revealing the owning window fixed
+the Apple Silicon journey in `34547458961`: actual Update/Cancel/Save, preserved
+objects, both restarts and the independent project passed. Intel is still being
+verified. These test repairs did not change the frozen package bytes. These
 downloads are not full updater, Codex Desktop or engineering qualification.
 They also predate the newer verified-origin MCP reconnection code.
 
@@ -540,7 +542,10 @@ document snapshots before more edits or resumed event consumption. Linux native
 journey `3b3475` verifies this through the actual STDIO MCP server after a real
 KiCad restart, preserving a schematic object's text and UUID, observing a new
 document epoch, rejecting old event cursors and repeating from a new MCP process.
-That fixture uses isolated release metadata; it is not a full cross-platform
+The extended `419bb1` journey also keeps a second real project dirty and verifies
+its unchanged process/event/document epochs and unsaved object across the other
+project's restart and an MCP restart. That fixture uses isolated release metadata;
+it is not a full cross-platform
 update or automatic XML synchronization claim. Native registry contracts passed
 on Windows and both Mac architectures; their full application-update/MCP
 reconnection journeys remain open.

@@ -14,6 +14,54 @@ public sealed class WindowsFixtureCleanupTests
     }
 
     [TestMethod]
+    public async Task NativeReadonlyHistoryCleanupPreservesUnrelatedTreesAndAttributes()
+    {
+        if (!OperatingSystem.IsWindows()) { Assert.Inconclusive("Native Windows history deletion."); return; }
+        string owned = Directory.CreateTempSubdirectory("kwhistory-").FullName;
+        string other = Directory.CreateTempSubdirectory("kwhistory-other-").FullName;
+        string Object(string root)
+        {
+            string directory = Directory.CreateDirectory(Path.Combine(root, ".history", ".git", "objects", "ab")).FullName;
+            string file = Path.Combine(directory, new string('c', 38));
+            File.WriteAllText(file, "Read-only test history object"); File.SetAttributes(file, FileAttributes.ReadOnly | FileAttributes.Archive);
+            return file;
+        }
+        string first = Object(owned), second = Object(other);
+        try
+        {
+            await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(owned);
+            Assert.IsFalse(Directory.Exists(owned));
+            Assert.AreEqual("Read-only test history object", await File.ReadAllTextAsync(second));
+            Assert.IsTrue(File.GetAttributes(second).HasFlag(FileAttributes.ReadOnly));
+        }
+        finally
+        {
+            if (Directory.Exists(owned)) await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(owned);
+            await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(other);
+        }
+    }
+
+    [TestMethod]
+    public async Task NativeUnknownReadonlyFileIsNotForceDeleted()
+    {
+        if (!OperatingSystem.IsWindows()) { Assert.Inconclusive("Native Windows readonly negative."); return; }
+        string root = Directory.CreateTempSubdirectory("kwreadonly-negative-").FullName;
+        string file = Path.Combine(root, "not-history.txt");
+        try
+        {
+            await File.WriteAllTextAsync(file, "Preserve this negative control"); File.SetAttributes(file, FileAttributes.ReadOnly);
+            using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+            await Assert.ThrowsAsync<OperationCanceledException>(() => WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(root, stop.Token));
+            Assert.IsTrue(File.Exists(file)); Assert.IsTrue(File.GetAttributes(file).HasFlag(FileAttributes.ReadOnly));
+        }
+        finally
+        {
+            // Undo only this test's explicit negative-control setup.
+            File.SetAttributes(file, FileAttributes.Normal); Directory.Delete(root, true);
+        }
+    }
+
+    [TestMethod]
     public async Task NativeRuntimeCleanupHasAnExactInstanceBoundary()
     {
         if (!OperatingSystem.IsWindows()) { Assert.Inconclusive("Native Windows cleanup boundary."); return; }

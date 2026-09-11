@@ -1355,7 +1355,7 @@ retained_artifacts = [{ name = "recovery-model-results", path = "automation/arti
 [[test.native-foundation.check]]
 name = "native-build"
 tier = "development"
-command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "kicad-cli", "eeschema_kiface", "pcbnew_kiface", "api_schema_build_copy", "bitmap_archive_build", "qa_document_change_journal", "qa_symbol_graphic_identity"]
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "kicad-cli", "eeschema_kiface", "pcbnew_kiface", "cvpcb_kiface", "schema_build_copy", "api_schema_build_copy", "bitmap_archive_build", "qa_document_change_journal", "qa_symbol_graphic_identity"]
 
 [[test.native-foundation.check]]
 name = "native-journal"
@@ -1373,7 +1373,9 @@ command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex"
 name = "native-session"
 tier = "development"
 requires = ["native-build"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSession&TestCategory!=NativePackage&TestCategory!=NativePackageArchive&TestCategory!=NativeUpdateArchive&TestCategory!=NativeUpdater&TestCategory!=NativeCaptionUpdate", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
+# Source-editor journeys use the freshly built modules. Updater journeys remain
+# in their separate catalogue-bound graphs; they are not source-build fixtures.
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeSourceSession", "--logger", "trx", "--results-directory", "automation/artifacts/native-session-results"]
 retained_artifacts = [{ name = "native-session-evidence", path = "automation/artifacts/native-session-current", max_bytes = 33554432 }]
 
 [[test.native-foundation.check]]

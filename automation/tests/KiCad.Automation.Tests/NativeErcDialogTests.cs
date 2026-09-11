@@ -9,15 +9,15 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace KiCad.Automation.Tests;
 
-// Focused rendered exclusion journey, not complete ERC/settings revision
-// coverage. Comment editing and severity journeys remain separate checks.
+// Rendered ERC override paths, not complete schematic/settings revision
+// coverage or a substitute for the frozen native build receipt.
 [TestClass, TestCategory("ExternalIntegration"), TestCategory("NativeErcDialog")]
 public sealed class NativeErcDialogTests
 {
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
-    public async Task ExcludingAnActualViolationInvalidatesStaleEditsAndPreservesTheOtherProject()
+    public async Task ActualErcOverridesPreserveCancelledAndUnchangedEditsAndRejectStaleRequests()
     {
         Assert.IsTrue(OperatingSystem.IsLinux(), "This is a Linux native-display fixture, not Mac evidence.");
         DirectoryInfo? source = new(AppContext.BaseDirectory);
@@ -168,6 +168,34 @@ public sealed class NativeErcDialogTests
             await first.Client.InvokeAsync<SaveDocument, Empty>(new() { Document = first.Document }, deadline.Token);
             using var saved = JsonDocument.Parse(await File.ReadAllBytesAsync(first.Project, deadline.Token));
             Assert.AreEqual(1, saved.RootElement.GetProperty("erc").GetProperty("erc_exclusions").GetArrayLength());
+
+            await Comment("cancel-comment", "cancelled", accept: false, changedValue: false, expected: "");
+            await Comment("change-comment", "reason", accept: true, changedValue: true, expected: "reason");
+            await Comment("unchanged-comment", "reason", accept: true, changedValue: false, expected: "reason");
+
+            // The excluded row's first action restores this exact violation.
+            var beforeRestore = await Journal();
+            await Menu("restore-menu", 0);
+            var restored = await Changed(beforeRestore);
+            await first.Client.InvokeAsync<SaveDocument, Empty>(new() { Document = first.Document }, deadline.Token);
+            using (var restoredFile = JsonDocument.Parse(await File.ReadAllBytesAsync(first.Project, deadline.Token)))
+                Assert.AreEqual(0, restoredFile.RootElement.GetProperty("erc").GetProperty("erc_exclusions").GetArrayLength());
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "restored-violation.png"), deadline.Token);
+
+            // The retained real menu has Exclude, Exclude with comment, then
+            // Change severity. GTK navigation skips the separator.
+            var beforeSeverity = await Journal();
+            await Menu("severity-menu", 2);
+            var severity = await Changed(beforeSeverity);
+            await first.Client.InvokeAsync<SaveDocument, Empty>(new() { Document = first.Document }, deadline.Token);
+            using (var severityFile = JsonDocument.Parse(await File.ReadAllBytesAsync(first.Project, deadline.Token)))
+            {
+                Assert.AreEqual("warning", severityFile.RootElement.GetProperty("erc")
+                    .GetProperty("rule_severities").GetProperty("pin_not_connected").GetString());
+                Assert.AreEqual(0, severityFile.RootElement.GetProperty("erc").GetProperty("erc_exclusions").GetArrayLength());
+            }
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "changed-severity.png"), deadline.Token);
+
             var otherJournal = await other.Client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(
                 new() { Document = other.Document }, deadline.Token);
             Assert.AreEqual(other.Baseline.Sequence, otherJournal.Sequence);
@@ -177,10 +205,86 @@ public sealed class NativeErcDialogTests
             await File.WriteAllTextAsync(Path.Combine(evidence, "exclusion-result.json"), JsonSerializer.Serialize(new
             {
                 instanceId = first.Id, otherInstanceId = other.Id, documentEpoch = journal.DocumentEpoch,
-                revision = journal.Sequence, renderedExclusionCommitted = true, staleEditRejected = true,
-                savedExclusionCount = 1, otherProjectPreserved = true,
+                revision = severity.Sequence, renderedExclusionCommitted = true, staleEditRejected = true,
+                commentCancellationPreserved = true, commentChangePersisted = true, unchangedCommentPreserved = true,
+                exclusionRestored = true, severityChangePersisted = true, otherProjectPreserved = true,
                 completeErcOverrideCoverage = false, trackingComplete = false
             }), deadline.Token);
+
+            Task<SchematicChangeJournal> Journal() => first.Client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(
+                new() { Document = first.Document }, deadline.Token);
+
+            async Task<SchematicChangeJournal> Changed(SchematicChangeJournal before)
+            {
+                using var wait = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
+                wait.CancelAfter(TimeSpan.FromSeconds(10));
+                int delay = 25;
+                while (true)
+                {
+                    var after = await first.Client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(
+                        new() { Document = first.Document, DocumentEpoch = before.DocumentEpoch,
+                            AfterSequence = before.Sequence }, wait.Token);
+                    if (after.Sequence != before.Sequence)
+                    {
+                        Assert.AreEqual(before.Sequence + 1, after.Sequence);
+                        Assert.AreEqual("Edit ERC overrides", after.Changes.Single().Description);
+                        return after;
+                    }
+                    await Task.Delay(delay, wait.Token); delay = Math.Min(delay * 2, 500);
+                }
+            }
+
+            async Task Menu(string stage, int item)
+            {
+                NativeKeyboard.SchematicShortcut(display, first.ProcessId, "right-click", "Electrical Rules Checker", false,
+                    clickFromLeft: 250, clickFromTop: 85);
+                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, stage + ".png"), deadline.Token);
+                NativeKeyboard.SchematicShortcut(display, first.ProcessId, "Home", "Electrical Rules Checker", false, false);
+                for (int index = 0; index < item; ++index)
+                    NativeKeyboard.SchematicShortcut(display, first.ProcessId, "Down", "Electrical Rules Checker", false, false);
+                NativeKeyboard.SchematicShortcut(display, first.ProcessId, "Return", "Electrical Rules Checker", false, false);
+            }
+
+            async Task Comment(string stage, string text, bool accept, bool changedValue, string expected)
+            {
+                var before = await Journal();
+                var beforeSave = await first.Client.InvokeAsync<ReadSchematicSaveState, SchematicSaveState>(
+                    new() { Document = first.Document }, deadline.Token);
+                byte[] beforeFile = await File.ReadAllBytesAsync(first.Project, deadline.Token);
+                await Menu(stage + "-menu", 1);
+                using var window = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
+                window.CancelAfter(TimeSpan.FromSeconds(10));
+                int delay = 25;
+                while (!NativeKeyboard.HasWindow(display, first.ProcessId, "Exclusion Comment"))
+                { await Task.Delay(delay, window.Token); delay = Math.Min(delay * 2, 500); }
+                NativeKeyboard.SchematicShortcut(display, first.ProcessId, "a", "Exclusion Comment", true, false);
+                foreach (char letter in text)
+                    NativeKeyboard.SchematicShortcut(display, first.ProcessId, letter.ToString(), "Exclusion Comment", false, false);
+                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, stage + ".png"), deadline.Token);
+                NativeKeyboard.SchematicShortcut(display, first.ProcessId, "click", "Exclusion Comment", false,
+                    clickFromRight: accept ? 60 : 150, clickFromBottom: 25);
+                delay = 25;
+                while (NativeKeyboard.HasWindow(display, first.ProcessId, "Exclusion Comment"))
+                { await Task.Delay(delay, window.Token); delay = Math.Min(delay * 2, 500); }
+                if (changedValue)
+                {
+                    await Changed(before);
+                    await first.Client.InvokeAsync<SaveDocument, Empty>(new() { Document = first.Document }, deadline.Token);
+                }
+                else
+                {
+                    var after = await Journal();
+                    Assert.AreEqual(before.DocumentEpoch, after.DocumentEpoch);
+                    Assert.AreEqual(before.Sequence, after.Sequence);
+                    Assert.AreEqual(beforeSave, await first.Client.InvokeAsync<ReadSchematicSaveState, SchematicSaveState>(
+                        new() { Document = first.Document }, deadline.Token));
+                    CollectionAssert.AreEqual(beforeFile, await File.ReadAllBytesAsync(first.Project, deadline.Token));
+                }
+                using var persisted = JsonDocument.Parse(await File.ReadAllBytesAsync(first.Project, deadline.Token));
+                var exclusions = persisted.RootElement.GetProperty("erc").GetProperty("erc_exclusions");
+                Assert.AreEqual(1, exclusions.GetArrayLength());
+                Assert.AreEqual(expected, exclusions[0].TryGetProperty("comment", out var comment) ? comment.GetString() : "");
+            }
         }
         catch (Exception error)
         {

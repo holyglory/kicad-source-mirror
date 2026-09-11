@@ -37,9 +37,10 @@ uses `670961b39bb12d162b71f38e36ce0755653e92db`, version
 `469fe0`, and public verification `ca42bd` passed. Generation 28 serves Intel
 feed 5 while preserving ARM feed 7, Linux feed 11, and 47 downloads.
 macOS 15.7+ is required; the application is ad-hoc signed, not notarized.
-The actual Intel `98c458670f26` to `670961b39bb1` update journey is
-`34562913032`; its result is still pending. Do not treat this public-download
-receipt as proof of that journey or full cross-platform qualification.
+The actual Intel `98c458670f26` to `670961b39bb1` update journey
+`34562913032` passed Save/Cancel, both restarts, preserved objects and the native
+manager/schematic/PCB modules. The older baseline lacks verified origin, so it
+does not establish Intel MCP reconnection. That next native pair remains open.
 
 ### Earlier Apple Silicon baseline — September 11, 2026
 
@@ -161,6 +162,29 @@ candidate at `cd4934ad7b` is now published for Apple Silicon above; the Intel
 job in `34507122230` remains in progress.
 
 ## Latest preliminary Linux update — September 11, 2026
+
+[Linux application](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T043346Z-8776ebe319af-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T043346Z-8776ebe319af-source.tar.gz)
+identify `8776ebe319af36041f5dadef9ed4f409b224d2cc`, version
+`preview-20260911T043346Z-8776ebe319af`. Generation 29 serves Linux feed 12,
+preserving ARM feed 7, Intel feed 5, and 49 downloads. The application SHA-256 is
+`a5b763e437139d71347d873210ea1f3b2a87a0fa856d7f8227deebb3c0683dbb`.
+
+Package `fe7e30`, signed staging `1b9cb4`, and public update/MCP check `7ca7a6`
+passed. Actual current-task Codex run `f6df6f` exercised this packaged MCP: a
+wrong-instance attachment returned `instance_mismatch` and its explanation,
+left both registrations unchanged, and subsequent connected moves, retries,
+stale rejection and native undo preserved both designs. Snapshots and returned
+images identified matching revisions. This extends the prior direct-client
+journey without claiming native-Mac frontend or automatic reverse XML proof.
+
+The exact machine-local `.codex/config.toml` is excluded when untracked and
+rejected if tracked in a public source commit. Unknown uncommitted source is
+still rejected. The subsequent invalid-endpoint argument-error extension is
+source-tested but is not in this frozen package. Full native Windows, XML,
+routing, simulation and Desktop qualification remain open.
+
+### Previous Linux checkpoint — September 11, 2026
 
 [Linux application](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T015249Z-3ac5af02cb7e-debian13-x64.tar.gz)
 and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T015249Z-3ac5af02cb7e-source.tar.gz)

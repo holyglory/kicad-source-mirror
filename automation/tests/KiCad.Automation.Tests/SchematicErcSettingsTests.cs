@@ -126,6 +126,23 @@ public sealed class SchematicErcSettingsTests
         Assert.AreEqual(unchangedXml, xml); Assert.AreEqual(unchangedNative, native);
     }
 
+    [TestMethod]
+    public void UnchangedErcRepresentationSurvivesReverseMergeWithoutFileChurn()
+    {
+        var before = SchematicHierarchyTopologyTests.Fixture().Instances[0].Clone();
+        before.Metadata.ErcSettings = Fixture();
+        var rules = before.Metadata.ErcSettings.RuleSeverities.Reverse().ToArray();
+        var pins = before.Metadata.ErcSettings.PinMap.Reverse().ToArray();
+        before.Metadata.ErcSettings.RuleSeverities.Clear(); before.Metadata.ErcSettings.RuleSeverities.Add(rules);
+        before.Metadata.ErcSettings.PinMap.Clear(); before.Metadata.ErcSettings.PinMap.Add(pins);
+        var native = before.Clone(); native.Metadata.TextVariables.Add("NATIVE_NOTE", "Keep user layout");
+        var merged = SchematicItemMerge.Plan(before, before.Clone(), native);
+        Assert.IsTrue(merged.CanApply);
+        Assert.AreEqual(native, merged.Merged);
+        Assert.IsEmpty(merged.NativeOperations);
+        Assert.AreEqual(SchematicDataXml.Write(native), SchematicDataXml.Write(merged.Merged!));
+    }
+
     internal static SchematicErcSettings Fixture()
     {
         var result = new SchematicErcSettings();

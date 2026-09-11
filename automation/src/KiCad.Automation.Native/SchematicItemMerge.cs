@@ -412,6 +412,10 @@ public static class SchematicItemMerge
         var before = SchematicErcSettingsValidation.Normalize(baseline, rules);
         var requested = SchematicErcSettingsValidation.Normalize(xml, rules);
         var observed = SchematicErcSettingsValidation.Normalize(native, rules);
+        // Canonical comparison must not reorder a chosen native/XML snapshot:
+        // unchanged synchronization must preserve its exact representation.
+        if (requested.Equals(observed) || before.Equals(requested)) { result = native.Clone(); return true; }
+        if (before.Equals(observed)) { result = xml.Clone(); return true; }
         var merged = new SchematicErcSettings();
         bool Entries<T>(IEnumerable<T> b, IEnumerable<T> x, IEnumerable<T> n, Func<T, string> key, Action<T> add)
             where T : class, IMessage<T>
@@ -419,7 +423,7 @@ public static class SchematicItemMerge
             var old = b.ToDictionary(key, StringComparer.Ordinal);
             var desired = x.ToDictionary(key, StringComparer.Ordinal);
             var live = n.ToDictionary(key, StringComparer.Ordinal);
-            foreach (string id in old.Keys.Concat(desired.Keys).Concat(live.Keys).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+            foreach (string id in n.Select(key).Concat(x.Select(key)).Concat(b.Select(key)).Distinct(StringComparer.Ordinal))
             {
                 old.TryGetValue(id, out var bv); desired.TryGetValue(id, out var xv); live.TryGetValue(id, out var nv);
                 if (!Choose(bv, xv, nv, out var value)) return false;
@@ -427,13 +431,14 @@ public static class SchematicItemMerge
             }
             return true;
         }
-        if (!Entries(before.RuleSeverities, requested.RuleSeverities, observed.RuleSeverities,
+        if (!Entries(baseline.RuleSeverities, xml.RuleSeverities, native.RuleSeverities,
                 rule => rule.RuleType.ToString(), merged.RuleSeverities.Add)
-            || !Entries(before.PinMap, requested.PinMap, observed.PinMap,
+            || !Entries(baseline.PinMap, xml.PinMap, native.PinMap,
                 cell => cell.First + "/" + cell.Second, merged.PinMap.Add)
-            || !Entries(before.Exclusions, requested.Exclusions, observed.Exclusions,
+            || !Entries(baseline.Exclusions, xml.Exclusions, native.Exclusions,
                 exclusion => exclusion.Marker.ToByteString().ToBase64(), merged.Exclusions.Add)) return false;
-        result = SchematicErcSettingsValidation.Normalize(merged, rules);
+        SchematicErcSettingsValidation.Validate(merged, rules);
+        result = merged;
         return true;
     }
 

@@ -1263,6 +1263,28 @@ name = "native-objects"
 tier = "development"
 command = ["cmake", "--build", "automation/artifacts/native", "--target", "kiapi", "common/CMakeFiles/kicommon.dir/api/api_server.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad_manager_frame.cpp.o"]
 
+[test.native-erc-overrides]
+timeout_seconds = 3600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.native-erc-overrides.check]]
+name = "configure"
+tier = "development"
+role = "preflight"
+invalidates = ["native-build", "override-model"]
+command = ["cmake", "-S", ".", "-B", "automation/artifacts/native", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug", "-DKICAD_USE_CMAKE_FINDPROTOBUF=ON", "-DKICAD_BUILD_QA_TESTS=ON"]
+
+[[test.native-erc-overrides.check]]
+name = "native-build"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "eeschema_kiface", "qa_symbol_graphic_identity"]
+
+[[test.native-erc-overrides.check]]
+name = "override-model"
+tier = "development"
+requires = ["native-build"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_erc_override_edits$", "--output-on-failure", "--no-tests=error"]
+
 [test.native-foundation]
 timeout_seconds = 3600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

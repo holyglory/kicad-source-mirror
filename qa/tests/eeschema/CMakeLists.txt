@@ -353,6 +353,7 @@ add_executable( qa_symbol_graphic_identity
     test_schematic_initialization.cpp
     test_sch_text_presentation.cpp
     test_drawing_sheet_context.cpp
+    erc/test_erc_marker_counts.cpp
     ../common/test_settings_snapshot.cpp
     ../libs/kinng/test_publisher.cpp
 )
@@ -365,3 +366,8 @@ target_compile_definitions( qa_symbol_graphic_identity PUBLIC EESCHEMA )
 target_include_directories( qa_symbol_graphic_identity PRIVATE ${NNG_INCLUDE_DIR} )
 kicad_add_boost_test( qa_symbol_graphic_identity qa_symbol_graphic_identity )
 setup_qa_env( qa_symbol_graphic_identity )
+
+add_test( NAME qa_erc_override_edits
+    COMMAND $<TARGET_FILE:qa_symbol_graphic_identity>
+        --run_test=ERCMarkerCountsExclusion,ERCSeverityReportsStoredChangesOnly --log_level=test_suite )
+setup_qa_env( qa_erc_override_edits )

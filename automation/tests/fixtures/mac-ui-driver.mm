@@ -157,20 +157,30 @@ int main( int argc, char** argv )
                     if( CFGetTypeID( window ) == AXUIElementGetTypeID()
                         && [textAttribute( window, kAXTitleAttribute ) isEqualToString:title] ) owners.push_back( window );
                 }
-            bool raised = false;
+            bool raised = false; NSString* focusedTitle = @""; bool frontmost = false;
+            AXError raiseError = kAXErrorNoValue, focusError = kAXErrorNoValue;
             if( owners.size() == 1 && matchesProcess() )
             {
                 [[NSRunningApplication runningApplicationWithProcessIdentifier:pid] activateWithOptions:NSApplicationActivateIgnoringOtherApps];
-                raised = AXUIElementPerformAction( owners[0], kAXRaiseAction ) == kAXErrorSuccess;
+                Boolean settable = false;
+                if( AXUIElementIsAttributeSettable( owners[0], kAXMainAttribute, &settable ) == kAXErrorSuccess && settable )
+                    AXUIElementSetAttributeValue( owners[0], kAXMainAttribute, kCFBooleanTrue );
+                raiseError = AXUIElementPerformAction( owners[0], kAXRaiseAction );
+                raised = raiseError == kAXErrorSuccess;
                 if( raised )
                 {
                     bool focused = false;
                     for( int attempt = 0; attempt < 50 && !focused; ++attempt )
                     {
                         CFTypeRef actual = nullptr;
-                        AXUIElementCopyAttributeValue( application, kAXFocusedWindowAttribute, &actual );
-                        focused = actual && CFEqual( actual, owners[0] )
-                            && [[NSRunningApplication runningApplicationWithProcessIdentifier:pid] isActive];
+                        focusError = AXUIElementCopyAttributeValue( application, kAXFocusedWindowAttribute, &actual );
+                        CFTypeRef active = nullptr;
+                        AXUIElementCopyAttributeValue( application, kAXFrontmostAttribute, &active );
+                        frontmost = active && CFGetTypeID( active ) == CFBooleanGetTypeID() && CFBooleanGetValue( (CFBooleanRef)active );
+                        if( active ) CFRelease( active );
+                        focusedTitle = actual && CFGetTypeID( actual ) == AXUIElementGetTypeID()
+                            ? textAttribute( (AXUIElementRef)actual, kAXTitleAttribute ) : @"";
+                        focused = actual && CFEqual( actual, owners[0] ) && frontmost;
                         if( actual ) CFRelease( actual );
                         if( !focused ) [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
                     }
@@ -181,7 +191,9 @@ int main( int argc, char** argv )
             if( !raised )
             {
                 CFRelease( application );
-                emit( @{ @"schemaVersion": @1, @"status": @"no_unique_menu_window" } ); return 5;
+                emit( @{ @"schemaVersion": @1, @"status": @"menu_window_not_ready", @"matches": @(owners.size()),
+                    @"requestedTitle": title ?: @"", @"focusedTitle": focusedTitle, @"frontmost": @(frontmost),
+                    @"raiseError": @(raiseError), @"focusError": @(focusError) } ); return 5;
             }
             CFTypeRef bar = nullptr;
             AXUIElementCopyAttributeValue( application, kAXMenuBarAttribute, &bar );

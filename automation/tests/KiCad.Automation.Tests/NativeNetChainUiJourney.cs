@@ -61,7 +61,11 @@ public sealed partial class NativeSessionTests
             var selection = await client.InvokeAsync<AddToSelection, SelectionResponse>(select, token);
             Assert.IsTrue(selection.Items.Any(i => i.Is(SchematicPin.Descriptor) && i.Unpack<SchematicPin>().Id.Value == pinId),
                 "The real native context menu requires the exact placed pin selection.");
-            Key("Menu");
+            // Open the actual canvas context menu without a left click that
+            // would clear the explicit pin selection. The keyboard Menu key
+            // is not handled by this GAL canvas on GTK.
+            NativeKeyboard.SchematicShortcut(display, processId, "right-click", controlKey: false,
+                focusCanvas: true, clickFromLeft: 640, clickFromTop: 450);
             await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-context-menu.png"), token);
             // Zoom and Grid are the two final standard submenus. Net Chain
             // precedes them; Name precedes Create in the single-pin submenu.

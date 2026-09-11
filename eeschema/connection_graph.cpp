@@ -4078,7 +4078,18 @@ void CONNECTION_GRAPH::refreshCommittedChainPayload( SCH_NETCHAIN* aTarget,
     else
         aTarget->SetTerminalPins( aTerminalPinA, aTerminalPinB );
 
-    aTarget->SetTerminalRefs( aRefA, aPinNumA, aRefB, aPinNumB );
+    // An explicitly retargeted pin has a persisted reference as well as a
+    // runtime UUID. Keep that declared endpoint when refreshing the inferred
+    // potential; otherwise saving after recalculation loses the user's edit.
+    auto refOverride = m_netChainTerminalRefOverrides.find( aTarget->GetName() );
+    if( termOverride != m_netChainTerminalOverrides.end()
+            && refOverride != m_netChainTerminalRefOverrides.end() )
+    {
+        const auto& refs = refOverride->second;
+        aTarget->SetTerminalRefs( refs.first.ref, refs.first.pin, refs.second.ref, refs.second.pin );
+    }
+    else
+        aTarget->SetTerminalRefs( aRefA, aPinNumA, aRefB, aPinNumB );
 
     for( SCH_SYMBOL* sym : aTarget->GetSymbols() )
         sym->SetNetChainName( aTarget->GetName() );

@@ -24,9 +24,13 @@ internal sealed class StdioMcpFixture : IAsyncDisposable
             catch (OperationCanceledException) when (diagnosticsStop.IsCancellationRequested) { }
         }
     }
-    internal static async Task<StdioMcpFixture> StartAsync(string state, string evidence, CancellationToken token)
+    internal static Task<StdioMcpFixture> StartAsync(string state, string evidence, CancellationToken token) =>
+        StartAsync(UpdateCommandTests.StartInfo(), state, evidence, token);
+
+    internal static async Task<StdioMcpFixture> StartAsync(ProcessStartInfo start, string state, string evidence, CancellationToken token)
     {
-        var start = UpdateCommandTests.StartInfo(); start.RedirectStandardInput = true;
+        start.UseShellExecute = false; start.RedirectStandardInput = true;
+        start.RedirectStandardOutput = true; start.RedirectStandardError = true;
         start.StandardInputEncoding = new UTF8Encoding(false); start.StandardOutputEncoding = new UTF8Encoding(false);
         start.Environment["KICAD_AUTOMATION_STATE_DIRECTORY"] = state;
         var fixture = new StdioMcpFixture(Process.Start(start)!, evidence, token);

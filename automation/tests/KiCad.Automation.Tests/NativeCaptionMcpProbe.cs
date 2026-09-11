@@ -1,0 +1,133 @@
+using System.Diagnostics;
+using System.Text.Json;
+using Google.Protobuf.WellKnownTypes;
+using KiCad.Automation.Mcp;
+using KiCad.Automation.Native;
+using KiCad.Automation.Protocol;
+using Kiapi.Common.Types;
+using Kiapi.Schematic.Types;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace KiCad.Automation.Tests;
+
+/// <summary>Actual packaged STDIO service held across the native caption journey.</summary>
+internal sealed class NativeCaptionMcpProbe(string state, string evidence, CancellationToken token) : IAsyncDisposable
+{
+    private StdioMcpFixture? mcp;
+    private readonly Dictionary<string, Design> designs = new();
+    private int starts;
+    public int ReconnectedDesigns { get; private set; }
+    public bool ServerRestartVerified { get; private set; }
+
+    public async Task StartAsync(string executable)
+    {
+        Assert.IsTrue(File.Exists(executable));
+        var start = new ProcessStartInfo(executable);
+        start.Environment.Remove("KICAD_AUTOMATION_NNG_LIBRARY");
+        mcp = await StdioMcpFixture.StartAsync(start, state, Path.Combine(evidence, "caption-mcp-" + starts++ + ".stderr.log"), token);
+    }
+
+    public async Task AttachDesignAsync(string id, string name, NativeClient native, string schematic)
+    {
+        Success(await mcp!.Tool("kicad_instance_attach", new { endpoint = native.Endpoint, expectedInstanceId = id }));
+        var document = (await native.OpenRootSchematicAsync(schematic, token)).Document;
+        var before = await native.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = document }, token);
+        string markerId = Guid.NewGuid().ToString("D"), markerText = "Public update " + name + " note " + Guid.NewGuid().ToString("N");
+        var batch = new ApplySchematicItemBatch { Document = document, ExpectedRevision = before.Revision,
+            DocumentEpoch = before.Revision.Epoch, OperationId = Guid.NewGuid().ToString("D"), Description = "Public update preservation fixture" };
+        batch.Operations.Add(new SchematicItemOperation { Create = Any.Pack(new SchematicText
+        {
+            Id = new() { Value = markerId }, Text = new() { Text_ = markerText,
+                Position = new() { XNm = 100000000, YNm = 80000000 },
+                Attributes = new() { Size = new() { XNm = 2000000, YNm = 2000000 } } }
+        }) });
+        await native.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(batch, token);
+        designs.Add(id, new(name, native.Epoch!, document, markerId, markerText, before.Revision.Epoch));
+        await ObserveAsync(id, name + "-before-update", originalDocumentEpoch: true);
+    }
+
+    public async Task ObserveAsync(string id, string phase, bool originalDocumentEpoch)
+    {
+        Design design = designs[id]; JsonElement result;
+        int delay = 50;
+        while (true)
+        {
+            result = await mcp!.Tool("kicad_schematic_observe", new { instanceId = id, documentJson = SchematicJson.Formatter.Format(design.Document) });
+            if (!IsError(result)) break;
+            string? code = result.TryGetProperty("structuredContent", out var failure) && failure.TryGetProperty("code", out var value) ? value.GetString() : null;
+            if (code is not ("native_status_4" or "native_status_7")) { Success(result); break; }
+            await Task.Delay(delay, token); delay = Math.Min(delay * 2, 500);
+        }
+        Success(result);
+        var content = result.GetProperty("structuredContent");
+        Assert.AreEqual(id, content.GetProperty("instanceId").GetString());
+        var observation = SchematicJson.Parser.Parse<SchematicObservation>(content.GetProperty("observation").GetRawText());
+        Assert.AreEqual(design.Document, observation.Preview.Document);
+        Assert.AreEqual(observation.Snapshot.Revision, observation.Preview.Revision);
+        var marker = observation.Snapshot.Data.Items.Where(x => x.Is(SchematicText.Descriptor)).Select(x => x.Unpack<SchematicText>())
+            .Single(x => x.Id.Value == design.MarkerId);
+        Assert.AreEqual(design.MarkerText, marker.Text.Text_);
+        if (originalDocumentEpoch) Assert.AreEqual(design.OriginalDocumentEpoch, observation.Snapshot.Revision.Epoch);
+        else Assert.AreNotEqual(design.OriginalDocumentEpoch, observation.Snapshot.Revision.Epoch);
+        byte[] image = Convert.FromBase64String(result.GetProperty("content").EnumerateArray()
+            .Single(x => x.GetProperty("type").GetString() == "image").GetProperty("data").GetString()!);
+        Assert.IsTrue(image.Length > 24 && image.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }));
+        await File.WriteAllBytesAsync(Path.Combine(evidence, phase + "-mcp.png"), image, token);
+        await File.WriteAllTextAsync(Path.Combine(evidence, phase + "-mcp.json"), content.GetRawText(), token);
+    }
+
+    public async Task ReconnectAsync(string id, string installation, UpdateHandoffState replacement, string? restartExecutable = null)
+    {
+        Design design = designs[id];
+        string operation = Path.GetFileName(replacement.JournalDirectory);
+        Assert.IsTrue(Guid.TryParseExact(operation, "D", out _));
+        var arguments = new { instanceId = id, installationRoot = installation, operationId = operation, expectedOldEpoch = design.OriginalEpoch };
+        var result = Success(await mcp!.Tool("kicad_instance_reconnect_after_update", arguments));
+        var adopted = result.GetProperty("structuredContent");
+        Assert.AreEqual(id, adopted.GetProperty("instanceId").GetString());
+        Assert.AreEqual(replacement.NativeEpoch, adopted.GetProperty("epoch").GetString());
+        Assert.IsFalse(adopted.GetProperty("reused").GetBoolean());
+        Assert.IsTrue(adopted.GetProperty("freshSnapshotRequired").GetBoolean());
+        await ObserveAsync(id, design.Name + "-after-update", originalDocumentEpoch: false);
+        var retry = Success(await mcp.Tool("kicad_instance_reconnect_after_update", arguments));
+        Assert.IsTrue(retry.GetProperty("structuredContent").GetProperty("reused").GetBoolean());
+        ReconnectedDesigns++;
+        foreach (var (otherId, other) in designs.Where(x => x.Key != id && !x.Value.Reconnected))
+            await ObserveAsync(otherId, other.Name + "-neighbor-preserved", originalDocumentEpoch: true);
+        design.Reconnected = true;
+
+        if (restartExecutable is not null)
+        {
+            await mcp.DisposeAsync(); mcp = null;
+            await StartAsync(restartExecutable);
+            var restored = Success(await mcp!.Tool("kicad_instance_reconnect_after_update", arguments));
+            Assert.IsTrue(restored.GetProperty("structuredContent").GetProperty("reused").GetBoolean());
+            await ObserveAsync(id, design.Name + "-after-mcp-restart", originalDocumentEpoch: false);
+            foreach (var (otherId, other) in designs.Where(x => x.Key != id))
+            {
+                Success(await mcp.Tool("kicad_instance_reattach", new { instanceId = otherId }));
+                await ObserveAsync(otherId, other.Name + "-after-mcp-restart", originalDocumentEpoch: !other.Reconnected);
+            }
+            ServerRestartVerified = true;
+        }
+        await File.WriteAllTextAsync(Path.Combine(evidence, "caption-mcp-reconnection.json"), JsonSerializer.Serialize(new
+        { schemaVersion = 1, actualPackagedMcp = true, actualPublicCaptionJourney = true, reconnectedDesigns = ReconnectedDesigns,
+            serverRestartVerified = ServerRestartVerified, stableObjectIdentityPreserved = true, matchingImageState = true,
+            automaticXmlSynchronizationVerified = false, codexDesktopQualified = false }), token);
+    }
+
+    private static bool IsError(JsonElement value) => value.TryGetProperty("isError", out var error) && error.GetBoolean();
+    private static JsonElement Success(JsonElement result)
+    { Assert.IsFalse(IsError(result), result.GetRawText()); return result; }
+    public async ValueTask DisposeAsync() { if (mcp is not null) { await mcp.DisposeAsync(); mcp = null; } }
+    private sealed class Design(string name, string epoch, DocumentSpecifier document, string markerId, string markerText, string documentEpoch)
+    {
+        internal string Name { get; } = name;
+        internal string OriginalEpoch { get; } = epoch;
+        internal DocumentSpecifier Document { get; } = document;
+        internal string MarkerId { get; } = markerId;
+        internal string MarkerText { get; } = markerText;
+        internal string OriginalDocumentEpoch { get; } = documentEpoch;
+        internal bool Reconnected { get; set; }
+    }
+}

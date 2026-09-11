@@ -35,12 +35,16 @@ public sealed partial class NativeSessionTests
     public Task PublicSignedCaptionUpdateDownloadsPreservesDirtyWorkAndRestartsTwoProjects()
         => RunCaptionUpdateJourney(automaticContext: true, publicChannel: true);
 
+    [TestMethod, TestCategory("PublicCaptionMcpUpdate"), TestCategory("ExternalIntegration")]
+    public Task PublicCaptionUpdateReconnectsPackagedMcpAndPreservesTwoDesigns()
+        => RunCaptionUpdateJourney(automaticContext: true, publicChannel: true, reconnectMcp: true);
+
     [TestMethod]
     [TestCategory("EmptyCaptionUpdate")]
     public Task EmptyManagerCaptionUpdateRejectsDriftAndRestartsWithoutOpeningAProject()
         => RunCaptionUpdateJourney(automaticContext: true, publicChannel: false, emptyManager: true);
 
-    private async Task RunCaptionUpdateJourney(bool automaticContext, bool publicChannel, bool emptyManager = false)
+    private async Task RunCaptionUpdateJourney(bool automaticContext, bool publicChannel, bool emptyManager = false, bool reconnectMcp = false)
     {
         string cataloguePath = Environment.GetEnvironmentVariable("KICAD_CAPTION_PACKAGE_CATALOGUE")
             ?? throw new AssertFailedException("Select the frozen caption-enabled package catalogue.");
@@ -52,7 +56,7 @@ public sealed partial class NativeSessionTests
         var candidateArtifact = candidateCatalogue.Manifest.Artifacts.Single(item => item.Platform == "linux-x64" && item.FileName.EndsWith(".tar.gz", StringComparison.Ordinal));
         if (!automaticContext || publicChannel) Assert.AreNotEqual(artifact.Commit, candidateArtifact.Commit, "This case must upgrade between different source builds.");
         string evidence = Directory.CreateDirectory(Path.Combine(CaptionUpdateEvidence.Value,
-            emptyManager ? "empty-manager" : publicChannel ? "public-signed" : automaticContext ? "automatic-context" : "different-build")).FullName;
+            reconnectMcp ? "public-mcp" : emptyManager ? "empty-manager" : publicChannel ? "public-signed" : automaticContext ? "automatic-context" : "different-build")).FullName;
         string temporary = Directory.CreateTempSubdirectory("kicad-caption-ui-").FullName;
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(8));
         WebApplication? app = null;
@@ -61,6 +65,7 @@ public sealed partial class NativeSessionTests
         var captures = new List<Task>();
         string? displayName = null;
         string installationRoot = Path.Combine(temporary, "installation");
+        NativeCaptionMcpProbe? mcpProbe = null;
         try
         {
             byte[] installedEnvelope, candidateEnvelope, publisherKey;
@@ -176,6 +181,12 @@ public sealed partial class NativeSessionTests
             }
             if (!emptyManager) await client.CreateRootSchematicAsync(schematic, deadline.Token);
             else Assert.AreEqual("", (await client.HandshakeAsync(deadline.Token)).ProjectPath);
+            if (reconnectMcp)
+            {
+                mcpProbe = new NativeCaptionMcpProbe(Path.Combine(temporary, "mcp-registry"), evidence, deadline.Token);
+                await mcpProbe.StartAsync(Path.Combine(prefix, "lib/kicad-automation/kicad-mcp"));
+                await mcpProbe.AttachDesignAsync(instance, "first", client, schematic);
+            }
             await WaitLog("\"status\":\"candidate_available\"");
             Assert.IsTrue(Directory.Exists(candidateDirectory));
             Process? secondNative = null;
@@ -219,6 +230,7 @@ public sealed partial class NativeSessionTests
                 }
                 secondEpoch = secondClient.Epoch;
                 await secondClient.CreateRootSchematicAsync(secondSchematic, deadline.Token);
+                if (mcpProbe is not null) await mcpProbe.AttachDesignAsync(secondInstance, "second", secondClient, secondSchematic);
                 while (!File.Exists(secondLog) || !(await File.ReadAllTextAsync(secondLog, deadline.Token)).Contains("\"status\":\"candidate_available\"", StringComparison.Ordinal))
                     await Task.Delay(100, deadline.Token);
             }
@@ -247,6 +259,7 @@ public sealed partial class NativeSessionTests
                 Assert.IsFalse(native.HasExited);
                 Assert.AreEqual(initialTarget, LinuxUpdateActivation.InspectTarget(installed.ManagerDirectory));
                 Assert.IsFalse(File.Exists(schematic));
+                if (mcpProbe is not null) await mcpProbe.ObserveAsync(instance, "first-after-cancel", originalDocumentEpoch: true);
                 if (!saveThroughUpdatePrompt)
                 {
                     NativeKeyboard.SchematicShortcut(displayName, native.Id, "s");
@@ -306,6 +319,9 @@ public sealed partial class NativeSessionTests
                 CollectionAssert.AreEqual(projectBefore, await File.ReadAllBytesAsync(project, deadline.Token));
             }
             await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "after-caption-update.png"), deadline.Token);
+            if (mcpProbe is not null)
+                await mcpProbe.ReconnectAsync(instance, installationRoot, restarted,
+                    Path.Combine(candidateDirectory, "runtime/lib/kicad-automation/kicad-mcp"));
             if (secondNative is not null)
             {
                 Assert.IsFalse(secondNative.HasExited, "Updating one project must not close the other editor.");
@@ -339,6 +355,7 @@ public sealed partial class NativeSessionTests
                 Assert.AreNotEqual(secondEpoch, secondPeer.Epoch);
                 await secondPeer.OpenRootSchematicAsync(secondSchematic!, deadline.Token);
                 CollectionAssert.AreEqual(secondSaved, await File.ReadAllBytesAsync(secondSchematic!, deadline.Token));
+                if (mcpProbe is not null) await mcpProbe.ReconnectAsync(secondInstance!, installationRoot, secondRestart);
                 await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "second-instance-updated.png"), deadline.Token);
                 Assert.IsFalse(replacement.HasExited);
                 NativeKeyboard.SchematicShortcut(displayName, secondReplacement.Id, "q", "KiCad", true, false);
@@ -363,6 +380,8 @@ public sealed partial class NativeSessionTests
                 automaticManagedContext = automaticContext, secondLiveInstanceCaptionUpdate = secondNative is not null,
                 productionSigning = publicChannel, publicDownloadAndRegistration = publicChannel,
                 publisherKeySha256 = candidateManifest.PublisherKeySha256, origin,
+                packagedMcpReconnectedBothDesigns = mcpProbe?.ReconnectedDesigns == 2,
+                packagedMcpRestartVerified = mcpProbe?.ServerRestartVerified == true,
                 automaticUpdatingQualified = false, nativeMacVerified = false
             }), deadline.Token);
 
@@ -385,6 +404,7 @@ public sealed partial class NativeSessionTests
         }
         finally
         {
+            if (mcpProbe is not null) await mcpProbe.DisposeAsync();
             if (displayName is not null)
             {
                 try { await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "final-caption-display.png"), CancellationToken.None); }

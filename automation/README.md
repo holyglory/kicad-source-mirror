@@ -27,8 +27,13 @@ The first fixed-pair UI run (`34546066845`) failed before clicking Update.
 Separating preparation from UI readiness and revealing the owning window fixed
 both native architectures in `34547458961`: actual Update/Cancel/Save, preserved
 objects, both restarts and the independent project passed. The concrete
-concurrent-preparation and visible-control outcomes are closed; actual PCB module
-loading in the same process remains under verification (`p2e0d3607542a597b`).
+concurrent-preparation and visible-control outcomes are closed. The extended
+actual manager/schematic/PCB module journey then passed on Apple Silicon
+(`34551617264`) and Intel (`34551788482`) using harness `3ac5af02cb7e` against the
+same frozen package pair. Both projects retain their objects through updates,
+open their requested PCB through the native menu, and show no duplicate
+Objective-C class registrations. The concrete module issue
+`p2e0d3607542a597b` is closed; full engineering/updater qualification is not.
 These test repairs did not change the frozen package bytes. These
 downloads are not full updater, Codex Desktop or engineering qualification.
 They also predate the newer verified-origin MCP reconnection code.

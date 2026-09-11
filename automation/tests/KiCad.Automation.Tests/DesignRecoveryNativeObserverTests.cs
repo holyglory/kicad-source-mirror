@@ -73,6 +73,24 @@ public sealed class DesignRecoveryNativeObserverTests
     });
 
     [TestMethod]
+    public Task SameRevisionEventRestoresConnectivityInvalidatedByHierarchyOnlyRefresh() => Isolated(async fixture =>
+    {
+        using var observer = await fixture.Observer(); await observer.ReceiveAsync();
+        fixture.Source.Send(fixture.Packet(0)); await observer.ReceiveAsync();
+        fixture.Transport.Change("independent hierarchy refresh", 43);
+        var saved = fixture.Store.Read()!;
+        var refreshed = await DesignRecoveryInspector.RefreshAsync(fixture.Store,
+            new NativeClient(fixture.Transport, "ipc:///native-intake-fixture.sock", "process-epoch"), saved.RevisionToken);
+        Assert.IsNull(refreshed.State.ObservedElectrical);
+        fixture.Source.Send(fixture.Packet(1, 43));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var recovered = await observer.ReceiveAsync(deadline.Token);
+        Assert.IsNotNull(recovered.RecoveryRevisionToken);
+        Assert.AreEqual(43UL, fixture.Store.Read()!.State.ObservedElectrical!.Hierarchy.Revision.Sequence);
+        Assert.AreEqual(refreshed.State.Observed, fixture.Store.Read()!.State.Observed);
+    });
+
+    [TestMethod]
     public Task ConcurrentXmlSaveIsRetainedWhileNativeObservationRetries() => Isolated(async fixture =>
     {
         using var observer = await fixture.Observer();

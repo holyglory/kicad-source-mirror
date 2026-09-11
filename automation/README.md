@@ -782,6 +782,19 @@ all existing foundation checks passed. The tools are not yet in the published
 packages. Complete revision admission, Mac/Windows/actual-Desktop qualification
 and automatic electrical propagation remain unfinished.
 
+Recovery can retain separate baseline and current electrical checkpoints.
+Version 3 stores typed net XML, revision/coverage and limitations alongside the
+already-owned hierarchies; legacy recovery records remain readable without
+being rewritten when unchanged. `kicad_design_electrical_baseline_initialize`
+requires the exact recovery token, no pending operation, an unchanged native
+baseline hierarchy and agreement of explicitly mapped circuit pins. It will not
+replace an existing baseline. Native intake refreshes current connectivity,
+while preserving the original baseline, requirements and desired bytes. A
+hierarchy-only refresh discards a now-stale electrical observation instead of
+pretending it still matches. This source-only recovery integration is under
+native qualification; it does not yet publish design XML or apply electrical
+changes automatically.
+
 Successful plans include merged XML, ordered native operations and explicit
 coverage gaps. This tool does not access files, apply a batch, resolve electrical
 intent or advance the synchronized baseline. Concurrent edits inside a reparented

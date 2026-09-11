@@ -791,9 +791,13 @@ baseline hierarchy and agreement of explicitly mapped circuit pins. It will not
 replace an existing baseline. Native intake refreshes current connectivity,
 while preserving the original baseline, requirements and desired bytes. A
 hierarchy-only refresh discards a now-stale electrical observation instead of
-pretending it still matches. This source-only recovery integration is under
-native qualification; it does not yet publish design XML or apply electrical
-changes automatically.
+pretending it still matches. This source-only recovery integration passed all
+11 Linux native checks in `t20260911T191535Z-583a7e` on
+`86ac7cef7555f00a9592f09e2bd8d2bd48b90004`, including MCP initialization
+refusals, manual disconnection/undo observation, preserved baseline and invalid
+desired bytes, and unchanged recovery writes. It does not yet publish design
+XML or apply electrical changes automatically, and its Mac/Windows/actual-Desktop
+qualification remains unfinished.
 
 Successful plans include merged XML, ordered native operations and explicit
 coverage gaps. This tool does not access files, apply a batch, resolve electrical

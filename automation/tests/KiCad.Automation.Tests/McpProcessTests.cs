@@ -108,6 +108,7 @@ public sealed class McpProcessTests
                 arguments = new { designXml = engineeringXml, knowledgeLibraryXml } });
             var engineeringState = engineeringResult.GetProperty("result").GetProperty("structuredContent");
             Assert.IsTrue(engineeringState.GetProperty("modelValid").GetBoolean());
+            Assert.IsTrue(engineeringState.GetProperty("netBindingsResolved").GetBoolean());
             Assert.AreEqual(engineering.Circuit.Id, engineeringState.GetProperty("designId").GetGuid());
             Assert.AreEqual(1, engineeringState.GetProperty("guidance").EnumerateObject().Count());
             var missingLibrary = await Request(1002, "tools/call", new { name = "kicad_engineering_design_validate",
@@ -118,6 +119,15 @@ public sealed class McpProcessTests
             var engineeringRecovery = await Request(1003, "tools/call", new { name = "kicad_engineering_design_validate",
                 arguments = new { designXml = engineeringXml, knowledgeLibraryXml } });
             Assert.IsTrue(engineeringRecovery.GetProperty("result").GetProperty("structuredContent").GetProperty("modelValid").GetBoolean());
+            var split = UnresolvedNetBindingTests.Split();
+            string unresolvedXml = EngineeringDesignXml.Write(new(split.After, split.Pending, [], []), []);
+            var unresolved = await Request(1004, "tools/call", new { name = "kicad_engineering_design_validate",
+                arguments = new { designXml = unresolvedXml, knowledgeLibraryXml = Array.Empty<string>() } });
+            var unresolvedState = unresolved.GetProperty("result").GetProperty("structuredContent");
+            Assert.IsTrue(unresolvedState.GetProperty("modelValid").GetBoolean());
+            Assert.IsFalse(unresolvedState.GetProperty("netBindingsResolved").GetBoolean());
+            Assert.AreEqual(2, unresolvedState.GetProperty("unresolvedNetBindings").GetArrayLength());
+            Assert.AreEqual(split.Before.Nets[0].Id, unresolvedState.GetProperty("unresolvedNetBindings")[0].GetProperty("formerNetId").GetGuid());
             CollectionAssert.Contains(names, "kicad_design_bindings_inspect");
             var (linkedDesign, linkedLibrary) = SchematicDesignTests.Fixture();
             string linkedXml = SchematicDesignXml.Write(linkedDesign, [linkedLibrary]);

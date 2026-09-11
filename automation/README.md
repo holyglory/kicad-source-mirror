@@ -743,15 +743,26 @@ or discarding dirty documents. Baseline requirements, desired XML bytes
 
 This native intake is **observation into recovery state**, not automatic
 design-XML write-back, native delta application or complete revision admission.
-Those workflows remain unfinished. These source tools are not yet included in
-the public packages described above; frozen native/MCP verification is separate
-from the focused managed/STDIO checks.
+Those workflows remain unfinished. Native intake is included in the Linux
+preview described above; Mac/Windows qualification of these tools is separate
+from the focused managed/STDIO and Linux native checks.
 Linux native run `t20260911T151857Z-9b14cc` passed all 11 foundation checks on
 `0fe15e0a79cf3ae3cfb65899567abd0d65a2932a`, including real MCP event intake,
 native edits and keyboard undo/redo, persistence failure and explicit resume,
 preserved invalid desired bytes/baseline, and graceful MCP shutdown with an
 active observer. Native Mac/Windows and actual Codex Desktop qualification of
 these new tools remain separate, unfinished release work.
+
+The engineering structure also has optional typed `unresolved-net-bindings`.
+These preserve an affected statement or structural connection, its former net
+identity, change reason and possible current-net candidates after an explicit
+split, merge, removal or identity change. Candidates are not assignments:
+`kicad_engineering_design_validate` reports them separately and returns
+`netBindingsResolved: false`. Requirement text, strength and provenance remain
+unchanged, and explicit reassignment resolves only the selected owner. Ordinary
+undeclared dangling references are still rejected. This model/XML support is
+not yet connected to automatic native electrical reconciliation and is not in
+the currently published packages.
 
 Successful plans include merged XML, ordered native operations and explicit
 coverage gaps. This tool does not access files, apply a batch, resolve electrical

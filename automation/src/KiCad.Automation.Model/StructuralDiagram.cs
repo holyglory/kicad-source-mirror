@@ -2,6 +2,11 @@ namespace KiCad.Automation.Model;
 
 public enum EngineeringStatementRole { Intent, Interpretation, Realization }
 public enum StructuralConnectionKind { Unspecified, Power, Data, Control, Analog, Mechanical }
+public enum NetBindingChangeKind { Split, Merged, Removed, Reidentified }
+public sealed record UnresolvedNetBinding(Guid OwnerId, Guid FormerNetId, NetBindingChangeKind Change,
+    string Reason, IReadOnlyList<Guid> CandidateNetIds);
+public sealed record NetIdentityChange(Guid FormerNetId, NetBindingChangeKind Change,
+    string Reason, IReadOnlyList<Guid> CandidateNetIds);
 
 // Strength and specificity are orthogonal: a concrete pin connection can be a
 // preference, while prose can be mandatory. A realization is not a requirement.
@@ -18,8 +23,11 @@ public sealed record StructuralConnection(Guid Id, Guid FirstPortId, Guid Second
 /// coordinates belong to presentation, not connectivity or requirement strength.</summary>
 public sealed record StructuralDiagram(Guid Id, IReadOnlyList<StructuralBlock> Blocks,
     IReadOnlyList<StructuralPort> Ports, IReadOnlyList<StructuralConnection> Connections,
-    IReadOnlyList<EngineeringStatement> Statements)
+    IReadOnlyList<EngineeringStatement> Statements,
+    IReadOnlyList<UnresolvedNetBinding>? UnresolvedNetBindings = null)
 {
+    public bool HasUnresolvedNetBindings => UnresolvedNetBindings is { Count: > 0 };
+
     public void Validate(Circuit circuit)
     {
         circuit.Validate();
@@ -36,6 +44,17 @@ public sealed record StructuralDiagram(Guid Id, IReadOnlyList<StructuralBlock> B
         Add(Id);
         var componentIds = circuit.Components.Select(c => c.Id).ToHashSet();
         var netIds = circuit.Nets.Select(n => n.Id).ToHashSet();
+        var unresolved = new Dictionary<(Guid Owner, Guid Former), UnresolvedNetBinding>();
+        foreach (var binding in UnresolvedNetBindings ?? [])
+        {
+            if (binding.OwnerId == Guid.Empty || binding.FormerNetId == Guid.Empty
+                || !Enum.IsDefined(binding.Change) || string.IsNullOrWhiteSpace(binding.Reason)
+                || !unresolved.TryAdd((binding.OwnerId, binding.FormerNetId), binding)
+                || (electricalIds.Contains(binding.FormerNetId) && !netIds.Contains(binding.FormerNetId))
+                || binding.CandidateNetIds.Distinct().Count() != binding.CandidateNetIds.Count
+                || binding.CandidateNetIds.Any(id => !netIds.Contains(id)))
+                throw Invalid("Unresolved net bindings require exact owners, former net identities, reasons and distinct existing candidates.");
+        }
         foreach (var block in Blocks)
         {
             Add(block.Id);
@@ -82,7 +101,8 @@ public sealed record StructuralDiagram(Guid Id, IReadOnlyList<StructuralBlock> B
         foreach (var statement in Statements)
         {
             Add(statement.Id);
-            if (!targets.Contains(statement.TargetId)) throw Invalid("Statement target is unresolved.");
+            if (!targets.Contains(statement.TargetId) && !unresolved.ContainsKey((statement.Id, statement.TargetId)))
+                throw Invalid("Statement target is unresolved without an explicit retained net binding.");
             if (!Enum.IsDefined(statement.Role) || (statement.Strength is GuidanceStrength strength && !Enum.IsDefined(strength)))
                 throw Invalid("Unknown statement role or strength.");
             if (statement.Role == EngineeringStatementRole.Intent && statement.Strength is null)
@@ -102,6 +122,20 @@ public sealed record StructuralDiagram(Guid Id, IReadOnlyList<StructuralBlock> B
                     throw Invalid("Sources require a document and revision, with positive page numbers when specified.");
         }
         var statements = Statements.ToDictionary(s => s.Id);
+        var connections = Connections.ToDictionary(c => c.Id);
+        foreach (var binding in unresolved.Values)
+        {
+            if (identities.Contains(binding.FormerNetId))
+                throw Invalid("An unresolved former net cannot name a structural entity or statement.");
+            if (statements.TryGetValue(binding.OwnerId, out var statement))
+            {
+                if (statement.TargetId != binding.FormerNetId)
+                    throw Invalid("The retained requirement must keep its original unresolved net target.");
+            }
+            else if (!connections.TryGetValue(binding.OwnerId, out var connection)
+                || connection.NetIds.Contains(binding.FormerNetId))
+                throw Invalid("Unresolved bindings need an existing owner and cannot simultaneously be resolved connection nets.");
+        }
         // Provenance is a graph, not an ordering-dependent list.
         var complete = new HashSet<Guid>();
         foreach (var statement in Statements)
@@ -119,6 +153,59 @@ public sealed record StructuralDiagram(Guid Id, IReadOnlyList<StructuralBlock> B
                 foreach (Guid source in current.DerivedFrom) stack.Push((source, false));
             }
         }
+    }
+
+    /// <summary>Preserve affected owners after an explicitly identified electrical
+    /// change. Candidate nets are possibilities, never inferred assignments.</summary>
+    public StructuralDiagram RetainUnresolvedNet(Circuit before, Circuit after, Guid formerNetId,
+        NetBindingChangeKind change, string reason, IReadOnlyList<Guid> candidateNetIds) =>
+        RetainUnresolvedNets(before, after, [new(formerNetId, change, reason, candidateNetIds)]);
+
+    public StructuralDiagram RetainUnresolvedNets(Circuit before, Circuit after, IReadOnlyList<NetIdentityChange> changes)
+    {
+        Validate(before); after.Validate();
+        if (changes.Select(c => c.FormerNetId).Distinct().Count() != changes.Count
+            || changes.Any(c => !before.Nets.Any(net => net.Id == c.FormerNetId)
+                || !Enum.IsDefined(c.Change) || string.IsNullOrWhiteSpace(c.Reason)
+                || c.CandidateNetIds.Distinct().Count() != c.CandidateNetIds.Count
+                || c.CandidateNetIds.Any(id => !after.Nets.Any(net => net.Id == id))))
+            throw Invalid("Each net change requires one exact former net, a reason and distinct existing candidate nets.");
+        var formerIds = changes.Select(c => c.FormerNetId).ToHashSet();
+        var retained = (UnresolvedNetBindings ?? []).ToList();
+        foreach (var change in changes)
+        {
+            var owners = Connections.Where(c => c.NetIds.Contains(change.FormerNetId)).Select(c => c.Id)
+                .Concat(Statements.Where(s => s.TargetId == change.FormerNetId).Select(s => s.Id)).ToArray();
+            foreach (Guid owner in owners)
+                retained.Add(new(owner, change.FormerNetId, change.Change, change.Reason, change.CandidateNetIds.ToArray()));
+        }
+        var result = this with
+        {
+            Connections = Connections.Select(c => c with { NetIds = c.NetIds.Where(id => !formerIds.Contains(id)).ToArray() }).ToArray(),
+            UnresolvedNetBindings = retained.Count == 0 ? null : retained
+        };
+        result.Validate(after);
+        return result;
+    }
+
+    /// <summary>Explicitly reassign one retained owner. Other requirements that
+    /// referenced the same former net stay unresolved.</summary>
+    public StructuralDiagram ResolveUnresolvedNet(Circuit circuit, Guid ownerId, Guid formerNetId, Guid selectedNetId)
+    {
+        Validate(circuit);
+        if (!(UnresolvedNetBindings ?? []).Any(b => b.OwnerId == ownerId && b.FormerNetId == formerNetId)
+            || !circuit.Nets.Any(n => n.Id == selectedNetId))
+            throw Invalid("Select an existing net for one exact unresolved owner and former net.");
+        var remaining = UnresolvedNetBindings!.Where(b => b.OwnerId != ownerId || b.FormerNetId != formerNetId).ToArray();
+        var result = this with
+        {
+            Connections = Connections.Select(c => c.Id == ownerId
+                ? c with { NetIds = c.NetIds.Contains(selectedNetId) ? c.NetIds : c.NetIds.Append(selectedNetId).ToArray() } : c).ToArray(),
+            Statements = Statements.Select(s => s.Id == ownerId ? s with { TargetId = selectedNetId } : s).ToArray(),
+            UnresolvedNetBindings = remaining.Length == 0 ? null : remaining
+        };
+        result.Validate(circuit);
+        return result;
     }
 
     private static AutomationException Invalid(string message) => new("invalid_structural_diagram", message);

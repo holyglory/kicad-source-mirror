@@ -1333,6 +1333,30 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~DesignRecoveryNativeObserverTests|FullyQualifiedName~NativeIntakeRegistryTests|FullyQualifiedName~DesignRecoveryInspectorTests|FullyQualifiedName~NativeEventCursorTests|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/native-intake-model"]
 retained_artifacts = [{ name = "native-intake-model", path = "automation/artifacts/native-intake-model", max_bytes = 16777216 }]
 
+[test.unresolved-net-bindings]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.unresolved-net-bindings.check]]
+name = "restore"
+tier = "development"
+role = "preflight"
+invalidates = ["build", "contracts"]
+command = ["dotnet", "restore", "automation/KiCad.Automation.slnx", "--locked-mode"]
+
+[[test.unresolved-net-bindings.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-restore"]
+
+[[test.unresolved-net-bindings.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~UnresolvedNetBindingTests|FullyQualifiedName~StructuralDiagram|FullyQualifiedName~EngineeringDesign|FullyQualifiedName~SchematicModelProjectionTests|FullyQualifiedName~DesignRecoveryStoreTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/unresolved-net-bindings"]
+retained_artifacts = [{ name = "unresolved-net-bindings", path = "automation/artifacts/unresolved-net-bindings", max_bytes = 16777216 }]
+
 [test.erc-model]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

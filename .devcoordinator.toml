@@ -1307,6 +1307,13 @@ timeout_seconds = 3600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
 
 [[test.native-foundation.check]]
+name = "restore"
+tier = "development"
+role = "preflight"
+invalidates = ["managed-build", "native-build", "native-session", "native-erc-exclusion"]
+command = ["dotnet", "restore", "automation/KiCad.Automation.slnx", "--locked-mode"]
+
+[[test.native-foundation.check]]
 name = "managed-build"
 tier = "development"
 role = "preflight"

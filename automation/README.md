@@ -178,6 +178,28 @@ job in `34507122230` remains in progress.
 
 ## Latest preliminary Linux update — September 11, 2026
 
+[Linux application](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T052623Z-7b22b31c2c74-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T052623Z-7b22b31c2c74-source.tar.gz)
+identify `7b22b31c2c74ea9ddeb845df2d9b4100ccca6bd0`, version
+`preview-20260911T052623Z-7b22b31c2c74`. Package `cf3e28`, signed staging
+`bf63ca`, and public update/MCP regression `abc707` passed. Generation 31
+serves Linux feed 13, preserving ARM feed 7, Intel feed 6, and 52 downloads.
+The application SHA-256 is
+`bc8c429171ac82a8fd91fbcfc7e019ae0c794c8aa53535cbf2e3e5b37ba3196b`.
+
+This build adds explicit invalid-argument and native-transport error results.
+Native instance contracts passed on both Mac architectures and Windows after
+making test fixture paths platform-local; production path validation was not
+relaxed. The public upgrade from `8776ebe319af` preserves two designs and both
+packaged MCP reconnections, including restarting MCP into the candidate binary.
+The already-connected Codex task may still run the older MCP process after a
+configuration edit: inspect the live connection instead of assuming hot reload.
+The final malformed-endpoint check in that live client remains open until it
+reconnects. Full XML, Windows application delivery and overall qualification
+remain unfinished.
+
+### Previous Linux checkpoint — September 11, 2026
+
 [Linux application](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T043346Z-8776ebe319af-debian13-x64.tar.gz)
 and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T043346Z-8776ebe319af-source.tar.gz)
 identify `8776ebe319af36041f5dadef9ed4f409b224d2cc`, version

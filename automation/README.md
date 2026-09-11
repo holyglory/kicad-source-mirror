@@ -29,7 +29,19 @@ images, and native undo were observed. This is more than a standalone MCP harnes
 but does not establish native-Mac Codex frontend identity, automatic reverse XML
 synchronization, or complete Desktop qualification. Those outcomes remain open.
 
-### Previous Apple Silicon checkpoint — September 11, 2026
+### Latest Intel preview — September 11, 2026
+
+[Intel application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-670961b39bb12d162b71f38e36ce0755653e92db-macos-x64.tar.gz)
+uses `670961b39bb12d162b71f38e36ce0755653e92db`, version
+`preview-20260911-670961b39bb1`. Native build `34546456670`, signed staging
+`469fe0`, and public verification `ca42bd` passed. Generation 28 serves Intel
+feed 5 while preserving ARM feed 7, Linux feed 11, and 47 downloads.
+macOS 15.7+ is required; the application is ad-hoc signed, not notarized.
+The actual Intel `98c458670f26` to `670961b39bb1` update journey is
+`34562913032`; its result is still pending. Do not treat this public-download
+receipt as proof of that journey or full cross-platform qualification.
+
+### Earlier Apple Silicon baseline — September 11, 2026
 
 [Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-670961b39bb12d162b71f38e36ce0755653e92db-macos-arm64.tar.gz)
 and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-670961b39bb12d162b71f38e36ce0755653e92db-source.tar.gz)
@@ -46,8 +58,8 @@ Update/Cancel/Save path, two preserved designs and manager/schematic/PCB modules
 
 This build contains verified native-session origin and MCP reconnection support.
 The preceding build lacks that origin, so this update journey is not proof of
-post-update MCP adoption on Mac. The next origin-aware pair remains under native
-verification. Intel's latest published build is still `98c458670f26` below.
+post-update MCP adoption on Mac. The subsequent origin-aware pair passed on Apple
+Silicon as described above; Intel's newer baseline is also listed above.
 Windows delivery and full engineering/Codex Desktop qualification remain open.
 
 ### Previous paired Mac checkpoint — September 11, 2026

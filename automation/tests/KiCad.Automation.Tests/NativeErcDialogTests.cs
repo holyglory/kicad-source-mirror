@@ -152,7 +152,7 @@ public sealed class NativeErcDialogTests
             }
             Assert.AreEqual(first.Baseline.Sequence + 1, journal.Sequence);
             Assert.AreEqual("Edit ERC overrides", journal.Changes.Single().Description);
-            await CapturedErc(1, "");
+            var excludedSnapshot = await CapturedErc(1, "");
             await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "excluded-violation.png"), deadline.Token);
             var stale = new ApplySchematicItemBatch
             {
@@ -201,6 +201,73 @@ public sealed class NativeErcDialogTests
             }
             await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "changed-severity.png"), deadline.Token);
 
+            // With no remaining exclusions, this real action removes only
+            // computed markers. The XML restore must recreate its exclusion.
+            NativeKeyboard.SchematicShortcut(display, first.ProcessId, "click", "Electrical Rules Checker", false,
+                clickFromLeft: 230, clickFromBottom: 25);
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "before-xml-restore.png"), deadline.Token);
+            var beforeXml = await CapturedErc(0, "");
+            var desired = excludedSnapshot.Clone();
+            desired.Exclusions[0].Comment = "restored";
+            desired.PinMap[0].Conflict = (Kiapi.Schematic.Types.SchematicErcPinConflict)
+                ((int)desired.PinMap[0].Conflict == 2 ? 3 : 2);
+            var fromXml = (Kiapi.Schematic.Types.SchematicErcSettings)SchematicDataXml.Read(SchematicDataXml.Write(desired));
+            var beforeXmlJournal = await Journal();
+            var replace = new ApplySchematicItemBatch
+            {
+                Document = first.Document, DocumentEpoch = beforeXmlJournal.DocumentEpoch,
+                ExpectedRevision = new() { Epoch = beforeXmlJournal.DocumentEpoch, Sequence = beforeXmlJournal.Sequence },
+                OperationId = Guid.NewGuid().ToString("D"), Description = "Restore ERC from XML"
+            };
+            replace.Operations.Add(new SchematicItemOperation { SetErcSettings = fromXml });
+            var failing = replace.Clone(); failing.OperationId = Guid.NewGuid().ToString("D");
+            failing.Operations.Add(new SchematicItemOperation());
+            await Assert.ThrowsExactlyAsync<NativeApiException>(() =>
+                first.Client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(failing, deadline.Token));
+            Assert.AreEqual(beforeXml, await CapturedErc(0, ""));
+            Assert.AreEqual(beforeXmlJournal.Sequence, (await Journal()).Sequence);
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "xml-rollback.png"), deadline.Token);
+
+            var applied = await first.Client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(replace, deadline.Token);
+            Assert.IsTrue(applied.ErcSettingsChanged);
+            Assert.AreEqual(desired, await CapturedErc(1, "restored"));
+            Assert.AreEqual(applied, await first.Client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(replace, deadline.Token),
+                "Identical retries must reuse the original native receipt.");
+            var noOp = replace.Clone(); noOp.OperationId = Guid.NewGuid().ToString("D");
+            noOp.ExpectedRevision = applied.Revision.Clone();
+            var reversed = desired.Clone();
+            var rulesReversed = reversed.RuleSeverities.Reverse().ToArray();
+            var pinsReversed = reversed.PinMap.Reverse().ToArray();
+            reversed.RuleSeverities.Clear(); reversed.RuleSeverities.Add(rulesReversed);
+            reversed.PinMap.Clear(); reversed.PinMap.Add(pinsReversed);
+            noOp.Operations[0].SetErcSettings = reversed;
+            var unchanged = await first.Client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(noOp, deadline.Token);
+            Assert.IsFalse(unchanged.ErcSettingsChanged);
+            Assert.AreEqual(applied.Revision, unchanged.Revision);
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "xml-restored.png"), deadline.Token);
+
+            foreach (var (key, expectedState, count, comment) in new[]
+            { ("z", beforeXml, 0, ""), ("y", desired, 1, "restored") })
+            {
+                NativeKeyboard.SchematicShortcut(display, first.ProcessId, key);
+                using var undoDeadline = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
+                undoDeadline.CancelAfter(TimeSpan.FromSeconds(10));
+                int undoDelay = 25;
+                while (true)
+                {
+                    var state = await first.Client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(
+                        new() { Document = first.Document }, undoDeadline.Token);
+                    if (state.Metadata.ErcSettings.Equals(expectedState)) break;
+                    await Task.Delay(undoDelay, undoDeadline.Token); undoDelay = Math.Min(undoDelay * 2, 500);
+                }
+                Assert.AreEqual(expectedState, await CapturedErc(count, comment));
+                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "xml-" + key + ".png"), deadline.Token);
+            }
+            await first.Client.InvokeAsync<SaveDocument, Empty>(new() { Document = first.Document }, deadline.Token);
+            using (var restoredProject = JsonDocument.Parse(await File.ReadAllBytesAsync(first.Project, deadline.Token)))
+                Assert.AreEqual("restored", restoredProject.RootElement.GetProperty("erc")
+                    .GetProperty("erc_exclusions")[0].GetProperty("comment").GetString());
+
             var otherJournal = await other.Client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(
                 new() { Document = other.Document }, deadline.Token);
             Assert.AreEqual(other.Baseline.Sequence, otherJournal.Sequence);
@@ -210,10 +277,12 @@ public sealed class NativeErcDialogTests
             await File.WriteAllTextAsync(Path.Combine(evidence, "exclusion-result.json"), JsonSerializer.Serialize(new
             {
                 instanceId = first.Id, otherInstanceId = other.Id, documentEpoch = journal.DocumentEpoch,
-                revision = severity.Sequence, renderedExclusionCommitted = true, staleEditRejected = true,
+                revision = (await Journal()).Sequence, renderedExclusionCommitted = true, staleEditRejected = true,
                 commentCancellationPreserved = true, commentChangePersisted = true, unchangedCommentPreserved = true,
                 exclusionRestored = true, severityChangePersisted = true, otherProjectPreserved = true,
                 liveErcXmlCaptureVerified = true,
+                xmlRestoreVerified = true, failedBatchRolledBack = true, retryReusedReceipt = true,
+                reorderedPolicyNoOp = true, nativeUndoRedoVerified = true,
                 completeErcOverrideCoverage = false, trackingComplete = false
             }), deadline.Token);
 

@@ -27,10 +27,9 @@ internal sealed class NativeCaptionMcpProbe(string state, string evidence, Cance
         mcp = await StdioMcpFixture.StartAsync(start, state, Path.Combine(evidence, "caption-mcp-" + starts++ + ".stderr.log"), token);
     }
 
-    public async Task AttachDesignAsync(string id, string name, NativeClient native, string schematic)
+    public async Task AttachDesignAsync(string id, string name, NativeClient native, DocumentSpecifier document)
     {
         Success(await mcp!.Tool("kicad_instance_attach", new { endpoint = native.Endpoint, expectedInstanceId = id }));
-        var document = (await native.OpenRootSchematicAsync(schematic, token)).Document;
         var before = await native.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = document }, token);
         string markerId = Guid.NewGuid().ToString("D"), markerText = "Public update " + name + " note " + Guid.NewGuid().ToString("N");
         var batch = new ApplySchematicItemBatch { Document = document, ExpectedRevision = before.Revision,

@@ -173,7 +173,7 @@ public sealed class MacIntegratedUpdateTests
                         Attributes = new() { Size = new() { XNm = 2000000, YNm = 2000000 } } }
                 }) });
                 await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(batch, deadline.Token);
-                if (mcpProbe is not null) await mcpProbe.AttachDesignAsync(instance.ToString("D"), name, client, schematic);
+                if (mcpProbe is not null) await mcpProbe.AttachDesignAsync(instance.ToString("D"), name, client, document);
                 return new(process, MacProcessIdentity.Read(process.Id), client, document, project, schematic, instance, markerId, markerText);
             }
 

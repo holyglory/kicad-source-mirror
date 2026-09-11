@@ -7,6 +7,7 @@ using KiCad.Automation.Distribution;
 using KiCad.Automation.Downloads;
 using KiCad.Automation.Mcp;
 using KiCad.Automation.Native;
+using Kiapi.Common.Types;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -179,13 +180,14 @@ public sealed partial class NativeSessionTests
                 catch (NativeApiException error) when (error.Status is 4 or 7) { }
                 await Task.Delay(100, deadline.Token);
             }
-            if (!emptyManager) await client.CreateRootSchematicAsync(schematic, deadline.Token);
+            DocumentSpecifier? schematicDocument = null;
+            if (!emptyManager) schematicDocument = (await client.CreateRootSchematicAsync(schematic, deadline.Token)).Document;
             else Assert.AreEqual("", (await client.HandshakeAsync(deadline.Token)).ProjectPath);
             if (reconnectMcp)
             {
                 mcpProbe = new NativeCaptionMcpProbe(Path.Combine(temporary, "mcp-registry"), evidence, deadline.Token);
                 await mcpProbe.StartAsync(Path.Combine(prefix, "lib/kicad-automation/kicad-mcp"));
-                await mcpProbe.AttachDesignAsync(instance, "first", client, schematic);
+                await mcpProbe.AttachDesignAsync(instance, "first", client, schematicDocument!);
             }
             await WaitLog("\"status\":\"candidate_available\"");
             Assert.IsTrue(Directory.Exists(candidateDirectory));
@@ -229,8 +231,8 @@ public sealed partial class NativeSessionTests
                     await Task.Delay(100, deadline.Token);
                 }
                 secondEpoch = secondClient.Epoch;
-                await secondClient.CreateRootSchematicAsync(secondSchematic, deadline.Token);
-                if (mcpProbe is not null) await mcpProbe.AttachDesignAsync(secondInstance, "second", secondClient, secondSchematic);
+                var secondDocument = (await secondClient.CreateRootSchematicAsync(secondSchematic, deadline.Token)).Document;
+                if (mcpProbe is not null) await mcpProbe.AttachDesignAsync(secondInstance, "second", secondClient, secondDocument);
                 while (!File.Exists(secondLog) || !(await File.ReadAllTextAsync(secondLog, deadline.Token)).Contains("\"status\":\"candidate_available\"", StringComparison.Ordinal))
                     await Task.Delay(100, deadline.Token);
             }

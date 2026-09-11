@@ -383,7 +383,7 @@ public sealed partial class NativeSessionTests
                     mcpRestartReusedProof = true, staleEventsRejected = true, nativeSnapshotRefreshed = true,
                     schematicObjectAndIdentityPreserved = true, documentEpochChanged = true,
                     independentDirtyProjectPreserved = true,
-                    automaticXmlSynchronization = false }), deadline.Token);
+                    restoredPreviousVersion = expectRestored, automaticXmlSynchronization = false }), deadline.Token);
                 await mcp.DisposeAsync(); mcp = null;
             }
             if (expectRestored)

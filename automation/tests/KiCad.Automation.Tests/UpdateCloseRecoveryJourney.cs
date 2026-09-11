@@ -43,8 +43,10 @@ public sealed partial class NativeSessionTests
 
     [TestMethod]
     [TestCategory("NativeMcpUpdateReconnection")]
-    public Task McpReconnectsToTheVerifiedNativeReplacementAndRejectsOldEvents()
-        => VerifyCloseRecoveryFixture(concurrentSelection: false, rejectStartup: false,
+    [DataRow(false)]
+    [DataRow(true)]
+    public Task McpReconnectsToTheVerifiedNativeReplacementAndRejectsOldEvents(bool restorePrevious)
+        => VerifyCloseRecoveryFixture(concurrentSelection: false, rejectStartup: restorePrevious,
             inspectHandoff: true, reconnectMcp: true);
 
     private async Task VerifyCloseRecoveryFixture(bool concurrentSelection, bool rejectStartup, bool earlyExit = false,
@@ -58,6 +60,7 @@ public sealed partial class NativeSessionTests
         var artifact = catalogue.Manifest.Artifacts.Single(item => item.Platform == "linux-x64"
             && item.FileName.EndsWith(".tar.gz", StringComparison.Ordinal));
         string evidence = Directory.CreateDirectory(Path.Combine(CloseRecoveryEvidence.Value,
+            reconnectMcp ? rejectStartup ? "mcp-reconnect-restored" : "mcp-reconnect-restarted" :
             recoverAfterClose ? "explicit-recovery" : inspectHandoff ? interruptBeforeClose ? "inspect-interrupted" : "inspect-restarted" :
             earlyExit ? "exit-before-identity" : rejectStartup ? "startup-after-other-selection" : concurrentSelection ? "selection-changed" : "candidate-changed")).FullName;
         string temporary = Directory.CreateTempSubdirectory("kicad-close-recovery-").FullName;

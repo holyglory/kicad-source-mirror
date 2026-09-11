@@ -163,7 +163,7 @@ name = "build"
 tier = "development"
 role = "preflight"
 invalidates = ["contracts", "rendered"]
-command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "-p:RestoreLockedMode=true"]
 
 [[test.mcp-update-reconnection.check]]
 name = "contracts"

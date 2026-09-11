@@ -22,11 +22,12 @@ public sealed partial class NativeSessionTests
         var processes = new List<Process>();
         var captures = new List<Task>();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(beforeHandoff is null ? 90 : 180));
+        deadline.CancelAfter(TimeSpan.FromSeconds(beforeHandoff is null && !reconnectMcp ? 90 : 180));
         using var handoffCancellation = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
         Task<UpdateHandoffState>? handoff = null;
         Process? helperToInterrupt = null;
         StdioMcpFixture? mcp = null;
+        ReconnectionNeighbor? neighbor = null;
         try
         {
             var displayStart = new ProcessStartInfo("Xvfb") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
@@ -92,6 +93,7 @@ public sealed partial class NativeSessionTests
                 mcp = await StdioMcpFixture.StartAsync(registryPath, Path.Combine(evidence, "before-mcp.stderr.log"), deadline.Token);
                 var attached = await mcp.Tool("kicad_instance_attach", new { endpoint = client.Endpoint, expectedInstanceId = instance });
                 Assert.IsFalse(attached.TryGetProperty("isError", out var attachError) && attachError.GetBoolean(), attached.GetRawText());
+                neighbor = await StartReconnectionNeighbor(start, temporary, evidence, processes, captures, mcp, deadline.Token);
             }
             if (beforeHandoff is not null)
             {
@@ -354,6 +356,7 @@ public sealed partial class NativeSessionTests
                 var adopted = await mcp!.Tool("kicad_instance_reconnect_after_update", arguments);
                 Assert.IsFalse(adopted.TryGetProperty("isError", out var failure) && failure.GetBoolean(), adopted.GetRawText());
                 Assert.AreEqual(result.NativeEpoch, adopted.GetProperty("structuredContent").GetProperty("epoch").GetString());
+                await VerifyReconnectionNeighbor(neighbor!, mcp, false, deadline.Token);
                 var staleEvents = await mcp.Tool("kicad_events_wait", new { instanceId = instance, eventEpoch = oldEventEpoch, afterSequence = 0 });
                 Assert.IsTrue(staleEvents.GetProperty("isError").GetBoolean());
                 Assert.AreEqual("event_stream_changed", staleEvents.GetProperty("structuredContent").GetProperty("errorCode").GetString());
@@ -363,6 +366,7 @@ public sealed partial class NativeSessionTests
                 var repeated = await mcp.Tool("kicad_instance_reconnect_after_update", arguments);
                 Assert.IsFalse(repeated.TryGetProperty("isError", out var repeatError) && repeatError.GetBoolean(), repeated.GetRawText());
                 Assert.IsTrue(repeated.GetProperty("structuredContent").GetProperty("reused").GetBoolean());
+                await VerifyReconnectionNeighbor(neighbor!, mcp, true, deadline.Token);
                 var opened = await mcp.Tool("kicad_schematic_open", new { instanceId = instance, path = schematic });
                 Assert.IsFalse(opened.TryGetProperty("isError", out var openError) && openError.GetBoolean(), opened.GetRawText());
                 string documentJson = opened.GetProperty("content")[0].GetProperty("text").GetString()!;
@@ -378,6 +382,7 @@ public sealed partial class NativeSessionTests
                 { schemaVersion = 1, status = "passed", nativeRestart = true, stdioMcpReconnected = true,
                     mcpRestartReusedProof = true, staleEventsRejected = true, nativeSnapshotRefreshed = true,
                     schematicObjectAndIdentityPreserved = true, documentEpochChanged = true,
+                    independentDirtyProjectPreserved = true,
                     automaticXmlSynchronization = false }), deadline.Token);
                 await mcp.DisposeAsync(); mcp = null;
             }

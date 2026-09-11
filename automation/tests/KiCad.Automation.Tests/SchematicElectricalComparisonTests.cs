@@ -98,7 +98,7 @@ public sealed class SchematicElectricalComparisonTests
     [TestMethod]
     public void UnknownDuplicateOrForeignMembershipsCannotProduceAnEquivalentResult()
     {
-        foreach (string error in new[] { "unknown-item", "duplicate-membership", "foreign-sheet", "missing-identity", "wrong-unit", "empty-net", "empty-sheet" })
+        foreach (string error in new[] { "unknown-item", "duplicate-membership", "foreign-sheet", "missing-identity", "wrong-unit", "empty-net", "empty-sheet", "empty-symbol-child" })
         {
             var f = Fixture();
             if (error == "unknown-item") f.State.Nets[0].Sheets[0].Items.Add(new Kiapi.Common.Types.KIID { Value = Guid.NewGuid().ToString("D") });
@@ -112,6 +112,7 @@ public sealed class SchematicElectricalComparisonTests
                 int index = screen.Items.ToList().FindIndex(i => i.Is(SchematicSymbolInstance.Descriptor));
                 var symbol = screen.Items[index].Unpack<SchematicSymbolInstance>();
                 if (error == "missing-identity") symbol.SeparatePinIdentities = false;
+                else if (error == "empty-symbol-child") symbol.Definition.Items.Add(new SchematicSymbolChild());
                 else symbol.Unit.Unit = symbol.Unit.Unit == 1 ? 2 : 1;
                 screen.Items[index] = Any.Pack(symbol);
             }

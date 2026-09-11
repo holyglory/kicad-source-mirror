@@ -67,6 +67,8 @@ public static class SchematicElectricalComparison
                 .Select(i => i.Unpack<SchematicSymbolInstance>()).Single(s => s.Id.Value == symbols[occurrence.Id]);
             if (!symbol.SeparatePinIdentities || symbol.Definition is null)
             { issues.Add(new("missing_placed_pin_identity", path, symbol.Id.Value, component.Id)); continue; }
+            if (symbol.Definition.Items.Any(child => child.Item is null))
+            { issues.Add(new("invalid_symbol_child", path, symbol.Id.Value, component.Id)); continue; }
             var part = parts[definitions[component.DefinitionId].PartId];
             foreach (var child in symbol.Definition.Items.Where(c => c.Item.Is(SchematicPin.Descriptor)))
             {

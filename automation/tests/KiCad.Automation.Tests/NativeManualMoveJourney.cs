@@ -31,6 +31,7 @@ public sealed partial class NativeSessionTests
 
         var before = await Snapshot(token);
         var netsBefore = await Nets();
+        var model = ProbeElectricalModel(await client.InvokeAsync<ReadSchematicElectricalState, SchematicElectricalState>(new() { Document = document }, token));
         Assert.AreEqual(NetOf(netsBefore, fixture.PinA), NetOf(netsBefore, fixture.PinB));
         var select = new AddToSelection { Header = header };
         select.Items.Add(new KIID { Value = fixture.Symbol });
@@ -88,6 +89,10 @@ public sealed partial class NativeSessionTests
                 n.Sheets.SelectMany(s => s.Items).Any(id => id.Value == fixture.PinA)
                 && n.Sheets.SelectMany(s => s.Items).Any(id => id.Value == fixture.PinB));
             Assert.IsFalse(Connected(electrical), "The same-revision electrical read must include the real manual disconnection.");
+            var difference = SchematicElectricalComparison.Compare(model, electrical, []);
+            Assert.IsTrue(difference.PinBindingsComplete, string.Join(',', difference.Issues.Select(i => i.Code)));
+            Assert.IsFalse(difference.ConnectivityEquivalent);
+            Assert.IsTrue(difference.Differences.Any(d => d.Kind == "model_net_split"));
             await File.WriteAllTextAsync(Path.Combine(evidence, instanceId + "-manual-electrical-state.json"),
                 SchematicJson.Formatter.Format(electrical), token);
             var journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
@@ -120,6 +125,7 @@ public sealed partial class NativeSessionTests
                 { Document = document, ExpectedRevision = restored.Revision }, token);
             Assert.AreEqual(restored.Revision, restoredElectrical.Hierarchy.Revision);
             Assert.IsTrue(Connected(restoredElectrical));
+            Assert.IsTrue(SchematicElectricalComparison.Compare(model, restoredElectrical, []).ConnectivityEquivalent);
         }
         catch
         {

@@ -3,6 +3,8 @@ using Google.Protobuf.WellKnownTypes;
 using Kiapi.Common.Commands;
 using Kiapi.Common.Types;
 using Kiapi.Schematic.Commands;
+using Kiapi.Schematic.Types;
+using KiCad.Automation.Model;
 using KiCad.Automation.Native;
 using KiCad.Automation.Protocol;
 
@@ -20,6 +22,10 @@ public sealed partial class NativeSessionTests
         Assert.AreEqual(before.Revision, state.Hierarchy.Revision);
         Assert.AreEqual(document, state.Hierarchy.Data.Document);
         Assert.IsFalse(state.Hierarchy.TrackingComplete);
+        var model = ProbeElectricalModel(state);
+        var comparison = SchematicElectricalComparison.Compare(model, state, []);
+        Assert.IsTrue(comparison.PinBindingsComplete, string.Join(',', comparison.Issues.Select(i => i.Code)));
+        Assert.IsTrue(comparison.ConnectivityEquivalent);
         var net = state.Nets.Single(n => n.Sheets.SelectMany(s => s.Items).Any(id => id.Value == fixture.PinA));
         Assert.IsTrue(net.Sheets.SelectMany(s => s.Items).Any(id => id.Value == fixture.PinB));
         Assert.IsTrue(net.Sheets.SelectMany(s => s.Items).Any(id => id.Value == fixture.Wire));
@@ -53,7 +59,45 @@ public sealed partial class NativeSessionTests
         var actual = SchematicJson.Parser.Parse<SchematicElectricalState>(result.GetProperty("structuredContent").GetProperty("state").GetRawText());
         Assert.AreEqual(state, actual);
         Assert.AreEqual(SchematicDataXml.Write(state.Hierarchy.Data), result.GetProperty("structuredContent").GetProperty("xml").GetString());
+        var compared = await mcp.Tool("kicad_design_connectivity_compare", new
+        {
+            designXml = SchematicDesignXml.Write(model, []), electricalStateJson = SchematicJson.Formatter.Format(actual),
+            knowledgeLibraryXml = Array.Empty<string>()
+        });
+        RequireToolSuccess(compared);
+        Assert.IsTrue(compared.GetProperty("structuredContent").GetProperty("connectivityEquivalent").GetBoolean());
         Assert.IsTrue((await mcp.Tool("kicad_schematic_electrical_state", new
             { instanceId, requestJson = SchematicJson.Formatter.Format(stale) })).GetProperty("isError").GetBoolean());
+    }
+
+    private static SchematicDesign ProbeElectricalModel(SchematicElectricalState state)
+    {
+        // This known fixture has two one-pin probes on the root and empty
+        // repeated child sheets. Its expected connection is declared here,
+        // never inferred from the native net memberships being verified.
+        var hierarchy = state.Hierarchy.Data;
+        var root = hierarchy.Instances.Single(s => s.Metadata.Document.Equals(hierarchy.Document));
+        var symbols = root.Items.Where(i => i.Is(SchematicSymbolInstance.Descriptor))
+            .Select(i => i.Unpack<SchematicSymbolInstance>()).OrderBy(s => s.Id.Value, StringComparer.Ordinal).ToArray();
+        Assert.AreEqual(2, symbols.Length);
+        var definitionIds = hierarchy.Instances.Select(s => s.Metadata.ScreenId.Value).Distinct()
+            .ToDictionary(id => id, _ => Guid.NewGuid(), StringComparer.Ordinal);
+        string Key(SchematicScreenData screen) => string.Join('/', screen.Metadata.Document.SheetPath.Path.Select(p => p.Value));
+        var instanceIds = hierarchy.Instances.ToDictionary(Key, _ => Guid.NewGuid(), StringComparer.Ordinal);
+        Guid part = Guid.NewGuid();
+        var componentDefinitions = symbols.Select(s => new ComponentDefinition(Guid.NewGuid(), part, s.ValueField.Text.Text_)).ToArray();
+        var components = symbols.Select((s, i) => new ComponentInstance(Guid.NewGuid(), componentDefinitions[i].Id,
+            instanceIds[Key(root)], s.ReferenceField.Text.Text_)).ToArray();
+        var occurrences = components.Select(c => new SymbolOccurrence(Guid.NewGuid(), c.Id, 1, null)).ToArray();
+        var circuit = new Circuit(Guid.NewGuid(), [new(part, "Fixture probe", 1, [new("1", "1", 1)])],
+            definitionIds.Select(d => new SheetDefinition(d.Value, d.Key,
+                d.Key == root.Metadata.ScreenId.Value ? componentDefinitions : [])).ToArray(),
+            hierarchy.Instances.Select(s => new SheetInstance(instanceIds[Key(s)], definitionIds[s.Metadata.ScreenId.Value],
+                Key(s).Contains('/') ? instanceIds[Key(s)[..Key(s).LastIndexOf('/')]] : null)).ToArray(), components,
+            [new(Guid.NewGuid(), "Expected probe link", components.Select(c => new PinEndpoint(c.Id, "1")).ToArray())], occurrences);
+        var engineering = new EngineeringDesign(circuit, new(Guid.NewGuid(), [], [], [], []), [], []);
+        return new(engineering, hierarchy.Clone(), hierarchy.Instances.Select(s => new SchematicSheetBinding(instanceIds[Key(s)],
+            s.Metadata.Document.SheetPath.Path.Select(p => Guid.Parse(p.Value)).ToArray())).ToArray(),
+            symbols.Select((s, i) => new SchematicSymbolBinding(occurrences[i].Id, Guid.Parse(s.Id.Value))).ToArray());
     }
 }

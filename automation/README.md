@@ -764,6 +764,19 @@ undeclared dangling references are still rejected. This model/XML support is
 not yet connected to automatic native electrical reconciliation and is not in
 the currently published packages.
 
+`kicad_schematic_electrical_state` reads a loaded hierarchy and scalar-net
+memberships in one native request. It accepts an explicit loaded sheet and an
+optional expected revision; the sheet does not have to be visible. The native
+read refreshes computed connectivity without cleanup, annotation or saving and
+rejects changes across its capture. Net names are labels, not stable identities.
+`kicad_design_connectivity_compare` compares supplied electrical state against
+the engineering model through explicit sheet, symbol and placed-pin identities,
+reporting split/joined pin partitions separately from missing bindings and
+serializer coverage. It never transfers net requirements or edits a design.
+These new electrical tools are under native qualification and are not yet in
+the published packages. Complete revision admission and automatic electrical
+propagation remain unfinished.
+
 Successful plans include merged XML, ordered native operations and explicit
 coverage gaps. This tool does not access files, apply a batch, resolve electrical
 intent or advance the synchronized baseline. Concurrent edits inside a reparented

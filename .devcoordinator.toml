@@ -1204,7 +1204,7 @@ command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad
 name = "stage"
 tier = "development"
 requires = ["managed-publish", "native-runtime"]
-command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-linux", "--build", "/home/holyglory/kicad/automation/artifacts/native", "--managed", "/home/holyglory/kicad/automation/artifacts/linux-x64-mcp", "--nng", "/usr/lib/x86_64-linux-gnu/libnng.so", "--output", "/home/holyglory/kicad/automation/artifacts/distribution"]
+command = ["bash", "-lc", 'kicad_package_root=$(git rev-parse --show-toplevel) || exit; exec dotnet automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll stage-linux --build "$kicad_package_root/automation/artifacts/native" --managed "$kicad_package_root/automation/artifacts/linux-x64-mcp" --nng /usr/lib/x86_64-linux-gnu/libnng.so --output "$kicad_package_root/automation/artifacts/distribution"']
 
 [[test.linux-package-stage.check]]
 name = "installed-journey"
@@ -1217,7 +1217,7 @@ retained_artifacts = [{ name = "package-native-tests", path = "automation/artifa
 name = "archives"
 tier = "pre-merge"
 requires = ["installed-journey"]
-command = ["bash", "-lc", 'kicad_package_commit=$(git rev-parse HEAD); kicad_package_stamp=$(date -u +%Y%m%dT%H%M%SZ); exec dotnet automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll package-linux --staging /home/holyglory/kicad/automation/artifacts/distribution/current-staging.json --repository /home/holyglory/kicad --commit "$kicad_package_commit" --version "preview-$kicad_package_stamp-${kicad_package_commit:0:12}" --output "/mnt/build-storage/codex/kicad/public-candidates/$kicad_package_stamp-${kicad_package_commit:0:12}"']
+command = ["bash", "-lc", 'kicad_package_root=$(git rev-parse --show-toplevel) || exit; kicad_package_commit=$(git rev-parse HEAD) || exit; kicad_package_stamp=$(date -u +%Y%m%dT%H%M%SZ) || exit; exec dotnet automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll package-linux --staging "$kicad_package_root/automation/artifacts/distribution/current-staging.json" --repository "$kicad_package_root" --commit "$kicad_package_commit" --version "preview-$kicad_package_stamp-${kicad_package_commit:0:12}" --output "/mnt/build-storage/codex/kicad/public-candidates/$kicad_package_stamp-${kicad_package_commit:0:12}"']
 
 # Focused managed/event contract checks, including the compiled STDIO server.
 # No native editor proof is claimed by this graph.
@@ -1315,6 +1315,23 @@ command = ["cmake", "-S", ".", "-B", "automation/artifacts/native", "-G", "Ninja
 name = "native-objects"
 tier = "development"
 command = ["cmake", "--build", "automation/artifacts/native", "--target", "kiapi", "common/CMakeFiles/kicommon.dir/api/api_server.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad_manager_frame.cpp.o"]
+
+[test.native-intake-model]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.native-intake-model.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.native-intake-model.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~DesignRecoveryNativeObserverTests|FullyQualifiedName~NativeIntakeRegistryTests|FullyQualifiedName~DesignRecoveryInspectorTests|FullyQualifiedName~NativeEventCursorTests|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/native-intake-model"]
+retained_artifacts = [{ name = "native-intake-model", path = "automation/artifacts/native-intake-model", max_bytes = 16777216 }]
 
 [test.erc-model]
 timeout_seconds = 600
@@ -1419,7 +1436,7 @@ tier = "development"
 role = "preflight"
 requires = ["managed-build"]
 invalidates = ["native-build", "native-session"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~DesignRecoveryInspectorTests|FullyQualifiedName~DesignRecoveryStoreTests|FullyQualifiedName~DesignRecoveryFileObserverTests|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~NativeClientTests", "--logger", "trx", "--results-directory", "automation/artifacts/recovery-model-results"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~DesignRecoveryInspectorTests|FullyQualifiedName~DesignRecoveryStoreTests|FullyQualifiedName~DesignRecoveryFileObserverTests|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~DesignRecoveryNativeObserverTests|FullyQualifiedName~NativeIntakeRegistryTests|FullyQualifiedName~NativeClientTests", "--logger", "trx", "--results-directory", "automation/artifacts/recovery-model-results"]
 retained_artifacts = [{ name = "recovery-model-results", path = "automation/artifacts/recovery-model-results", max_bytes = 16777216 }]
 
 [[test.native-foundation.check]]

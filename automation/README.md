@@ -704,6 +704,37 @@ file ownership. Session IDs do not survive service restart; start a new intake
 against the retained recovery record. These tools never launch or close editors,
 apply native changes, or advance the baseline. Continuous file intake is not yet
 automatic bidirectional synchronization.
+
+The source MCP service also provides `kicad_design_native_intake_start`,
+`_list`, `_wait`, `_resume` and `_stop`. Start takes an explicitly attached
+`instanceId` and an absolute `recoveryPath`; the existing recovery record owns
+the exact schematic hierarchy target. The observer verifies the native process
+and event stream, subscribes before its first snapshot, and saves committed
+native edits into recovery state while no tool call is active. Child sheets
+remain in the same exact project/root scope. Missed-event hints request a new
+snapshot; unchanged heartbeats do not repeatedly read the design.
+
+Use `_wait` without `afterSequence` to inspect, or with the last returned
+sequence to await a change. Persistence failures pause the observer; repair the
+failure and pass the current sequence to `_resume`. Replaced processes, event
+streams and prolonged silence require a newly verified attachment and intake.
+`_list` recovers an ID after a lost start reply. IDs are local to the MCP
+process. `_stop` and MCP shutdown await observer cleanup without closing KiCad
+or discarding dirty documents. Baseline requirements, desired XML bytes
+(including invalid input) and pending-operation identities remain preserved.
+
+This native intake is **observation into recovery state**, not automatic
+design-XML write-back, native delta application or complete revision admission.
+Those workflows remain unfinished. These source tools are not yet included in
+the public packages described above; frozen native/MCP verification is separate
+from the focused managed/STDIO checks.
+Linux native run `t20260911T151857Z-9b14cc` passed all 11 foundation checks on
+`0fe15e0a79cf3ae3cfb65899567abd0d65a2932a`, including real MCP event intake,
+native edits and keyboard undo/redo, persistence failure and explicit resume,
+preserved invalid desired bytes/baseline, and graceful MCP shutdown with an
+active observer. Native Mac/Windows and actual Codex Desktop qualification of
+these new tools remain separate, unfinished release work.
+
 Successful plans include merged XML, ordered native operations and explicit
 coverage gaps. This tool does not access files, apply a batch, resolve electrical
 intent or advance the synchronized baseline. Concurrent edits inside a reparented

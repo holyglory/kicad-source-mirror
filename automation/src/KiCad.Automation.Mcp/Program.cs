@@ -56,6 +56,7 @@ string stateDirectory = builder.Configuration["state-directory"]
     ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "kicad-automation");
 builder.Services.AddSingleton<INativeTransport, NngTransport>();
 builder.Services.AddSingleton<FileIntakeRegistry>();
+builder.Services.AddSingleton<NativeIntakeRegistry>();
 builder.Services.AddSingleton(provider => new InstanceRegistry(provider.GetRequiredService<INativeTransport>(), stateDirectory));
 builder.Services.AddMcpServer(options =>
 {
@@ -72,5 +73,6 @@ builder.Services.AddMcpServer(options =>
     .WithTools<KnowledgeTools>()
     .WithTools<PlacementTools>()
     .WithTools<RecoveryTools>()
-    .WithTools<FileIntakeTools>();
+    .WithTools<FileIntakeTools>()
+    .WithTools<NativeIntakeTools>();
 await builder.Build().RunAsync();

@@ -18,6 +18,7 @@ internal sealed class StdioMcpFixture : IMcpToolClient
     private readonly Task diagnostics;
     private int nextId;
     private bool disposed;
+    public bool ForcedTermination { get; private set; }
     private StdioMcpFixture(Process process, string evidence, CancellationToken token)
     {
         this.process = process; this.token = token;
@@ -74,7 +75,11 @@ internal sealed class StdioMcpFixture : IMcpToolClient
         process.StandardInput.Close();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try { await process.WaitForExitAsync(deadline.Token); }
-        catch (OperationCanceledException) { if (!process.HasExited) process.Kill(); await process.WaitForExitAsync(); }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited) { ForcedTermination = true; process.Kill(); }
+            await process.WaitForExitAsync();
+        }
         finally
         {
             diagnosticsStop.Cancel();

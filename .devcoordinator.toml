@@ -516,6 +516,40 @@ tier = "development"
 requires = ["build"]
 command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_automation_caption$", "--output-on-failure", "--no-tests=error"]
 
+[test.instance-tool-errors]
+timeout_seconds = 300
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.instance-tool-errors.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-restore"]
+
+[[test.instance-tool-errors.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~InstanceToolBoundaryTests|FullyQualifiedName~InstanceRegistryTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/instance-tool-errors"]
+retained_artifacts = [{ name = "instance-tool-errors", path = "automation/artifacts/instance-tool-errors", max_bytes = 16777216 }]
+
+[test.codex-desktop-journey]
+timeout_seconds = 1800
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_DESKTOP_PACKAGE_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/20260911T015249Z-3ac5af02cb7e/assembly", KICAD_DESKTOP_CONTROL_ROOT = "/mnt/build-storage/codex/kicad/worktrees/delivery-next.HAjDme/automation/artifacts/codex-desktop-current" }
+
+[[test.codex-desktop-journey.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["actual-client"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-restore"]
+
+[[test.codex-desktop-journey.check]]
+name = "actual-client"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-build", "--no-restore", "--filter", "TestCategory=NativeCodexDesktop", "--logger", "trx", "--results-directory", "automation/artifacts/codex-desktop-tests"]
+retained_artifacts = [{ name = "codex-desktop-tests", path = "automation/artifacts/codex-desktop-tests", max_bytes = 16777216 }, { name = "codex-desktop-evidence", path = "automation/artifacts/codex-desktop-current", max_bytes = 33554432 }]
+
 [test.native-updater-objects]
 timeout_seconds = 1200
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

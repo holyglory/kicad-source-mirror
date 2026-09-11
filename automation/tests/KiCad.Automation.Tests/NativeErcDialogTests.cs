@@ -152,6 +152,7 @@ public sealed class NativeErcDialogTests
             }
             Assert.AreEqual(first.Baseline.Sequence + 1, journal.Sequence);
             Assert.AreEqual("Edit ERC overrides", journal.Changes.Single().Description);
+            await CapturedErc(1, "");
             await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "excluded-violation.png"), deadline.Token);
             var stale = new ApplySchematicItemBatch
             {
@@ -177,6 +178,7 @@ public sealed class NativeErcDialogTests
             var beforeRestore = await Journal();
             await Menu("restore-menu", 0);
             var restored = await Changed(beforeRestore);
+            await CapturedErc(0, "");
             await first.Client.InvokeAsync<SaveDocument, Empty>(new() { Document = first.Document }, deadline.Token);
             using (var restoredFile = JsonDocument.Parse(await File.ReadAllBytesAsync(first.Project, deadline.Token)))
                 Assert.AreEqual(0, restoredFile.RootElement.GetProperty("erc").GetProperty("erc_exclusions").GetArrayLength());
@@ -187,6 +189,9 @@ public sealed class NativeErcDialogTests
             var beforeSeverity = await Journal();
             await Menu("severity-menu", 2);
             var severity = await Changed(beforeSeverity);
+            var capturedSeverity = await CapturedErc(0, "");
+            Assert.AreEqual(RuleSeverity.RsWarning,
+                capturedSeverity.RuleSeverities.Single(rule => (int)rule.RuleType == 3).Severity);
             await first.Client.InvokeAsync<SaveDocument, Empty>(new() { Document = first.Document }, deadline.Token);
             using (var severityFile = JsonDocument.Parse(await File.ReadAllBytesAsync(first.Project, deadline.Token)))
             {
@@ -208,11 +213,30 @@ public sealed class NativeErcDialogTests
                 revision = severity.Sequence, renderedExclusionCommitted = true, staleEditRejected = true,
                 commentCancellationPreserved = true, commentChangePersisted = true, unchangedCommentPreserved = true,
                 exclusionRestored = true, severityChangePersisted = true, otherProjectPreserved = true,
+                liveErcXmlCaptureVerified = true,
                 completeErcOverrideCoverage = false, trackingComplete = false
             }), deadline.Token);
 
             Task<SchematicChangeJournal> Journal() => first.Client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(
                 new() { Document = first.Document }, deadline.Token);
+
+            async Task<Kiapi.Schematic.Types.SchematicErcSettings> CapturedErc(int exclusions, string comment)
+            {
+                byte[] savedBefore = await File.ReadAllBytesAsync(first.Project, deadline.Token);
+                var before = await Journal();
+                var metadata = await first.Client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(
+                    new() { Document = first.Document }, deadline.Token);
+                var erc = metadata.Metadata.ErcSettings;
+                Assert.IsNotNull(erc, "The actual native peer must capture typed ERC settings.");
+                SchematicErcSettingsValidation.Validate(erc, erc.RuleSeverities.Select(rule => rule.RuleType).ToHashSet());
+                Assert.AreEqual(erc, SchematicDataXml.Read(SchematicDataXml.Write(erc)));
+                Assert.AreEqual(exclusions, erc.Exclusions.Count);
+                if (exclusions == 1) Assert.AreEqual(comment, erc.Exclusions[0].Comment);
+                Assert.AreEqual(before.Sequence, (await Journal()).Sequence);
+                CollectionAssert.AreEqual(savedBefore, await File.ReadAllBytesAsync(first.Project, deadline.Token),
+                    "Read-only capture must not synchronize the saved exclusion cache behind the editor.");
+                return erc;
+            }
 
             async Task<SchematicChangeJournal> Changed(SchematicChangeJournal before)
             {
@@ -269,6 +293,7 @@ public sealed class NativeErcDialogTests
                 if (changedValue)
                 {
                     await Changed(before);
+                    await CapturedErc(1, expected);
                     await first.Client.InvokeAsync<SaveDocument, Empty>(new() { Document = first.Document }, deadline.Token);
                 }
                 else

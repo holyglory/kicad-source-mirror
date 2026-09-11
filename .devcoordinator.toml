@@ -1282,7 +1282,7 @@ retained_artifacts = [{ name = "erc-model", path = "automation/artifacts/erc-mod
 
 [test.native-erc-dialog]
 timeout_seconds = 600
-env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_ERC_NATIVE_EXECUTABLE = "/home/holyglory/kicad/automation/artifacts/native/kicad/kicad" }
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
 
 [[test.native-erc-dialog.check]]
 name = "managed-build"

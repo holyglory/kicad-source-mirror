@@ -92,7 +92,7 @@ public sealed partial class NativeSessionTests
         var circuit = new Circuit(Guid.NewGuid(), [new(part, "Fixture probe", 1, [new("1", "1", 1)])],
             definitionIds.Select(d => new SheetDefinition(d.Value, d.Key,
                 d.Key == root.Metadata.ScreenId.Value ? componentDefinitions : [])).ToArray(),
-            hierarchy.Instances.Select(s => new SheetInstance(instanceIds[Key(s)], definitionIds[s.Metadata.ScreenId.Value],
+            hierarchy.Instances.Select(s => new KiCad.Automation.Model.SheetInstance(instanceIds[Key(s)], definitionIds[s.Metadata.ScreenId.Value],
                 Key(s).Contains('/') ? instanceIds[Key(s)[..Key(s).LastIndexOf('/')]] : null)).ToArray(), components,
             [new(Guid.NewGuid(), "Expected probe link", components.Select(c => new PinEndpoint(c.Id, "1")).ToArray())], occurrences);
         var engineering = new EngineeringDesign(circuit, new(Guid.NewGuid(), [], [], [], []), [], []);

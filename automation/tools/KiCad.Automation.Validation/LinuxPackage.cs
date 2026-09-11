@@ -173,6 +173,7 @@ public static class LinuxPackage
         || path.StartsWith("automation/.serena/", StringComparison.Ordinal)
         || path.StartsWith("UserIssueLedgers/", StringComparison.Ordinal)
         || path.StartsWith("automation/reports/", StringComparison.Ordinal)
+        || path == ".codex/config.toml"
         || path == "security-assumptions.md";
 
     private static void CopyInstall(string source, string destination, string sourceRoot, CancellationToken token)

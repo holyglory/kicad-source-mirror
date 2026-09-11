@@ -516,6 +516,23 @@ tier = "development"
 requires = ["build"]
 command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_automation_caption$", "--output-on-failure", "--no-tests=error"]
 
+[test.package-source-context]
+timeout_seconds = 300
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.package-source-context.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-restore"]
+
+[[test.package-source-context.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~LinuxPackageTests|FullyQualifiedName~LinuxStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/package-source-context"]
+retained_artifacts = [{ name = "package-source-context", path = "automation/artifacts/package-source-context", max_bytes = 16777216 }]
+
 [test.instance-tool-errors]
 timeout_seconds = 300
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

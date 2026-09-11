@@ -139,7 +139,17 @@ public sealed class LinuxPackageTests
             await File.WriteAllTextAsync(Path.Combine(root, "automation/reports/private.txt"), "Private fixture.");
             Directory.CreateDirectory(Path.Combine(root, "automation/.serena"));
             await File.WriteAllTextAsync(Path.Combine(root, "automation/.serena/project.yml"), "Private navigation fixture.");
+            Directory.CreateDirectory(Path.Combine(root, ".codex"));
+            await File.WriteAllTextAsync(Path.Combine(root, ".codex/config.toml"), "# Machine-local MCP fixture configuration.");
             await LinuxPackage.RequireSourceAsync(root, commit, CancellationToken.None);
+            await Git("add", ".codex/config.toml"); await Commit();
+            string configCommit = (await Git("rev-parse", "HEAD")).Trim();
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxPackage.RequireSourceAsync(root, configCommit, CancellationToken.None));
+            await Git("rm", "--cached", ".codex/config.toml"); await Commit();
+            commit = (await Git("rev-parse", "HEAD")).Trim();
+            await File.WriteAllTextAsync(Path.Combine(root, ".codex/unknown.txt"), "Not reviewed as private context.");
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxPackage.RequireSourceAsync(root, commit, CancellationToken.None));
+            File.Delete(Path.Combine(root, ".codex/unknown.txt"));
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
                 LinuxPackage.RequireSourceAsync(root, new string('0', 40), CancellationToken.None));
             await File.WriteAllTextAsync(Path.Combine(root, "new-source.txt"), "Uncommitted fixture source.");

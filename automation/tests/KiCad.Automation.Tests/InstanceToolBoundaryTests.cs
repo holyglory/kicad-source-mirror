@@ -1,0 +1,88 @@
+using System.Text.Json;
+using KiCad.Automation.Mcp;
+using KiCad.Automation.Model;
+using KiCad.Automation.Native;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using ModelContextProtocol.Protocol;
+
+namespace KiCad.Automation.Tests;
+
+[TestClass]
+public sealed class InstanceToolBoundaryTests
+{
+    public TestContext TestContext { get; set; } = null!;
+    [TestMethod]
+    public async Task DomainFailuresArePublicButCancellationAndUnexpectedFailuresAreUnchanged()
+    {
+        var expected = new AutomationException("instance_mismatch", "The endpoint belongs to another instance.");
+        var error = await InstanceToolBoundary.Run<int>(() => throw expected);
+        Assert.IsTrue(error.IsError);
+        using var message = JsonDocument.Parse(((TextContentBlock)error.Content.Single()).Text);
+        Assert.AreEqual(expected.Code, message.RootElement.GetProperty("code").GetString());
+        Assert.AreEqual(expected.Message, message.RootElement.GetProperty("message").GetString());
+        var native = await InstanceToolBoundary.Run<int>(() => throw new NativeApiException(3, "Wrong document target."));
+        Assert.IsTrue(native.IsError);
+        using var nativeMessage = JsonDocument.Parse(((TextContentBlock)native.Content.Single()).Text);
+        Assert.AreEqual("native_status_3", nativeMessage.RootElement.GetProperty("code").GetString());
+        using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        await Assert.ThrowsAsync<OperationCanceledException>(() => InstanceToolBoundary.Run(() => Task.FromCanceled<int>(cancelled.Token)));
+        var internalFailure = new InvalidOperationException("Do not publish internal diagnostics.");
+        Assert.AreSame(internalFailure, await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => InstanceToolBoundary.Run<int>(() => throw internalFailure)));
+        var success = await InstanceToolBoundary.Run(() => Task.FromResult(new { value = 42 }));
+        Assert.AreEqual("{\"value\":42}", ((TextContentBlock)success.Content.Single()).Text);
+        var nativeJson = await InstanceToolBoundary.Run(() => Task.FromResult("{\"sheetPath\":{}}"));
+        Assert.AreEqual("{\"sheetPath\":{}}", ((TextContentBlock)nativeJson.Content.Single()).Text);
+    }
+
+    [TestMethod]
+    public async Task WrongInstanceReturnsItsReasonWithoutReplacingTheAttachedSession()
+    {
+        string root = Directory.CreateTempSubdirectory("kicad-instance-boundary-").FullName;
+        try
+        {
+            var transport = new NativeClientTests.FixtureTransport { ProjectPath = Path.Combine(root, "fixture.kicad_pro") };
+            var registry = new InstanceRegistry(transport, root);
+            var tools = new InstanceTools(registry);
+            string endpoint = NativeIpcEndpoint.FromSocketPath(Path.Combine(Path.GetTempPath(), "instance-boundary.sock"));
+            var attached = await tools.Attach(endpoint, transport.InstanceId, default);
+            Assert.IsFalse(attached.IsError ?? false);
+            var original = registry.Get(transport.InstanceId);
+            var wrong = await tools.Attach(endpoint, Guid.NewGuid().ToString("D"), default);
+            Assert.IsTrue(wrong.IsError);
+            using var message = JsonDocument.Parse(((TextContentBlock)wrong.Content.Single()).Text);
+            Assert.AreEqual("instance_mismatch", message.RootElement.GetProperty("code").GetString());
+            Assert.AreEqual(original, registry.Get(transport.InstanceId)); Assert.AreEqual(1, registry.List().Count);
+            Assert.IsFalse((await tools.Attach(endpoint, transport.InstanceId, default)).IsError ?? false);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [TestMethod]
+    public async Task CompiledStdioReturnsActionableUnknownInstanceErrorAndRecovers()
+    {
+        string root = Directory.CreateTempSubdirectory("kicad-instance-errors-").FullName;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try
+        {
+            await using var mcp = await StdioMcpFixture.StartAsync(Path.Combine(root, "state"), Path.Combine(root, "stderr.log"), deadline.Token);
+            var error = await mcp.Tool("kicad_instance_inspect", new { instanceId = Guid.NewGuid().ToString("D") });
+            Assert.IsTrue(error.GetProperty("isError").GetBoolean());
+            TestContext.WriteLine(error.GetRawText());
+            using var detail = JsonDocument.Parse(error.GetProperty("content").EnumerateArray().Single(x => x.GetProperty("type").GetString() == "text").GetProperty("text").GetString()!);
+            Assert.AreEqual("unknown_instance", detail.RootElement.GetProperty("code").GetString());
+            Assert.IsFalse(string.IsNullOrWhiteSpace(detail.RootElement.GetProperty("message").GetString()));
+            var recovered = await mcp.Tool("kicad_instances_list", new { });
+            Assert.IsFalse(recovered.TryGetProperty("isError", out var value) && value.GetBoolean());
+        }
+        finally
+        {
+            string log = Path.Combine(root, "stderr.log");
+            if (File.Exists(log))
+            {
+                string retained = Path.Combine(TestContext.TestResultsDirectory!, "instance-error-mcp.log");
+                File.Copy(log, retained, true); TestContext.AddResultFile(retained);
+            }
+            Directory.Delete(root, true);
+        }
+    }
+}

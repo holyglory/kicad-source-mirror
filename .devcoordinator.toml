@@ -251,7 +251,7 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.windows-harness.check]]
 name = "contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~McpToolPayloadTests|FullyQualifiedName~WindowsRequalifiedPreviewTests|FullyQualifiedName~WindowsDiagnosticPackageTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-harness-tests"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~McpToolPayloadTests|FullyQualifiedName~WindowsRetainedPackageInputTests|FullyQualifiedName~WindowsRequalifiedPreviewTests|FullyQualifiedName~WindowsDiagnosticPackageTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-harness-tests"]
 retained_artifacts = [{ name = "windows-harness-tests", path = "automation/artifacts/windows-harness-tests", max_bytes = 16777216 }]
 
 [test.windows-caption]

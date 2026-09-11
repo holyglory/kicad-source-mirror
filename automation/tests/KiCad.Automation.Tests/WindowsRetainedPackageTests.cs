@@ -16,8 +16,10 @@ public sealed class WindowsRetainedPackageTests
     {
         if (!OperatingSystem.IsWindows()) { Assert.Inconclusive("Requires native Windows execution."); return; }
         string Required(string name) => Environment.GetEnvironmentVariable(name) ?? throw new AssertFailedException("Missing frozen input: " + name);
-        string archive = Required("KICAD_RETAINED_WINDOWS_ARCHIVE"), expectedHash = Required("KICAD_RETAINED_WINDOWS_SHA256");
-        string commit = Required("KICAD_RETAINED_WINDOWS_COMMIT"), originalReceipt = Required("KICAD_RETAINED_WINDOWS_RECEIPT");
+        var frozen = WindowsRetainedPackageInput.Parse(Required("KICAD_RETAINED_WINDOWS_INPUT"));
+        string archive = Required("KICAD_RETAINED_WINDOWS_ARCHIVE"), expectedHash = frozen.Sha256;
+        string commit = frozen.Commit, originalReceipt = Required("KICAD_RETAINED_WINDOWS_RECEIPT");
+        Assert.AreEqual(frozen.ArchiveName, Path.GetFileName(archive));
         string scratch = Directory.CreateTempSubdirectory("kwretained-").FullName;
         string evidence = Directory.CreateDirectory(Path.Combine(Environment.GetEnvironmentVariable("KICAD_HOSTED_FIXTURE_EVIDENCE")
             ?? TestContext.TestResultsDirectory!, "windows-retained-package")).FullName;
@@ -28,6 +30,7 @@ public sealed class WindowsRetainedPackageTests
             byte[] receiptBytes = await File.ReadAllBytesAsync(originalReceipt, deadline.Token);
             using var receipt = JsonDocument.Parse(receiptBytes);
             Assert.AreEqual(commit, receipt.RootElement.GetProperty("SourceCommit").GetString());
+            Assert.AreEqual(frozen.RunId, receipt.RootElement.GetProperty("RunId").GetString());
             Assert.AreEqual("failed", receipt.RootElement.GetProperty("Status").GetString());
             foreach (string prerequisite in new[] { "native-build", "native-tests", "native-install", "installed-native-commit", "managed-runtime" })
                 Assert.IsTrue(receipt.RootElement.GetProperty("Steps").EnumerateArray().Any(step =>
@@ -58,6 +61,7 @@ public sealed class WindowsRetainedPackageTests
             await File.WriteAllTextAsync(Path.Combine(evidence, "inputs.json"), JsonSerializer.Serialize(new
             { sourceCommit = commit, archiveSha256 = hash, archiveBytes = input.Length, entries = plan.Entries.Count,
                 originalRunId = receipt.RootElement.GetProperty("RunId").GetString(),
+                originalRunAttempt = frozen.Attempt, originalArtifactName = frozen.ArtifactName,
                 harnessCommit = Environment.GetEnvironmentVariable("SOURCE_COMMIT"), rebuiltNativeCode = false }), deadline.Token);
             Environment.SetEnvironmentVariable("KICAD_TEST_WINDOWS_INSTALL", install);
             DirectoryInfo? repository = new(AppContext.BaseDirectory);

@@ -132,13 +132,15 @@ public sealed class WindowsLauncherTests
     }
 
     internal static async Task<(int ExitCode, string Output, string Error)> Invoke(string executable, string[] args, string directory,
-        CancellationToken token, string? input = "input over inherited stdin\n")
+        CancellationToken token, string? input = "input over inherited stdin\n", IReadOnlyDictionary<string, string?>? environment = null)
     {
         var start = new ProcessStartInfo(executable) { WorkingDirectory = directory, UseShellExecute = false,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = new UTF8Encoding(false),
             StandardErrorEncoding = new UTF8Encoding(false) };
         foreach (string argument in args) start.ArgumentList.Add(argument);
+        if (environment is not null)
+            foreach (var pair in environment) start.Environment[pair.Key] = pair.Value;
         using var process = Process.Start(start)!;
         Task<string> stdout = process.StandardOutput.ReadToEndAsync(), stderr = process.StandardError.ReadToEndAsync();
         try

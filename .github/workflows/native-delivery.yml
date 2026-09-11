@@ -40,6 +40,10 @@ on:
       windows_update_candidate_commit:
         description: With integrated-update, exact different candidate commit in the public Windows feed
         type: string
+      windows_retained_package:
+        description: With installed-diagnostic, frozen build run/attempt/source commit/archive SHA-256
+        type: string
+        default: '34555975985/1/433c5e1fdf5954955a19df546236dce78e78b5b0/cd5381d6ebe716c7a63990a0bf3930fec0200a66f6f284e0433f1ea1e8c6dcc6'
 
 # SA-09: disposable public-source builds; no publisher key, engineering
 # repository, persistent runner or live editor-control endpoint.
@@ -182,6 +186,7 @@ jobs:
       WINDOWS_FIXTURE: ${{ inputs.windows_fixture }}
       WINDOWS_UPDATE_BASELINE_COMMIT: ${{ inputs.windows_update_baseline_commit }}
       WINDOWS_UPDATE_CANDIDATE_COMMIT: ${{ inputs.windows_update_candidate_commit }}
+      KICAD_RETAINED_WINDOWS_INPUT: ${{ inputs.windows_retained_package }}
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
     steps:
@@ -304,19 +309,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ($env:CHECKS_ONLY -ne 'true') { throw 'Retained package operation is checks-only.' }
+          if ($env:KICAD_RETAINED_WINDOWS_INPUT -cnotmatch '\A[1-9][0-9]{0,19}/[1-9][0-9]{0,5}/[0-9a-f]{40}/[0-9a-f]{64}\z') {
+            throw 'Require the exact build run/attempt/source commit/archive SHA-256.'
+          }
+          $retained = $env:KICAD_RETAINED_WINDOWS_INPUT.Split('/')
           $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
           dotnet test KiCad.Automation.slnx --configuration Release `
-            --filter 'FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~McpToolPayloadTests' `
+            --filter 'FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~McpToolPayloadTests|FullyQualifiedName~WindowsRetainedPackageInputTests' `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight/harness"
           if ($LASTEXITCODE -ne 0) { throw 'Native harness preflight failed.' }
-          gh run download 34555975985 --repo holyglory/kicad-source-mirror `
-            --name native-windows-x64-433c5e1fdf5954955a19df546236dce78e78b5b0-1 `
+          gh run download $retained[0] --repo holyglory/kicad-source-mirror `
+            --name "native-windows-x64-$($retained[2])-$($retained[1])" `
             --dir "$env:RUNNER_TEMP/kicad-retained-application"
           if ($LASTEXITCODE -ne 0) { throw 'Retained Windows artifact unavailable.' }
-          $env:KICAD_RETAINED_WINDOWS_ARCHIVE = "$env:RUNNER_TEMP/kicad-retained-application/kicad-delivery/diagnostics/unqualified-windows-433c5e1fdf5954955a19df546236dce78e78b5b0.zip"
+          $env:KICAD_RETAINED_WINDOWS_ARCHIVE = "$env:RUNNER_TEMP/kicad-retained-application/kicad-delivery/diagnostics/unqualified-windows-$($retained[2]).zip"
           $env:KICAD_RETAINED_WINDOWS_RECEIPT = "$env:RUNNER_TEMP/kicad-retained-application/kicad-delivery/receipt.json"
-          $env:KICAD_RETAINED_WINDOWS_COMMIT = '433c5e1fdf5954955a19df546236dce78e78b5b0'
-          $env:KICAD_RETAINED_WINDOWS_SHA256 = 'cd5381d6ebe716c7a63990a0bf3930fec0200a66f6f284e0433f1ea1e8c6dcc6'
           dotnet test KiCad.Automation.slnx --configuration Release --no-build `
             --filter 'TestCategory=NativeWindowsRetainedPackage' --logger trx `
             --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight/retained"

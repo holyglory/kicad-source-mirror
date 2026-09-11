@@ -27,6 +27,50 @@ public sealed class WindowsIntegratedUpdateTests
     private async Task RunAsync(bool reconnectMcp)
     {
         if (!OperatingSystem.IsWindows()) { Assert.Inconclusive("Requires native Windows packages and desktop."); return; }
+        string method = reconnectMcp ? nameof(ActualPublicCaptionUpdateReconnectsPackagedMcpAndPreservesBothDesigns)
+            : nameof(ActualCaptionUpdatePreservesTwoDirtyDesignsAcrossDifferentSignedBuilds);
+        string? workerRoot = Environment.GetEnvironmentVariable("KICAD_WINDOWS_PAIR_WORKER_ROOT");
+        if (workerRoot is not null)
+        {
+            Assert.AreEqual(method, Environment.GetEnvironmentVariable("KICAD_WINDOWS_PAIR_WORKER_METHOD"));
+            await RunNativeAsync(reconnectMcp, workerRoot);
+            return;
+        }
+
+        // The native NNG DLL stays loaded for the life of the test process.
+        // Only its parent can remove the retained installation after it exits.
+        string scratch = Directory.CreateTempSubdirectory("kwpair-").FullName;
+        string evidence = Directory.CreateDirectory(Path.Combine(Environment.GetEnvironmentVariable("KICAD_HOSTED_FIXTURE_EVIDENCE")
+            ?? TestContext.TestResultsDirectory!, reconnectMcp ? "windows-integrated-mcp-update" : "windows-integrated-update")).FullName;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(25));
+        try
+        {
+            DirectoryInfo? repository = new(AppContext.BaseDirectory);
+            while (repository is not null && !File.Exists(Path.Combine(repository.FullName, "KiCad.Automation.slnx"))) repository = repository.Parent;
+            Assert.IsNotNull(repository);
+            string configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
+            var worker = await WindowsLauncherTests.Invoke("dotnet", ["test", "KiCad.Automation.slnx", "--configuration", configuration,
+                "--no-build", "--no-restore", "--filter", "FullyQualifiedName=" + typeof(WindowsIntegratedUpdateTests).FullName + "." + method,
+                "--logger", "trx", "--results-directory", Path.Combine(evidence, "native-worker")], repository.FullName,
+                deadline.Token, input: null, environment: new Dictionary<string, string?>
+                {
+                    ["KICAD_WINDOWS_PAIR_WORKER_ROOT"] = scratch,
+                    ["KICAD_WINDOWS_PAIR_WORKER_METHOD"] = method,
+                    ["KICAD_HOSTED_FIXTURE_EVIDENCE"] = Path.GetDirectoryName(evidence)!
+                });
+            await File.WriteAllTextAsync(Path.Combine(evidence, "native-worker.stdout.log"), worker.Output, deadline.Token);
+            await File.WriteAllTextAsync(Path.Combine(evidence, "native-worker.stderr.log"), worker.Error, deadline.Token);
+            Assert.AreEqual(0, worker.ExitCode, "The native update worker failed; inspect its result and retained cleanup evidence.");
+        }
+        finally
+        {
+            foreach (string file in Directory.GetFiles(evidence, "*", SearchOption.AllDirectories)) TestContext.AddResultFile(file);
+            await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(scratch);
+        }
+    }
+
+    private async Task RunNativeAsync(bool reconnectMcp, string scratch)
+    {
         string Required(string name) => Environment.GetEnvironmentVariable(name) ?? throw new AssertFailedException("Frozen input required: " + name);
         string baselineCommit = Required("KICAD_WINDOWS_UI_BASELINE_COMMIT"), candidateCommit = Required("KICAD_WINDOWS_UI_EXPECTED_COMMIT");
         foreach (string commit in new[] { baselineCommit, candidateCommit }) Assert.IsTrue(Regex.IsMatch(commit, "^[0-9a-f]{40}$"));
@@ -43,7 +87,6 @@ public sealed class WindowsIntegratedUpdateTests
         Assert.AreEqual(candidateCommit, candidate.Release.Commit);
         Assert.IsTrue(candidate.Release.Sequence > baseline.Release.Sequence);
         Assert.IsNotNull(candidate.ForInstallation("win-x64", "zip"));
-        string scratch = Directory.CreateTempSubdirectory("kwpair-").FullName;
         string evidence = Directory.CreateDirectory(Path.Combine(Environment.GetEnvironmentVariable("KICAD_HOSTED_FIXTURE_EVIDENCE")
             ?? TestContext.TestResultsDirectory!, reconnectMcp ? "windows-integrated-mcp-update" : "windows-integrated-update")).FullName;
         string root = Path.Combine(scratch, "installed"), state = Path.Combine(scratch, "registry");
@@ -261,7 +304,7 @@ public sealed class WindowsIntegratedUpdateTests
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!); File.Copy(file, destination);
             }
             foreach (string file in Directory.GetFiles(evidence, "*", SearchOption.AllDirectories)) TestContext.AddResultFile(file);
-            await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(scratch);
+            // The parent deletes this installation after native libraries unload.
         }
     }
 

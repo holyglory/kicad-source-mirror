@@ -58,6 +58,41 @@ static bool visibleButton( AXUIElementRef application, AXUIElementRef button )
     return visible;
 }
 
+// Follow one menu level, crossing only its anonymous AXMenu container.
+// Never search another application's menu or invoke a hidden descendant.
+static AXUIElementRef menuChild( AXUIElementRef parent, NSString* title )
+{
+    std::vector<AXUIElementRef> queue = { parent }, matches;
+    CFRetain( parent );
+    for( size_t cursor = 0; cursor < queue.size() && queue.size() <= 1024; ++cursor )
+    {
+        AXUIElementRef element = queue[cursor];
+        if( cursor > 0 && ![textAttribute( element, kAXRoleAttribute ) isEqualToString:(NSString*)kAXMenuRole] )
+        {
+            NSString* role = textAttribute( element, kAXRoleAttribute );
+            if( ([role isEqualToString:(NSString*)kAXMenuItemRole] || [role isEqualToString:(NSString*)kAXMenuBarItemRole])
+                && [textAttribute( element, kAXTitleAttribute ) isEqualToString:title] ) matches.push_back( element );
+            continue;
+        }
+        CFTypeRef children = nullptr;
+        if( AXUIElementCopyAttributeValue( element, kAXChildrenAttribute, &children ) == kAXErrorSuccess )
+        {
+            if( CFGetTypeID( children ) == CFArrayGetTypeID() )
+                for( CFIndex index = 0; index < CFArrayGetCount( (CFArrayRef)children ) && queue.size() <= 1024; ++index )
+                {
+                    CFTypeRef child = CFArrayGetValueAtIndex( (CFArrayRef)children, index );
+                    if( CFGetTypeID( child ) == AXUIElementGetTypeID() )
+                    { CFRetain( child ); queue.push_back( (AXUIElementRef)child ); }
+                }
+            CFRelease( children );
+        }
+    }
+    AXUIElementRef result = matches.size() == 1 && queue.size() <= 1024 ? matches[0] : nullptr;
+    if( result ) CFRetain( result );
+    for( AXUIElementRef element : queue ) CFRelease( element );
+    return result;
+}
+
 int main( int argc, char** argv )
 {
     @autoreleasepool
@@ -69,7 +104,8 @@ int main( int argc, char** argv )
             return 0;
         }
         if( argc != 3 ) return 2;
-        if( strcmp( argv[1], "inspect" ) != 0 && strcmp( argv[1], "press" ) != 0 && strcmp( argv[1], "reveal" ) != 0 ) return 2;
+        if( strcmp( argv[1], "inspect" ) != 0 && strcmp( argv[1], "press" ) != 0
+            && strcmp( argv[1], "reveal" ) != 0 && strcmp( argv[1], "menu" ) != 0 ) return 2;
         if( !AXIsProcessTrusted() )
         {
             emit( @{ @"schemaVersion": @1, @"status": @"accessibility_unavailable", @"permissionsChanged": @NO } );
@@ -104,6 +140,64 @@ int main( int argc, char** argv )
         { emit( @{ @"schemaVersion": @1, @"status": @"process_identity_mismatch" } ); return 7; }
         AXUIElementRef application = AXUIElementCreateApplication( pid );
         AXUIElementSetMessagingTimeout( application, 2.0 );
+        if( strcmp( argv[1], "menu" ) == 0 )
+        {
+            id path = request[@"menuPath"];
+            if( ![path isKindOfClass:[NSArray class]] || [path count] != 2
+                || ![path[0] isKindOfClass:[NSString class]] || ![path[1] isKindOfClass:[NSString class]]
+                || ![path[0] length] || ![path[1] length] ) { CFRelease( application ); return 2; }
+            NSString* title = [request[@"windowTitle"] isKindOfClass:[NSString class]] ? request[@"windowTitle"] : nil;
+            CFTypeRef windows = nullptr;
+            AXUIElementCopyAttributeValue( application, kAXWindowsAttribute, &windows );
+            std::vector<AXUIElementRef> owners;
+            if( windows && CFGetTypeID( windows ) == CFArrayGetTypeID() )
+                for( CFIndex index = 0; index < CFArrayGetCount( (CFArrayRef)windows ); ++index )
+                {
+                    AXUIElementRef window = (AXUIElementRef)CFArrayGetValueAtIndex( (CFArrayRef)windows, index );
+                    if( CFGetTypeID( window ) == AXUIElementGetTypeID()
+                        && [textAttribute( window, kAXTitleAttribute ) isEqualToString:title] ) owners.push_back( window );
+                }
+            bool raised = false;
+            if( owners.size() == 1 && matchesProcess() )
+            {
+                [[NSRunningApplication runningApplicationWithProcessIdentifier:pid] activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+                raised = AXUIElementPerformAction( owners[0], kAXRaiseAction ) == kAXErrorSuccess;
+            }
+            if( windows ) CFRelease( windows );
+            if( !raised )
+            {
+                CFRelease( application );
+                emit( @{ @"schemaVersion": @1, @"status": @"no_unique_menu_window" } ); return 5;
+            }
+            CFTypeRef bar = nullptr;
+            AXUIElementCopyAttributeValue( application, kAXMenuBarAttribute, &bar );
+            AXUIElementRef parent = bar && CFGetTypeID( bar ) == AXUIElementGetTypeID() ? (AXUIElementRef)bar : nullptr;
+            if( bar && !parent ) CFRelease( bar );
+            bool sent = false;
+            for( NSUInteger level = 0; parent && level < 2; ++level )
+            {
+                AXUIElementRef child = nullptr;
+                for( int attempt = 0; attempt < 20 && !child; ++attempt )
+                {
+                    child = menuChild( parent, path[level] );
+                    if( child && !visibleButton( application, child ) ) { CFRelease( child ); child = nullptr; }
+                    if( !child ) [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+                }
+                CFRelease( parent ); parent = child;
+                if( !child ) break;
+                CFTypeRef enabled = nullptr;
+                bool actionable = AXUIElementCopyAttributeValue( child, kAXEnabledAttribute, &enabled ) == kAXErrorSuccess
+                    && CFGetTypeID( enabled ) == CFBooleanGetTypeID() && CFBooleanGetValue( (CFBooleanRef)enabled );
+                if( enabled ) CFRelease( enabled );
+                if( !actionable || !matchesProcess() || !visibleButton( application, child ) ) break;
+                if( AXUIElementPerformAction( child, kAXPressAction ) != kAXErrorSuccess ) break;
+                sent = level == 1;
+            }
+            if( parent ) CFRelease( parent );
+            CFRelease( application );
+            emit( @{ @"schemaVersion": @1, @"status": sent ? @"menu_action_sent" : @"menu_not_actionable", @"menuPath": path } );
+            return sent ? 0 : 5;
+        }
         std::vector<AXUIElementRef> queue = { application }, matches;
         NSMutableArray* controls = [NSMutableArray array];
         NSString* wanted = [request[@"title"] isKindOfClass:[NSString class]] ? request[@"title"] : nil;

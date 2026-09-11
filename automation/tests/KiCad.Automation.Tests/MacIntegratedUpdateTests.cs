@@ -8,6 +8,7 @@ using KiCad.Automation.Mcp;
 using KiCad.Automation.Native;
 using KiCad.Automation.Protocol;
 using Kiapi.Common.Types;
+using Kiapi.Common.Commands;
 using Kiapi.Schematic.Types;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -95,24 +96,35 @@ public sealed class MacIntegratedUpdateTests
             var updatedSecond = await UpdateAndSave(second, "second");
             CollectionAssert.AreEqual(candidateEnvelope, await downloads.FetchManifestAsync("preview", deadline.Token),
                 "The live feed changed during a frozen qualification journey.");
+            foreach (var process in new[] { updatedFirst, updatedSecond })
+            {
+                await MacProcessIdentityTests.Run(quit, ["quit", process.Id.ToString()], deadline.Token);
+                await process.WaitForExitAsync(deadline.Token);
+            }
+            await Task.WhenAll(captures).WaitAsync(TimeSpan.FromSeconds(15), deadline.Token);
+            foreach (string log in Directory.GetFiles(evidence, "*.stderr.log"))
+                Assert.IsFalse((await File.ReadAllTextAsync(log, deadline.Token)).Contains("implemented in both", StringComparison.Ordinal),
+                    "Native modules registered duplicate Objective-C classes; see " + Path.GetFileName(log));
             await File.WriteAllTextAsync(Path.Combine(evidence, "result.json"), JsonSerializer.Serialize(new
             {
                 schemaVersion = 1, platform, baselineCommit = baseline.Release.Commit, candidateCommit = candidate.Release.Commit,
                 automaticInstalledContext = true, actualAccessibilityPress = true, cancelPreservedDirtyObject = true,
                 savePersistedMarkerAndIdentity = true, secondInstancePreserved = true, bothInstancesRestarted = true,
                 publicSignedFeed = origin.AbsoluteUri, nativeEpochsChanged = true,
+                actualManagerSchematicAndPcbSameProcess = true, nativePcbOpenedThroughMenu = true,
+                duplicateObjectiveCClassesAbsent = true,
                 automaticUpdatingQualified = false, crossPlatformReady = false
             }), deadline.Token);
-            foreach (var process in new[] { updatedFirst, updatedSecond })
-            {
-                await MacProcessIdentityTests.Run(quit, ["quit", process.Id.ToString()], deadline.Token);
-                await process.WaitForExitAsync(deadline.Token);
-            }
 
             async Task<OpenProject> Start(string name)
             {
                 string directory = Directory.CreateDirectory(Path.Combine(scratch, name)).FullName;
                 string project = Path.Combine(directory, name + ".kicad_pro"), schematic = Path.Combine(directory, name + ".kicad_sch");
+                DirectoryInfo? repository = new(AppContext.BaseDirectory);
+                while (repository is not null && !Directory.Exists(Path.Combine(repository.FullName, "qa/data/pcbnew"))) repository = repository.Parent;
+                Assert.IsNotNull(repository);
+                File.Copy(Path.Combine(repository.FullName, "qa/data/pcbnew/drc_courtyard/overlap/empty_board.kicad_pcb"),
+                    Path.ChangeExtension(project, ".kicad_pcb"));
                 await File.WriteAllTextAsync(project, JsonSerializer.Serialize(new
                 {
                     meta = new { version = 3 }, schematic = new { top_level_sheets = new[]
@@ -220,7 +232,40 @@ public sealed class MacIntegratedUpdateTests
                 await VerifyMarker(client, document, old.MarkerId, old.MarkerText);
                 CollectionAssert.AreEqual(saved, await File.ReadAllBytesAsync(old.Schematic, wait.Token));
                 await ui.CaptureAsync(result.ProcessIdentity, name + "-restarted", wait.Token);
+                await VerifyPcbModule(client, result.ProcessIdentity, old.Project, name, wait.Token);
                 return replacement;
+            }
+
+            async Task VerifyPcbModule(NativeClient client, MacProcessIdentity identity, string project, string name, CancellationToken token)
+            {
+                var before = await ui.InspectAsync(identity, token);
+                string manager = before.GetProperty("windows").EnumerateArray().Select(x => x.GetProperty("title").GetString()!)
+                    .Single(x => x.StartsWith(name + " — KiCad ", StringComparison.Ordinal));
+                await ui.SelectMenuAsync(identity, manager, "Tools", "PCB Editor", token);
+                using var ready = CancellationTokenSource.CreateLinkedTokenSource(token);
+                ready.CancelAfter(TimeSpan.FromSeconds(60));
+                GetOpenDocumentsResponse? boards = null;
+                int delay = 50;
+                while (boards is null || boards.Documents.Count == 0)
+                {
+                    Assert.AreEqual(identity, MacProcessIdentity.Read(identity.ProcessId));
+                    try { boards = await client.InvokeAsync<GetOpenDocuments, GetOpenDocumentsResponse>(new() { Type = (DocumentType)3 }, ready.Token); }
+                    catch (NativeApiException error) when (error.Status is 4 or 7) { }
+                    if (boards is null || boards.Documents.Count == 0)
+                    { await Task.Delay(delay, ready.Token); delay = Math.Min(delay * 2, 1000); }
+                }
+                var board = boards.Documents.Single();
+                Assert.AreEqual(Path.GetFileName(Path.ChangeExtension(project, ".kicad_pcb")), board.BoardFilename);
+                Assert.AreEqual(Path.GetDirectoryName(project), Path.TrimEndingDirectorySeparator(board.Project.Path));
+                var sheets = await client.InvokeAsync<GetOpenDocuments, GetOpenDocumentsResponse>(new() { Type = (DocumentType)1 }, ready.Token);
+                Assert.AreEqual(1, sheets.Documents.Count, "The schematic editor must remain open in the same native instance.");
+                await ui.CaptureAsync(identity, name + "-pcb-and-schematic", ready.Token);
+                var visible = await ui.InspectAsync(identity, ready.Token);
+                Assert.IsTrue(visible.GetProperty("windows").EnumerateArray().Any(x =>
+                    x.GetProperty("title").GetString()!.Contains("PCB Editor", StringComparison.Ordinal)), "No actual PCB editor window was rendered.");
+                await File.WriteAllTextAsync(Path.Combine(evidence, name + "-module-ownership.json"), JsonSerializer.Serialize(new
+                { identity, epoch = client.Epoch, board = board.BoardFilename, schematicCount = sheets.Documents.Count,
+                    openedThroughNativeMenu = true, sameProcess = true }), ready.Token);
             }
 
             async Task VerifyMarker(NativeClient client, DocumentSpecifier document, string id, string text)

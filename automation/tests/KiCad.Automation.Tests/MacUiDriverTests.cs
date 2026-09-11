@@ -69,6 +69,24 @@ public sealed class MacUiDriverTests
             await ui.RevealAsync(identity, "Update", deadline.Token);
             await ui.WaitButtonAsync(identity, "Update", deadline.Token);
             await ui.CaptureAsync(identity, "external-control", deadline.Token);
+            const string windowTitle = "KiCad external UI driver fixture";
+            await Assert.ThrowsAsync<AssertFailedException>(() => ui.SelectMenuAsync(identity with
+                { StartMicroseconds = (identity.StartMicroseconds + 1) % 1000000 }, windowTitle, "Tools", "PCB Editor", deadline.Token));
+            Assert.IsFalse(File.Exists(Path.Combine(root, "menu-selected")));
+            await ui.SelectMenuAsync(identity, windowTitle, "Tools", "PCB Editor", deadline.Token);
+            while (!File.Exists(Path.Combine(root, "menu-selected"))) await Task.Delay(50, deadline.Token);
+            File.Delete(Path.Combine(root, "menu-selected"));
+            await Assert.ThrowsAsync<AssertFailedException>(() => ui.SelectMenuAsync(identity, windowTitle, "Tools", "Disabled Editor", deadline.Token));
+            Assert.IsFalse(File.Exists(Path.Combine(root, "menu-selected")));
+            await ui.RevealAsync(identity, "Update", deadline.Token);
+            await Assert.ThrowsAsync<AssertFailedException>(() => ui.SelectMenuAsync(identity, windowTitle, "Tools", "Missing Editor", deadline.Token));
+            Assert.IsFalse(File.Exists(Path.Combine(root, "menu-selected")));
+            await ui.RevealAsync(identity, "Update", deadline.Token);
+            await ui.SelectMenuAsync(identity, windowTitle, "Tools", "PCB Editor", deadline.Token);
+            while (!File.Exists(Path.Combine(root, "menu-selected"))) await Task.Delay(50, deadline.Token);
+            await File.WriteAllTextAsync(Path.Combine(evidence, "menu-result.json"), JsonSerializer.Serialize(new
+            { exactNativeMenuSelection = true, staleProcessRejected = true, disabledAndMissingRejected = true,
+                recoveryVerified = true, applicationModuleJourneyVerified = false }), deadline.Token);
             await Assert.ThrowsAsync<AssertFailedException>(() => ui.PressAsync(identity with
                 { StartMicroseconds = (identity.StartMicroseconds + 1) % 1000000 }, "Update", deadline.Token));
             Assert.IsFalse(File.Exists(Path.Combine(root, "pressed.json")));

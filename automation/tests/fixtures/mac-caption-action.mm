@@ -9,6 +9,19 @@ static void require( bool condition, const char* message )
     if( !condition ) throw std::runtime_error( message );
 }
 
+@interface KICAD_MENU_DRIVER_FIXTURE : NSObject
+@property(copy) NSString* directory;
+- (void) selectPCB:(id)sender;
+@end
+
+@implementation KICAD_MENU_DRIVER_FIXTURE
+- (void) selectPCB:(id)sender
+{
+    [@"selected" writeToFile:[self.directory stringByAppendingPathComponent:@"menu-selected"] atomically:YES
+        encoding:NSUTF8StringEncoding error:nil];
+}
+@end
+
 int main( int argc, char** argv )
 {
     @autoreleasepool
@@ -21,6 +34,21 @@ int main( int argc, char** argv )
         if( external )
         {
             NSString* directory = [NSString stringWithUTF8String:argv[2]];
+            KICAD_MENU_DRIVER_FIXTURE* menuTarget = [[KICAD_MENU_DRIVER_FIXTURE alloc] init];
+            menuTarget.directory = directory;
+            NSMenu* bar = [[[NSMenu alloc] init] autorelease];
+            NSMenuItem* appItem = [[[NSMenuItem alloc] initWithTitle:@"Fixture" action:nil keyEquivalent:@""] autorelease];
+            [appItem setSubmenu:[[[NSMenu alloc] initWithTitle:@"Fixture"] autorelease]]; [bar addItem:appItem];
+            NSMenuItem* tools = [[[NSMenuItem alloc] initWithTitle:@"Tools" action:nil keyEquivalent:@""] autorelease];
+            NSMenu* toolsMenu = [[[NSMenu alloc] initWithTitle:@"Tools"] autorelease];
+            [toolsMenu setAutoenablesItems:NO];
+            for( NSString* title in @[ @"PCB Editor", @"Disabled Editor" ] )
+            {
+                NSMenuItem* item = [[[NSMenuItem alloc] initWithTitle:title action:@selector(selectPCB:) keyEquivalent:@""] autorelease];
+                [item setTarget:menuTarget]; [item setEnabled:[title isEqualToString:@"PCB Editor"]];
+                [toolsMenu addItem:item];
+            }
+            [tools setSubmenu:toolsMenu]; [bar addItem:tools]; [NSApp setMainMenu:bar];
             NSWindow* window = [[NSWindow alloc] initWithContentRect:NSMakeRect( 100, 100, 600, 350 )
                 styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
                 backing:NSBackingStoreBuffered defer:NO];
@@ -53,6 +81,7 @@ int main( int argc, char** argv )
             [@"ready" writeToFile:[directory stringByAppendingPathComponent:@"ready"] atomically:YES
                 encoding:NSUTF8StringEncoding error:nil];
             [NSApp run];
+            [menuTarget release];
             [cover release];
             [window release];
             return 0;

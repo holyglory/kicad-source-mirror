@@ -104,6 +104,11 @@ jobs:
           fi
           if [ "$MAC_FIXTURE" = integrated-update ]; then
             test "$CHECKS_ONLY" = true
+            # Prove the native action driver before downloading/installing the
+            # frozen KiCad pair. A failed control fixture gates the costly journey.
+            dotnet test KiCad.Automation.slnx --configuration Release \
+              --filter 'FullyQualifiedName~MacUiDriverTests' --logger trx \
+              --results-directory "$RUNNER_TEMP/kicad-loader-preflight/driver"
             [[ "$MAC_UPDATE_BASELINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
             [[ "$MAC_UPDATE_CANDIDATE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
             test "$MAC_UPDATE_BASELINE_COMMIT" != "$MAC_UPDATE_CANDIDATE_COMMIT"

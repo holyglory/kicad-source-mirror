@@ -25,9 +25,11 @@ for [Apple Silicon](https://kicad.vr.ae/artifacts/kicad-codex-2149b1d48295d00ee9
 and [Intel](https://kicad.vr.ae/artifacts/kicad-codex-2149b1d48295d00ee97a48295b285a064dba9a18-macos-x64.tar.gz).
 The first fixed-pair UI run (`34546066845`) failed before clicking Update.
 Separating preparation from UI readiness and revealing the owning window fixed
-the Apple Silicon journey in `34547458961`: actual Update/Cancel/Save, preserved
-objects, both restarts and the independent project passed. Intel is still being
-verified. These test repairs did not change the frozen package bytes. These
+both native architectures in `34547458961`: actual Update/Cancel/Save, preserved
+objects, both restarts and the independent project passed. The concrete
+concurrent-preparation and visible-control outcomes are closed; actual PCB module
+loading in the same process remains under verification (`p2e0d3607542a597b`).
+These test repairs did not change the frozen package bytes. These
 downloads are not full updater, Codex Desktop or engineering qualification.
 They also predate the newer verified-origin MCP reconnection code.
 
@@ -94,7 +96,31 @@ update and actual Codex Desktop journeys are not yet qualified. A distinct
 candidate at `cd4934ad7b` is now published for Apple Silicon above; the Intel
 job in `34507122230` remains in progress.
 
-## Latest preliminary Linux update — September 10, 2026
+## Latest preliminary Linux update — September 11, 2026
+
+[Linux application](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T005514Z-de1dc4303ab2-debian13-x64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T005514Z-de1dc4303ab2-source.tar.gz)
+identify `de1dc4303ab29dec168dea6bcba41df188cbd235`, version
+`preview-20260911T005514Z-de1dc4303ab2`. Generation 24 publishes Linux feed
+sequence 10 and preserves the Mac feeds and earlier downloads.
+
+Native package `c5c6b5` and signed staging `6bfe62` passed. Public run
+`t20260911T010358Z-2f1ad7` passed at 01:08:18 UTC: authenticated downloads,
+actual caption Update/Cancel/Save/restart from `9b748bcdb3c5`, a second independent
+instance and the empty manager. The application archive SHA-256 is
+`d82a8c9147ea672b645e0581670ecd608d98ba3fb9d24c01f4af5945efd9d77c`.
+Use the verified `--install-package` bootstrap for managed updates; unpacking
+alone does not configure the installation context.
+
+This build includes verified-origin MCP reconnection, but the older update
+baseline does not supply that origin. The public caption journey therefore
+does not prove post-update MCP adoption from that baseline. Separate real Linux
+STDIO tests prove reconnection, persistence across MCP restart, stale rejection,
+object preservation and an untouched dirty neighboring instance. Cross-platform
+reconnection, full automatic synchronization and actual Codex Desktop remain
+open. Windows has no public package yet. Qualification flags remain false.
+
+### Earlier Linux checkpoint — September 10, 2026
 
 [Linux application](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260910T105342Z-9b748bcdb3c5-debian13-x64.tar.gz)
 and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260910T105342Z-9b748bcdb3c5-source.tar.gz)

@@ -38,6 +38,12 @@ internal sealed class MacUiAutomation(string executable, string scratch, string 
         Assert.AreEqual("window_raised", result.GetProperty("status").GetString());
     }
 
+    public async Task SelectMenuAsync(MacProcessIdentity process, string windowTitle, string menu, string item, CancellationToken token)
+    {
+        var result = await Invoke("menu", process, null, token, [menu, item], windowTitle);
+        Assert.AreEqual("menu_action_sent", result.GetProperty("status").GetString());
+    }
+
     public async Task WaitButtonAsync(MacProcessIdentity process, string title, CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -78,7 +84,8 @@ internal sealed class MacUiAutomation(string executable, string scratch, string 
         await File.WriteAllTextAsync(Path.Combine(evidence, name + ".json"), observation.GetRawText(), token);
     }
 
-    private async Task<JsonElement> Invoke(string operation, MacProcessIdentity process, string? title, CancellationToken token)
+    private async Task<JsonElement> Invoke(string operation, MacProcessIdentity process, string? title, CancellationToken token,
+        string[]? menuPath = null, string? windowTitle = null)
     {
         Assert.AreEqual(process, MacProcessIdentity.Read(process.ProcessId), "The UI target changed before the action.");
         string path = Path.Combine(scratch, "ui-" + Guid.NewGuid().ToString("N") + ".json");
@@ -87,7 +94,7 @@ internal sealed class MacUiAutomation(string executable, string scratch, string 
             await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new
             {
                 schemaVersion = 1, process.ProcessId, process.BootId, process.StartSeconds, process.StartMicroseconds,
-                process.Executable, title
+                process.Executable, title, menuPath, windowTitle
             }, new JsonSerializerOptions(JsonSerializerDefaults.Web)), token);
             string output = await MacProcessIdentityTests.Run(executable, [operation, path], token);
             using var document = JsonDocument.Parse(output);

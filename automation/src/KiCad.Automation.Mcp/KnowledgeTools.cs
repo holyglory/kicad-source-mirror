@@ -10,7 +10,10 @@ public sealed record GuidanceToolResult(bool Valid, Guid? ComponentInstanceId, G
 
 public sealed record EngineeringDesignToolResult(bool ModelValid, Guid? DesignId,
     IReadOnlyDictionary<Guid, GuidanceResolution>? Guidance, IReadOnlyList<Guid>? UnrealizedConnections,
-    string? ErrorCode, string? ErrorMessage);
+    string? ErrorCode, string? ErrorMessage, IReadOnlyList<UnresolvedNetBinding>? UnresolvedNetBindings = null)
+{
+    public bool NetBindingsResolved => ModelValid && UnresolvedNetBindings is not { Count: > 0 };
+}
 
 public sealed record DesignBindingToolResult(bool DocumentParsed, SchematicBindingReport? BindingReport,
     string? ErrorCode, string? ErrorMessage);
@@ -92,7 +95,8 @@ public sealed class KnowledgeTools
             EngineeringDesign design = EngineeringDesignXml.Read(designXml, libraries);
             cancellationToken.ThrowIfCancellationRequested();
             return new(true, design.Circuit.Id, design.Validate(libraries),
-                design.Structure.Connections.Where(c => c.NetIds.Count == 0).Select(c => c.Id).Order().ToArray(), null, null);
+                design.Structure.Connections.Where(c => c.NetIds.Count == 0).Select(c => c.Id).Order().ToArray(), null, null,
+                design.Structure.UnresolvedNetBindings);
         }
         catch (AutomationException error)
         {

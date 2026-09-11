@@ -16,6 +16,10 @@
     <xs:enumeration value="Requirement"/><xs:enumeration value="Preference"/><xs:enumeration value="Information"/>
   </xs:restriction></xs:simpleType>
   <xs:complexType name="reference"><xs:attribute name="ref" type="identity" use="required"/></xs:complexType>
+  <xs:simpleType name="net-change"><xs:restriction base="xs:string">
+    <xs:enumeration value="Split"/><xs:enumeration value="Merged"/>
+    <xs:enumeration value="Removed"/><xs:enumeration value="Reidentified"/>
+  </xs:restriction></xs:simpleType>
   <xs:complexType name="pin">
     <xs:attribute name="component" type="identity" use="required"/>
     <xs:attribute name="number" type="xs:string" use="required"/>
@@ -59,6 +63,15 @@
       </xs:sequence><xs:attribute name="id" type="identity" use="required"/>
         <xs:attribute name="target" type="identity" use="required"/><xs:attribute name="role" type="role" use="required"/>
         <xs:attribute name="strength" type="strength"/>
+      </xs:complexType></xs:element>
+    </xs:sequence></xs:complexType></xs:element>
+    <xs:element name="unresolved-net-bindings" minOccurs="0"><xs:complexType><xs:sequence>
+      <xs:element name="binding" minOccurs="1" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+        <xs:element name="reason" type="xs:string"/>
+        <xs:element name="candidate" type="reference" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence><xs:attribute name="owner" type="identity" use="required"/>
+        <xs:attribute name="former-net" type="identity" use="required"/>
+        <xs:attribute name="change" type="net-change" use="required"/>
       </xs:complexType></xs:element>
     </xs:sequence></xs:complexType></xs:element>
   </xs:sequence><xs:attribute name="version" type="xs:positiveInteger" use="required" fixed="1"/>

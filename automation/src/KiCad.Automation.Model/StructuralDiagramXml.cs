@@ -50,7 +50,10 @@ public static class StructuralDiagramXml
                     s.Elements(Ns + "derived-from").Select(p => Id(p, "ref")).ToArray(),
                     s.Elements(Ns + "source").Select(p => new SourceReference(Text(p, "document"), Text(p, "revision"),
                         p.Attribute("page") is XAttribute page ? int.Parse(page.Value, NumberStyles.None, CultureInfo.InvariantCulture) : null,
-                        (string?)p.Attribute("table"), (string?)p.Attribute("part-variant"))).ToArray())).ToArray());
+                        (string?)p.Attribute("table"), (string?)p.Attribute("part-variant"))).ToArray())).ToArray(),
+                root.Element(Ns + "unresolved-net-bindings")?.Elements(Ns + "binding").Select(b => new UnresolvedNetBinding(
+                    Id(b, "owner"), Id(b, "former-net"), Enum.Parse<NetBindingChangeKind>(Text(b, "change")),
+                    b.Element(Ns + "reason")!.Value, b.Elements(Ns + "candidate").Select(n => Id(n, "ref")).ToArray())).ToArray());
             result.Validate(circuit);
             return result;
         }
@@ -77,7 +80,11 @@ public static class StructuralDiagramXml
                 s.DerivedFrom.Order().Select(id => E("derived-from", A("ref", id))),
                 s.Sources.Select(p => E("source", A("document", p.DocumentId), A("revision", p.Revision),
                     p.Page is int page ? A("page", page) : null, p.Table is string table ? A("table", table) : null,
-                    p.PartVariant is string variant ? A("part-variant", variant) : null))))));
+                    p.PartVariant is string variant ? A("part-variant", variant) : null))))),
+            diagram.UnresolvedNetBindings is not { Count: > 0 } ? null : E("unresolved-net-bindings",
+                diagram.UnresolvedNetBindings.OrderBy(b => b.OwnerId).ThenBy(b => b.FormerNetId).Select(b => E("binding",
+                    A("owner", b.OwnerId), A("former-net", b.FormerNetId), A("change", b.Change), E("reason", b.Reason),
+                    b.CandidateNetIds.Order().Select(id => E("candidate", A("ref", id)))))));
         // Entitize CR and attribute whitespace rather than letting XML newline normalization
         // silently change user-authored text or source coordinates on reload.
         return EngineeringXmlText.Render(root);

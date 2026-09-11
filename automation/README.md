@@ -36,10 +36,13 @@ now uses the same `3ac5af02cb7eee653578e0d5c85b7d841eb8724a` source as Apple
 Silicon above. Native build `34552278753`, signed staging `b27812` and public
 verification `9679c0` passed. Generation 30 serves Intel feed 6, preserving ARM
 feed 7, Linux feed 12 and 50 downloads. Its native `670961b39bb1` to `3ac5af02cb7e`
-MCP-update journey remains under verification: `34564869650` exposed text-only
-render-readiness handling in the test, fixed in the harness and rerun as
-`34565539266`. The download is preliminary, not a completed Intel MCP or full
-engineering qualification. macOS 15.7+; ad-hoc signed, not notarized.
+MCP-update journey `34565539266` passed two-project Save/Cancel/restart, preserved
+objects, both packaged-MCP reconnections, an MCP restart into the new binary,
+matching image/state and manager/schematic/PCB modules. The earlier `34564869650`
+failure exposed text-only render-readiness handling in the test; its receipt is
+not substituted for the clean rerun. Both native Mac architectures now have this
+continuity proof. Full XML, native-Mac Codex frontend, Windows and engineering
+qualification remain open. macOS 15.7+; ad-hoc signed, not notarized.
 
 ### Earlier Intel baseline — September 11, 2026
 

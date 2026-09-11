@@ -76,7 +76,9 @@ public sealed partial class NativeSessionTests
             var windows = new List<string>();
             NativeKeyboard.SchematicShortcut(display, processId, "", describe: windows.Add);
             await File.WriteAllLinesAsync(Path.Combine(evidence, "chain-menu-windows.txt"), windows, token);
-            if (!capturedMenuStack)
+            bool assertion = windows.Any(w => w.Contains("map=2", StringComparison.Ordinal)
+                && (w.Contains("assert", StringComparison.OrdinalIgnoreCase) || w.Contains("Debug Alert", StringComparison.OrdinalIgnoreCase)));
+            if (assertion && !capturedMenuStack)
             {
                 // Read-only diagnosis of this fixture-owned native process.
                 // Keep the stack cold; do not continue through a native assertion.
@@ -91,7 +93,7 @@ public sealed partial class NativeSessionTests
                 finally { if (!debugger.HasExited) { debugger.Kill(); await debugger.WaitForExitAsync(); } await Task.WhenAll(stdout, stderr); }
                 capturedMenuStack = true;
             }
-            if (windows.Any(w => w.Contains("assert", StringComparison.OrdinalIgnoreCase) || w.Contains("Debug Alert", StringComparison.OrdinalIgnoreCase)))
+            if (assertion)
                 throw new InvalidOperationException("Native assertion while opening the net-chain menu; see retained window/stack evidence.");
             Key("End"); Key("Up"); Key("Return");
             await Window(title, true);

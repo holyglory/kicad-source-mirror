@@ -265,7 +265,6 @@ public:
             ACTION_MENU( true )
     {
         SetTitle( _( "Net Chain..." ) );
-        m_replaceMenu = new REPLACE_TERMINAL_PIN_MENU();
     }
 
 protected:
@@ -384,7 +383,11 @@ protected:
         // Replace terminal pin submenu only when a single pin belonging to a chain is selected
         if( singlePin && inSignal )
         {
-            Add( m_replaceMenu );
+            // Clear() destroys wx-owned submenus. Rebuild this child with the
+            // current tool instead of retaining a dangling menu/title pointer.
+            auto* replaceMenu = new REPLACE_TERMINAL_PIN_MENU();
+            replaceMenu->SetTool( selTool );
+            Add( replaceMenu );
             wxLogTrace( "KICAD_NET_CHAIN_MENU", "[NetChainMenu] added replaceTerminalPin submenu" );
         }
 
@@ -430,8 +433,6 @@ protected:
         }
     }
 
-private:
-    REPLACE_TERMINAL_PIN_MENU* m_replaceMenu;
 };
 
 // Extend net-chains menu dynamically with createNetChainBetweenPins when two pins are selected

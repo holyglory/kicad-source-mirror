@@ -147,7 +147,19 @@ public sealed class WindowsInstalledPackageTests
                     File.Copy(log, Path.Combine(evidence, id + "-" + Path.GetFileName(log)), overwrite: false);
                 await WindowsFixtureCleanup.RemoveOwnedRuntimeDirectoryAsync(runtime);
             }
-            await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(scratch);
+            try { await WindowsFixtureCleanup.RemoveOwnedTemporaryDirectoryAsync(scratch); }
+            catch (Exception cleanupError)
+            {
+                var entries = Directory.Exists(scratch)
+                    ? Directory.EnumerateFileSystemEntries(scratch, "*", new EnumerationOptions
+                    { RecurseSubdirectories = true, MaxRecursionDepth = 16, AttributesToSkip = FileAttributes.ReparsePoint })
+                        .Take(512).Select(path => new { path = Path.GetRelativePath(scratch, path), attributes = File.GetAttributes(path).ToString() }).ToArray()
+                    : [];
+                string report = Path.Combine(evidence, "cleanup-failure.json");
+                await File.WriteAllTextAsync(report, JsonSerializer.Serialize(new { error = cleanupError.ToString(), entries }));
+                TestContext.AddResultFile(report);
+                throw;
+            }
         }
 
         async Task PrepareMarker(Editor editor)

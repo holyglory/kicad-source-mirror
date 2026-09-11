@@ -60,7 +60,18 @@ public sealed class WindowsRetainedPackageTests
                 originalRunId = receipt.RootElement.GetProperty("RunId").GetString(),
                 harnessCommit = Environment.GetEnvironmentVariable("SOURCE_COMMIT"), rebuiltNativeCode = false }), deadline.Token);
             Environment.SetEnvironmentVariable("KICAD_TEST_WINDOWS_INSTALL", install);
-            await new WindowsInstalledPackageTests { TestContext = TestContext }.PackagedMcpLaunchesRendersAndReattachesTwoDirtyNativeEditors();
+            DirectoryInfo? repository = new(AppContext.BaseDirectory);
+            while (repository is not null && !File.Exists(Path.Combine(repository.FullName, "KiCad.Automation.slnx"))) repository = repository.Parent;
+            Assert.IsNotNull(repository);
+            string configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
+            // The native NNG library must unload before deleting the extracted
+            // installation. Run the editor journey in its own test process.
+            var journey = await WindowsLauncherTests.Invoke("dotnet", ["test", "KiCad.Automation.slnx", "--configuration", configuration,
+                "--no-build", "--no-restore", "--filter", "TestCategory=NativeWindowsPackage", "--logger", "trx",
+                "--results-directory", Path.Combine(evidence, "installed-run")], repository.FullName, deadline.Token, input: null);
+            await File.WriteAllTextAsync(Path.Combine(evidence, "installed-run.stdout.log"), journey.Output, deadline.Token);
+            await File.WriteAllTextAsync(Path.Combine(evidence, "installed-run.stderr.log"), journey.Error, deadline.Token);
+            Assert.AreEqual(0, journey.ExitCode, "The retained editor journey failed; see its native result and cleanup evidence.");
             CollectionAssert.AreEqual(receiptBytes, await File.ReadAllBytesAsync(originalReceipt, deadline.Token));
             await File.WriteAllTextAsync(Path.Combine(evidence, "result.json"), JsonSerializer.Serialize(new
             { schemaVersion = 1, status = "passed", sourceCommit = commit, archiveSha256 = hash,

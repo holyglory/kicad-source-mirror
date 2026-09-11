@@ -42,12 +42,16 @@ public sealed class DownloadPageTests
             foreach (var package in packages) await File.WriteAllBytesAsync(Path.Combine(root, package.FileName), bytes);
             await File.WriteAllTextAsync(Path.Combine(root, "downloads.json"), JsonSerializer.Serialize(new DownloadManifest(1, packages), DownloadCatalogue.JsonOptions));
             var catalogue = await DownloadCatalogue.LoadAsync(root);
-            await using var app = DownloadServer.Create(catalogue, "http://127.0.0.1:0");
+            bool ready = false;
+            await using var app = DownloadServer.Create(catalogue, "http://127.0.0.1:0", isReady: () => ready);
             await app.StartAsync();
             try
             {
                 string origin = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
                 using var http = new HttpClient { BaseAddress = new(origin) };
+                Assert.AreEqual(HttpStatusCode.ServiceUnavailable, (await http.GetAsync("/healthz")).StatusCode);
+                ready = true;
+                Assert.AreEqual(HttpStatusCode.OK, (await http.GetAsync("/healthz")).StatusCode);
                 using var machine = await http.GetAsync("/");
                 Assert.AreEqual("application/json", machine.Content.Headers.ContentType!.MediaType);
                 Assert.AreEqual(await http.GetStringAsync("/downloads.json"), await machine.Content.ReadAsStringAsync());

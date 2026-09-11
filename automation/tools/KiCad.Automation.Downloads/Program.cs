@@ -10,5 +10,22 @@ SignedUpdateCatalogue updates = publisherSpki is null ? SignedUpdateCatalogue.Em
     : await SignedUpdateCatalogue.LoadAsync(root, publisherSpki, catalogue);
 // The Coordinator edge owns public HTTPS. No native IPC, control, repository,
 // directory listing, upload endpoint or administration endpoint is exposed.
-await using var app = DownloadServer.Create(catalogue, "http://127.0.0.1:" + port, updates);
-await app.RunAsync();
+bool ready = false;
+string origin = "http://127.0.0.1:" + port;
+await using var app = DownloadServer.Create(catalogue, origin, updates, isReady: () => ready);
+await app.StartAsync();
+// Finish the real HTML response path before the deployment can become healthy.
+// This catches missing compiled content and keeps first-request JIT off the
+// visitor's path; no external request, timed delay or test-only warmup.
+using (var probe = new HttpClient { BaseAddress = new Uri(origin), Timeout = TimeSpan.FromSeconds(30) })
+{
+    using var request = new HttpRequestMessage(HttpMethod.Get, "/");
+    request.Headers.Accept.ParseAdd("text/html");
+    using var response = await probe.SendAsync(request, app.Lifetime.ApplicationStopping);
+    response.EnsureSuccessStatusCode();
+    if (response.Content.Headers.ContentType?.MediaType != "text/html"
+        || !(await response.Content.ReadAsStringAsync(app.Lifetime.ApplicationStopping)).StartsWith("<!doctype html>", StringComparison.Ordinal))
+        throw new InvalidOperationException("The compiled download page did not become ready.");
+}
+ready = true;
+await app.WaitForShutdownAsync();

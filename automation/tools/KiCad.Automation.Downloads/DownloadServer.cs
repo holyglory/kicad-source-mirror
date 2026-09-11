@@ -6,7 +6,8 @@ namespace KiCad.Automation.Downloads;
 public static class DownloadServer
 {
     public static WebApplication Create(DownloadCatalogue catalogue, string url, SignedUpdateCatalogue? updates = null,
-        Action<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>? configureServer = null)
+        Action<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>? configureServer = null,
+        Func<bool>? isReady = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls(url);
@@ -15,7 +16,8 @@ public static class DownloadServer
         updates ??= SignedUpdateCatalogue.Empty;
         var landing = new DownloadPage(catalogue, updates);
         byte[] health = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { status = "ok", artifacts = catalogue.Files.Count });
-        app.MapGet("/healthz", () => Results.Bytes(health, "application/json"));
+        app.MapGet("/healthz", () => isReady?.Invoke() == false
+            ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable) : Results.Bytes(health, "application/json"));
         app.MapMethods("/", ["GET", "HEAD"], (HttpContext context) =>
         {
             // Older machine callers did not request HTML; preserve their contract.

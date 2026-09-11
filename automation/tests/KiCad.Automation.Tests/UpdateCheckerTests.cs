@@ -89,7 +89,11 @@ public sealed class UpdateCheckerTests
             Directory.CreateDirectory(fixture.AcceptedPath);
             return Task.CompletedTask;
         };
-        await Assert.ThrowsAsync<IOException>(() => fixture.Checker().CheckAsync());
+        // Replacing a directory with the metadata file is rejected on every
+        // platform, but Windows reports access denied rather than IOException.
+        var failure = await Assert.ThrowsAsync<Exception>(() => fixture.Checker().CheckAsync());
+        Assert.IsTrue(failure is IOException or UnauthorizedAccessException,
+            "Only a genuine filesystem write failure satisfies this negative control.");
         Assert.IsFalse(Directory.GetFiles(fixture.Root).Any(path => path.EndsWith(".partial")));
         Assert.IsTrue(Directory.Exists(fixture.AcceptedPath));
         Directory.Delete(fixture.AcceptedPath);

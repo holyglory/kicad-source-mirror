@@ -17,6 +17,9 @@ public sealed class WindowsJsonLinkTests
             StringAssert.Contains(header, "#include <json_common.h>", file);
             Assert.IsFalse(header.Contains("#include <nlohmann/json.hpp>", StringComparison.Ordinal), file);
         }
+        foreach (string file in Directory.GetFiles(Path.Combine(Repository(), "kicad"), "automation_update*.*"))
+            Assert.IsFalse(File.ReadAllText(file).Contains("#include <nlohmann/json.hpp>", StringComparison.Ordinal),
+                "Every production updater translation unit must keep the shared JSON boundary: " + Path.GetFileName(file));
         string declaration = File.ReadAllText(Path.Combine(Repository(), "qa/tests/common/CMakeLists.txt"));
         var link = System.Text.RegularExpressions.Regex.Match(declaration,
             @"target_link_libraries\(\s*qa_automation_update_client\s+(?<libraries>[^)]*)\)");

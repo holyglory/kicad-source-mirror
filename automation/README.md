@@ -799,6 +799,26 @@ desired bytes, and unchanged recovery writes. It does not yet publish design
 XML or apply electrical changes automatically, and its Mac/Windows/actual-Desktop
 qualification remains unfinished.
 
+`kicad_design_nets_reconcile` plans three-way pin connectivity from a saved
+electrical baseline, desired XML and current native observation. It requires an
+explicit instance, absolute recovery-record path and exact recovery token;
+it does not establish live freshness. Independent and matching edits combine,
+but contradictory connectivity returns conflicts without a partial candidate.
+Exact surviving XML net groups keep their explicit identities and semantic
+names. New groups receive deterministic identities; requirements on ambiguous
+splits or merges remain unresolved, with possible replacements rather than
+guessed assignments. Later changes update those possibilities without losing
+the original requirement. Names and locations never establish identity.
+
+The result is candidate engineering XML only. This tool does not write design
+files, edit KiCad or advance the synchronized baseline. Changed component,
+sheet, unit or pin ownership requires separate reconciliation. The focused
+compiled STDIO checks and exhaustive four-pin partition oracle are covered by
+the `net-reconciliation` development graph; `native-foundation` additionally
+checks a real manual disconnection and Undo against the proposed model. This
+source-only tool is not yet included in public packages; automatic publication
+and Mac/Windows/actual-Desktop qualification remain unfinished.
+
 Successful plans include merged XML, ordered native operations and explicit
 coverage gaps. This tool does not access files, apply a batch, resolve electrical
 intent or advance the synchronized baseline. Concurrent edits inside a reparented

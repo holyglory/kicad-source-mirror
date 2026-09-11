@@ -171,13 +171,25 @@ public sealed record StructuralDiagram(Guid Id, IReadOnlyList<StructuralBlock> B
                 || c.CandidateNetIds.Any(id => !after.Nets.Any(net => net.Id == id))))
             throw Invalid("Each net change requires one exact former net, a reason and distinct existing candidate nets.");
         var formerIds = changes.Select(c => c.FormerNetId).ToHashSet();
-        var retained = (UnresolvedNetBindings ?? []).ToList();
+        var changesById = changes.ToDictionary(c => c.FormerNetId);
+        var currentIds = after.Nets.Select(n => n.Id).ToHashSet();
+        var retained = (UnresolvedNetBindings ?? []).Select(binding => binding with
+        {
+            // Candidates remain possibilities. Further electrical changes can
+            // retire one; follow only the explicitly supplied identity changes.
+            CandidateNetIds = binding.CandidateNetIds.SelectMany(id => currentIds.Contains(id) ? [id]
+                : changesById.TryGetValue(id, out var change) ? change.CandidateNetIds
+                : throw Invalid("A removed unresolved candidate requires an explicit net identity change."))
+                .Distinct().Order().ToArray()
+        }).ToList();
+        var retainedOwners = retained.Select(b => (b.OwnerId, b.FormerNetId)).ToHashSet();
         foreach (var change in changes)
         {
             var owners = Connections.Where(c => c.NetIds.Contains(change.FormerNetId)).Select(c => c.Id)
                 .Concat(Statements.Where(s => s.TargetId == change.FormerNetId).Select(s => s.Id)).ToArray();
             foreach (Guid owner in owners)
-                retained.Add(new(owner, change.FormerNetId, change.Change, change.Reason, change.CandidateNetIds.ToArray()));
+                if (retainedOwners.Add((owner, change.FormerNetId)))
+                    retained.Add(new(owner, change.FormerNetId, change.Change, change.Reason, change.CandidateNetIds.ToArray()));
         }
         var result = this with
         {

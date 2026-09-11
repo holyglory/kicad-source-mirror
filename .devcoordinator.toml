@@ -1391,6 +1391,23 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~DesignElectricalRecoveryTests|FullyQualifiedName~DesignRecovery|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~NativeIntakeRegistryTests|FullyQualifiedName~SchematicElectricalComparisonTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/electrical-recovery"]
 retained_artifacts = [{ name = "electrical-recovery", path = "automation/artifacts/electrical-recovery", max_bytes = 16777216 }]
 
+[test.net-reconciliation]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.net-reconciliation.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-restore"]
+
+[[test.net-reconciliation.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~PinPartitionMergeTests|FullyQualifiedName~SchematicNetReconciliationTests|FullyQualifiedName~UnresolvedNetBindingTests|FullyQualifiedName~SchematicElectricalComparisonTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/net-reconciliation"]
+retained_artifacts = [{ name = "net-reconciliation", path = "automation/artifacts/net-reconciliation", max_bytes = 16777216 }]
+
 [test.erc-model]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
@@ -1494,7 +1511,7 @@ tier = "development"
 role = "preflight"
 requires = ["managed-build"]
 invalidates = ["native-build", "native-session"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~DesignRecoveryInspectorTests|FullyQualifiedName~DesignRecoveryStoreTests|FullyQualifiedName~DesignElectricalRecoveryTests|FullyQualifiedName~DesignRecoveryFileObserverTests|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~DesignRecoveryNativeObserverTests|FullyQualifiedName~NativeIntakeRegistryTests|FullyQualifiedName~NativeClientTests", "--logger", "trx", "--results-directory", "automation/artifacts/recovery-model-results"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~DesignRecoveryInspectorTests|FullyQualifiedName~DesignRecoveryStoreTests|FullyQualifiedName~DesignElectricalRecoveryTests|FullyQualifiedName~DesignRecoveryFileObserverTests|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~DesignRecoveryNativeObserverTests|FullyQualifiedName~NativeIntakeRegistryTests|FullyQualifiedName~NativeClientTests|FullyQualifiedName~PinPartitionMergeTests|FullyQualifiedName~SchematicNetReconciliationTests|FullyQualifiedName~UnresolvedNetBindingTests", "--logger", "trx", "--results-directory", "automation/artifacts/recovery-model-results"]
 retained_artifacts = [{ name = "recovery-model-results", path = "automation/artifacts/recovery-model-results", max_bytes = 16777216 }]
 
 [[test.native-foundation.check]]

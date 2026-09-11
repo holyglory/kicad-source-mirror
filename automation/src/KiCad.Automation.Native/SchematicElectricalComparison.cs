@@ -8,9 +8,11 @@ namespace KiCad.Automation.Native;
 public sealed record ElectricalBindingIssue(string Code, string? NativePath, string? NativeId, Guid? ComponentId = null);
 public sealed record ElectricalConnectivityDifference(string Kind, IReadOnlyList<Guid> ModelNetIds,
     IReadOnlyList<int> SnapshotNetIndexes, IReadOnlyList<PinEndpoint> Pins);
+public sealed record NativePinPartition(int? SnapshotNetIndex, string? NativeName, IReadOnlyList<PinEndpoint> Pins);
 public sealed record SchematicElectricalComparisonResult(bool PinBindingsComplete, bool ConnectivityEquivalent,
     IReadOnlyList<ElectricalBindingIssue> Issues, IReadOnlyList<ElectricalConnectivityDifference> Differences,
-    IReadOnlyList<HierarchyCoverageGap> CoverageGaps, string? ErrorCode = null, string? ErrorMessage = null);
+    IReadOnlyList<HierarchyCoverageGap> CoverageGaps, string? ErrorCode = null, string? ErrorMessage = null,
+    IReadOnlyList<NativePinPartition>? PinPartitions = null);
 
 /// <summary>Compare pin partitions through exact sheet/symbol/placed-pin bindings.
 /// Snapshot indexes are ephemeral; this never transfers net requirement identities.</summary>
@@ -137,7 +139,11 @@ public static class SchematicElectricalComparison
             if (partitions > 1) differences.Add(new("native_net_join", pins.Where(expected.ContainsKey)
                 .Select(p => expected[p]).Distinct().Order().ToArray(), [net.Key], Ordered(pins)));
         }
-        return new(true, differences.Count == 0, [], differences, report.CoverageGaps);
+        var nativePartitions = endpointNets.Where(p => p.Value is not null).GroupBy(p => p.Value!.Value)
+            .Select(g => new NativePinPartition(g.Key, observed.Nets[g.Key].Name, Ordered(g.Select(p => p.Key))))
+            .Concat(endpointNets.Where(p => p.Value is null).Select(p => new NativePinPartition(null, null, [p.Key])))
+            .OrderBy(g => g.Pins[0].ComponentId).ThenBy(g => g.Pins[0].Pin, StringComparer.Ordinal).ToArray();
+        return new(true, differences.Count == 0, [], differences, report.CoverageGaps, PinPartitions: nativePartitions);
     }
 
     private static IReadOnlyList<PinEndpoint> Ordered(IEnumerable<PinEndpoint> pins) =>

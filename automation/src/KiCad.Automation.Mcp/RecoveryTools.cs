@@ -10,6 +10,34 @@ namespace KiCad.Automation.Mcp;
 [McpServerToolType]
 public sealed class RecoveryTools
 {
+    [McpServerTool(Name = "kicad_design_nets_reconcile", ReadOnly = true),
+     Description("Plan three-way pin connectivity reconciliation from an explicit instance's saved recovery record and its expected revision token. Combines independent or matching XML/native net edits through exact pin identities. Contradictory changes return conflicts and no candidate; ambiguous requirement bindings remain unresolved. Returns candidate engineering XML only, not a reconstructed schematic or an applied synchronization. Requires matched baseline/current electrical checkpoints and unchanged component, sheet, unit and pin ownership. Does not contact KiCad, establish live freshness, write files, edit native objects or advance the baseline.")]
+    public CallToolResult ReconcileNets(string instanceId, string recoveryPath, string expectedRevisionToken,
+        CancellationToken cancellationToken) => Execute(() =>
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var (store, saved) = Read(instanceId, recoveryPath);
+        if (saved.RevisionToken != expectedRevisionToken)
+            throw new AutomationException("design_recovery_changed", "Recovery changed; reload the saved record before planning.");
+        var plan = SchematicNetReconciliation.Plan(saved.State, cancellationToken);
+        var data = JsonSerializer.SerializeToElement(new
+        {
+            instanceId = saved.State.InstanceId, recoveryRevisionToken = saved.RevisionToken,
+            savedNativeRevision = saved.State.NativeRevision, trackingComplete = saved.State.TrackingComplete,
+            liveMutationAuthorized = false, canPlan = plan.Candidate is not null,
+            candidateEngineeringXml = plan.Candidate is null ? null : EngineeringDesignXml.Write(plan.Candidate, saved.State.KnowledgeLibraries),
+            conflicts = plan.Conflicts, netChanges = plan.NetChanges,
+            unresolvedNetBindings = plan.Candidate?.Structure.UnresolvedNetBindings?.Count,
+            bindingIssues = plan.BindingIssues, coverageGaps = plan.CoverageGaps,
+            errorCode = plan.ErrorCode, errorMessage = plan.ErrorMessage
+        });
+        cancellationToken.ThrowIfCancellationRequested();
+        if (store.Read()?.RevisionToken != saved.RevisionToken)
+            throw new AutomationException("design_recovery_changed", "Recovery changed during reconciliation; reload it.");
+        return new() { IsError = plan.ErrorCode is not null,
+            Content = [new TextContentBlock { Text = data.GetRawText() }], StructuredContent = data };
+    });
+
     [McpServerTool(Name = "kicad_design_recovery_plan", ReadOnly = true),
      Description("Inspect a saved recovery record at an absolute path for an explicit instance ID. Plans hierarchy reconciliation from the saved baseline, desired design XML and saved native observation, including retained choices. Does not contact KiCad or prove that an instance is live or the observation is current. Returns record and snapshot tokens, conflicts and selected sheet versions. Invalid desired XML is reported without changing its bytes. No native edit, design-file write or baseline advancement occurs.")]
     public CallToolResult Plan(string instanceId, string recoveryPath, CancellationToken cancellationToken) => Execute(() =>

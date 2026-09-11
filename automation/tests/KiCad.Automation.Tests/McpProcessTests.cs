@@ -260,6 +260,43 @@ public sealed class McpProcessTests
             Assert.IsFalse(chosenHierarchyState.GetProperty("liveMutationAuthorized").GetBoolean());
             CollectionAssert.Contains(names, "kicad_design_recovery_plan");
             CollectionAssert.Contains(names, "kicad_design_recovery_resolve");
+            CollectionAssert.Contains(names, "kicad_design_nets_reconcile");
+            string netRecoveryPath = Path.Combine(state, "designs", "net-recovery.json");
+            var netFixture = SchematicNetReconciliationTests.Fixture();
+            var netStore = new DesignRecoveryStore(netRecoveryPath);
+            var netSaved = netStore.Save(netFixture, null);
+            byte[] netOriginalBytes = await File.ReadAllBytesAsync(netRecoveryPath, timeout.Token);
+            var netPlan = await Request(4070, "tools/call", new { name = "kicad_design_nets_reconcile",
+                arguments = new { instanceId = netFixture.InstanceId.ToString("D"), recoveryPath = netRecoveryPath,
+                    expectedRevisionToken = netSaved.RevisionToken } });
+            var netPlanState = netPlan.GetProperty("result").GetProperty("structuredContent");
+            Assert.IsTrue(netPlanState.GetProperty("canPlan").GetBoolean());
+            Assert.IsFalse(netPlanState.GetProperty("liveMutationAuthorized").GetBoolean());
+            Assert.AreEqual(EngineeringDesignXml.Write(netFixture.Baseline.Engineering, netFixture.KnowledgeLibraries),
+                netPlanState.GetProperty("candidateEngineeringXml").GetString());
+            Assert.AreEqual(netSaved.RevisionToken, netStore.Read()!.RevisionToken);
+            var staleNetPlan = await Request(4071, "tools/call", new { name = "kicad_design_nets_reconcile",
+                arguments = new { instanceId = netFixture.InstanceId.ToString("D"), recoveryPath = netRecoveryPath,
+                    expectedRevisionToken = "stale" } });
+            Assert.AreEqual("design_recovery_changed", staleNetPlan.GetProperty("result").GetProperty("structuredContent").GetProperty("errorCode").GetString());
+            var foreignNetPlan = await Request(4072, "tools/call", new { name = "kicad_design_nets_reconcile",
+                arguments = new { instanceId = Guid.NewGuid().ToString("D"), recoveryPath = netRecoveryPath,
+                    expectedRevisionToken = netSaved.RevisionToken } });
+            Assert.AreEqual("recovery_instance_mismatch", foreignNetPlan.GetProperty("result").GetProperty("structuredContent").GetProperty("errorCode").GetString());
+            using (var cancelledNetPlan = new CancellationTokenSource())
+            {
+                cancelledNetPlan.Cancel();
+                Assert.ThrowsExactly<OperationCanceledException>(() => new RecoveryTools().ReconcileNets(
+                    netFixture.InstanceId.ToString("D"), netRecoveryPath, netSaved.RevisionToken, cancelledNetPlan.Token));
+            }
+            CollectionAssert.AreEqual(netOriginalBytes, await File.ReadAllBytesAsync(netRecoveryPath, timeout.Token));
+            var incompleteNetSaved = netStore.Save(netFixture with { BaselineElectrical = null }, netSaved.RevisionToken);
+            var incompleteNetPlan = await Request(4073, "tools/call", new { name = "kicad_design_nets_reconcile",
+                arguments = new { instanceId = netFixture.InstanceId.ToString("D"), recoveryPath = netRecoveryPath,
+                    expectedRevisionToken = incompleteNetSaved.RevisionToken } });
+            Assert.IsTrue(incompleteNetPlan.GetProperty("result").GetProperty("isError").GetBoolean());
+            Assert.AreEqual("missing_electrical_baseline", incompleteNetPlan.GetProperty("result").GetProperty("structuredContent").GetProperty("errorCode").GetString());
+            Assert.AreEqual(incompleteNetSaved.RevisionToken, netStore.Read()!.RevisionToken);
             string recoveryPath = Path.Combine(state, "designs", "design-recovery.json");
             var recoveryFixture = DesignRecoveryStoreTests.Fixture();
             recoveryFixture = recoveryFixture with

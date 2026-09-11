@@ -6,6 +6,7 @@ using Kiapi.Common.Types;
 using Kiapi.Schematic.Commands;
 using Kiapi.Schematic.Types;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Model = KiCad.Automation.Model;
 
 namespace KiCad.Automation.Tests;
 
@@ -33,6 +34,11 @@ public sealed partial class NativeSessionTests
         var netsBefore = await Nets();
         var electricalBefore = await client.InvokeAsync<ReadSchematicElectricalState, SchematicElectricalState>(new() { Document = document }, token);
         var model = ProbeElectricalModel(electricalBefore);
+        var requirement = new Model.EngineeringStatement(Guid.NewGuid(), model.Engineering.Circuit.Nets.Single().Id,
+            Model.EngineeringStatementRole.Intent, Model.GuidanceStrength.Requirement,
+            "Keep the two fixture probes electrically connected.", null, [], []);
+        model = model with { Engineering = model.Engineering with
+            { Structure = model.Engineering.Structure with { Statements = [requirement] } } };
         var recovery = new DesignRecoveryStore(Path.Combine(evidence, instanceId + "-manual-electrical-recovery.json"));
         var recoveryState = recovery.Save(new(Guid.NewGuid(), Guid.Parse(instanceId),
             new(electricalBefore.Hierarchy.Revision.Epoch, electricalBefore.Hierarchy.Revision.Sequence), electricalBefore.Hierarchy.TrackingComplete,
@@ -57,6 +63,42 @@ public sealed partial class NativeSessionTests
             }
             Assert.AreEqual(initialized.State.BaselineElectrical, recovery.Read()!.State.BaselineElectrical);
             CollectionAssert.AreEqual(new byte[] { 0xff }, recovery.Read()!.State.DesiredFileBytes);
+        }
+        async Task VerifyNetPlan(bool split)
+        {
+            var saved = recovery.Read()!;
+            // The separate planning input has valid desired XML. The live
+            // intake fixture intentionally retains invalid bytes for recovery.
+            var input = saved.State with { DesiredFileBytes = System.Text.Encoding.UTF8.GetBytes(
+                SchematicDesignXml.Write(model, [])) };
+            var plan = SchematicNetReconciliation.Plan(input, token);
+            Assert.IsNotNull(plan.Candidate, plan.ErrorCode + ": " + plan.ErrorMessage);
+            Assert.IsEmpty(plan.Conflicts);
+            Assert.IsTrue(SchematicElectricalComparison.Compare(model with { Engineering = plan.Candidate },
+                saved.State.ObservedElectrical!, []).ConnectivityEquivalent);
+            var preserved = plan.Candidate.Structure.Statements.Single(s => s.Id == requirement.Id);
+            Assert.AreEqual(requirement.Text, preserved.Text);
+            Assert.AreEqual(requirement.TargetId, preserved.TargetId);
+            if (split)
+            {
+                Assert.AreEqual(2, plan.Candidate.Circuit.Nets.Count);
+                Assert.AreEqual(Model.NetBindingChangeKind.Split, plan.NetChanges.Single().Change);
+                var unresolved = plan.Candidate.Structure.UnresolvedNetBindings!.Single();
+                Assert.AreEqual(requirement.Id, unresolved.OwnerId);
+                Assert.AreEqual(requirement.TargetId, unresolved.FormerNetId);
+                Assert.AreEqual(2, unresolved.CandidateNetIds.Count);
+            }
+            else
+            {
+                Assert.IsEmpty(plan.NetChanges);
+                Assert.IsFalse(plan.Candidate.Structure.HasUnresolvedNetBindings);
+                Assert.AreEqual(Model.EngineeringDesignXml.Write(model.Engineering, []),
+                    Model.EngineeringDesignXml.Write(plan.Candidate, []));
+            }
+            Assert.AreEqual(saved.RevisionToken, recovery.Read()!.RevisionToken);
+            CollectionAssert.AreEqual(new byte[] { 0xff }, recovery.Read()!.State.DesiredFileBytes);
+            await File.WriteAllTextAsync(Path.Combine(evidence, instanceId + (split ? "-manual-split-plan.xml" : "-manual-undo-plan.xml")),
+                Model.EngineeringDesignXml.Write(plan.Candidate, []), token);
         }
         Assert.AreEqual(NetOf(netsBefore, fixture.PinA), NetOf(netsBefore, fixture.PinB));
         var select = new AddToSelection { Header = header };
@@ -121,6 +163,7 @@ public sealed partial class NativeSessionTests
             Assert.IsTrue(difference.PinBindingsComplete, string.Join(',', difference.Issues.Select(i => i.Code)));
             Assert.IsFalse(difference.ConnectivityEquivalent);
             Assert.IsTrue(difference.Differences.Any(d => d.Kind == "model_net_split"));
+            await VerifyNetPlan(split: true);
             await File.WriteAllTextAsync(Path.Combine(evidence, instanceId + "-manual-electrical-state.json"),
                 SchematicJson.Formatter.Format(electrical), token);
             var journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
@@ -156,6 +199,7 @@ public sealed partial class NativeSessionTests
             await ObserveSaved(restoredElectrical.Hierarchy.Revision.Sequence);
             Assert.AreEqual(restoredElectrical, recovery.Read()!.State.ObservedElectrical);
             Assert.IsTrue(SchematicElectricalComparison.Compare(model, restoredElectrical, []).ConnectivityEquivalent);
+            await VerifyNetPlan(split: false);
         }
         catch
         {

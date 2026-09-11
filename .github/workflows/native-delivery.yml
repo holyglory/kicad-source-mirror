@@ -22,12 +22,12 @@ on:
         description: With checks_only, select all Mac checks or a focused native fixture
         type: choice
         default: all
-        options: [all, caption, handoff, staging, ui-access, concurrency, registry, integrated-update, integrated-mcp-update]
+        options: [all, caption, handoff, staging, ui-access, concurrency, registry, instance-errors, integrated-update, integrated-mcp-update]
       windows_fixture:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
         default: all
-        options: [all, package-staging, handoff, caption, harness, registry, json-link, integrated-update, integrated-mcp-update]
+        options: [all, package-staging, handoff, caption, harness, registry, json-link, instance-errors, integrated-update, integrated-mcp-update]
       mac_update_baseline_commit:
         description: With integrated-update, exact baseline commit with a retained signed envelope for each selected Mac architecture
         type: string
@@ -107,6 +107,10 @@ jobs:
           fi
           if [ "$CHECKS_ONLY" = true ] && [ "$MAC_FIXTURE" = registry ]; then
             kicad_mac_test_filter='FullyQualifiedName~InstanceReplacementTests|FullyQualifiedName~InstanceUpdateReconnectionTests|FullyQualifiedName~UpdateOriginTests|FullyQualifiedName~InstanceRegistryTests.PlatformLocalLaunchReceiptUsesTheSameEndpointAsNativeStartup'
+          fi
+          if [ "$MAC_FIXTURE" = instance-errors ]; then
+            test "$CHECKS_ONLY" = true
+            kicad_mac_test_filter='FullyQualifiedName~InstanceToolBoundaryTests|FullyQualifiedName~InstanceRegistryTests|FullyQualifiedName~McpProcessTests'
           fi
           if [ "$MAC_FIXTURE" = integrated-update ] || [ "$MAC_FIXTURE" = integrated-mcp-update ]; then
             test "$CHECKS_ONLY" = true
@@ -238,13 +242,21 @@ jobs:
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
           if ($LASTEXITCODE -ne 0) { throw 'The actual Windows update journey failed.' }
       - name: Check Windows delivery contracts and select supported stages
-        if: inputs.windows_fixture == 'all' || inputs.windows_fixture == 'caption' || inputs.windows_fixture == 'harness' || inputs.windows_fixture == 'registry' || inputs.windows_fixture == 'json-link'
+        if: inputs.windows_fixture == 'all' || inputs.windows_fixture == 'caption' || inputs.windows_fixture == 'harness' || inputs.windows_fixture == 'registry' || inputs.windows_fixture == 'json-link' || inputs.windows_fixture == 'instance-errors'
         id: stages
         timeout-minutes: 10
         working-directory: automation
         shell: pwsh
         run: |
           $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
+          if ($env:WINDOWS_FIXTURE -eq 'instance-errors') {
+            if ($env:CHECKS_ONLY -ne 'true') { throw 'Instance error verification is a checks-only fixture.' }
+            dotnet test KiCad.Automation.slnx --configuration Release `
+              --filter 'FullyQualifiedName~InstanceToolBoundaryTests|FullyQualifiedName~InstanceRegistryTests|FullyQualifiedName~McpProcessTests' `
+              --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
+            if ($LASTEXITCODE -ne 0) { throw 'Native instance error contract failed.' }
+            exit 0
+          }
           if ($env:WINDOWS_FIXTURE -eq 'json-link') {
             if ($env:CHECKS_ONLY -ne 'true') { throw 'JSON link verification is a checks-only fixture.' }
             dotnet test KiCad.Automation.slnx --configuration Release `

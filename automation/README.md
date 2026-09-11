@@ -1091,6 +1091,15 @@ and XML registry changes combined with symbol placement. Per-symbol description
 projections are validated but never sent as a second registry write; independent
 registry-description and placement changes merge without a false object conflict.
 This is not complete change-stream coverage or automatic bidirectional sync.
+The Symbol Fields Table's Rename, Copy and Edit Description buttons also use
+these native commits. Their rendered cancellation/no-op, save, stale-request,
+Undo/Redo and exact restored-state journeys passed on both Linux project
+instances in `t20260911T210335Z-6f8ab2` (all 11 foundation checks, unchanged
+`94e2c9fc95535e97cfdebee7686d116965023b94`). The same candidate passed the
+focused `native-table-variants` graph in `t20260911T205750Z-b27b85`; it reuses
+the actual native fixture and assertions but is not a substitute for the full
+foundation or release pass. These table-path fixes are source-only until
+packaged, with native Mac/Windows and actual Codex Desktop qualification open.
 Compiled STDIO tests cover discovery, target preservation, conflict/malformed-input
 rejection and recovery. The underlying planner is exercised by the real Linux
 editor journey; this is not Codex Desktop or native Mac qualification.

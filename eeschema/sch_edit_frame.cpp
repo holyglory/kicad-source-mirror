@@ -2519,6 +2519,15 @@ void SCH_EDIT_FRAME::onCloseErcDialog( wxCommandEvent& aEvent )
 }
 
 
+void SCH_EDIT_FRAME::RefreshErcDialog()
+{
+    if( m_ercDialog )
+        m_ercDialog->UpdateData();
+    GetCanvas()->GetView()->UpdateAllItems( KIGFX::REPAINT );
+    GetCanvas()->Refresh();
+}
+
+
 DIALOG_SYMBOL_FIELDS_TABLE* SCH_EDIT_FRAME::GetSymbolFieldsTableDialog()
 {
     if( !m_symbolFieldsTableDialog )

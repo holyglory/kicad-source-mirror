@@ -324,6 +324,18 @@ void DIALOG_ERC::Report( const wxString& aMessage )
 
 void DIALOG_ERC::UpdateData()
 {
+    m_ignoredList->DeleteAllItems();
+    for( const RC_ITEM& item : ERC_ITEM::GetItemsWithSeverities() )
+    {
+        if( m_parent->Schematic().ErcSettings().GetSeverity( item.GetErrorCode() ) == RPT_SEVERITY_IGNORE )
+        {
+            wxListItem row;
+            row.SetId( m_ignoredList->GetItemCount() );
+            row.SetText( wxT( " • " ) + item.GetErrorText( true ) );
+            row.SetData( item.GetErrorCode() );
+            m_ignoredList->InsertItem( row );
+        }
+    }
     m_markerTreeModel->Update( m_markerProvider, getSeverities() );
     updateDisplayedCounts();
 }

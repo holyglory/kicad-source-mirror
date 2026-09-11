@@ -312,6 +312,77 @@ void SCH_COMMIT::SetVariantDescription( const wxString& aName, const wxString& a
     SCH_PAGE_SETTINGS_UNDO_ITEM::ApplyVariantDescriptions( frame, descriptions );
 }
 
+
+bool SCH_COMMIT::SetErcSettings( SCH_ERC_SETTINGS::PREPARED& aPrepared, std::string& aFailure )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    if( !frame || m_isLibEditor )
+    {
+        aFailure = "ERC replacement requires a schematic editor";
+        return false;
+    }
+    auto& schematic = frame->Schematic();
+    if( SCH_ERC_SETTINGS::Capture( schematic ).SerializeAsString() == aPrepared.canonical.SerializeAsString() )
+        return true;
+
+    std::map<std::string, SCH_ERC_SETTINGS::EXCLUSION*> desired;
+    for( auto& exclusion : aPrepared.exclusions ) desired.emplace( exclusion.key, &exclusion );
+    std::vector<std::pair<SCH_SCREEN*, SCH_MARKER*>> markers;
+    std::set<SCH_SCREEN*> seen;
+    for( const SCH_SHEET_PATH& path : schematic.Hierarchy() )
+    {
+        SCH_SCREEN* screen = path.LastScreen();
+        if( !screen || !seen.insert( screen ).second ) continue;
+        for( SCH_ITEM* item : screen->Items().OfType( SCH_MARKER_T ) )
+        {
+            auto* marker = static_cast<SCH_MARKER*>( item );
+            const auto found = desired.find( ERC_EXCLUSION::FromMarker( *marker ).GetSortKey() );
+            const bool excluded = found != desired.end();
+            const wxString comment = excluded ? wxString::FromUTF8( found->second->comment ) : wxString();
+            if( marker->IsLocked() && ( marker->IsExcluded() != excluded || marker->GetComment() != comment ) )
+            {
+                aFailure = "A locked ERC marker would be changed";
+                return false;
+            }
+            markers.emplace_back( screen, marker );
+        }
+    }
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    m_pageSettingsUndo->IncludeErcPolicy();
+    m_ercAddedMarkers.reserve( m_ercAddedMarkers.size() + aPrepared.exclusions.size() );
+    for( const auto& [screen, marker] : markers )
+    {
+        const std::string key = ERC_EXCLUSION::FromMarker( *marker ).GetSortKey();
+        const auto found = desired.find( key );
+        const bool excluded = found != desired.end();
+        const wxString comment = excluded ? wxString::FromUTF8( found->second->comment ) : wxString();
+        if( marker->IsExcluded() != excluded || marker->GetComment() != comment )
+        {
+            Modify( marker, screen );
+            marker->SetExcluded( excluded, comment );
+        }
+        if( excluded ) found->second->marker.reset(); // existing native marker retains its UUID
+    }
+    for( auto& exclusion : aPrepared.exclusions )
+    {
+        if( !exclusion.marker ) continue;
+        exclusion.marker->SetExcluded( true, wxString::FromUTF8( exclusion.comment ) );
+        SCH_MARKER* marker = exclusion.marker.get();
+        m_ercAddedMarkers.push_back( std::move( exclusion.marker ) );
+        // Stage ownership before insertion, so rollback never loses a prepared marker.
+        Added( marker, exclusion.screen );
+        exclusion.screen->Append( marker );
+        if( exclusion.screen == frame->GetScreen() ) frame->GetCanvas()->GetView()->Add( marker );
+    }
+    SCH_ERC_SETTINGS::RestorePolicy( schematic.ErcSettings(), aPrepared.canonical );
+    frame->RefreshErcDialog();
+    return true;
+}
+
 void SCH_COMMIT::SetNetChainDefinitions( const std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION>& aDefinitions )
 {
     auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
@@ -858,6 +929,8 @@ void SCH_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
 
     m_embeddedFilesUndo.reset();
     m_pageSettingsUndo.reset();
+    for( auto& marker : m_ercAddedMarkers ) marker.release();
+    m_ercAddedMarkers.clear();
     m_libraryCacheScopes.clear();
     m_libraryCacheUndo.clear();
     m_libraryCacheChanged = false;
@@ -1114,6 +1187,8 @@ void SCH_COMMIT::Revert()
         frame->GetCanvas()->GetView()->MarkDirty();
         frame->GetCanvas()->GetView()->UpdateAllItems( KIGFX::REPAINT );
     }
+
+    m_ercAddedMarkers.clear();
 
     if( frame )
         frame->RecalculateConnections( nullptr, m_connectivitySettingsChanged ? GLOBAL_CLEANUP : NO_CLEANUP );

@@ -369,5 +369,5 @@ setup_qa_env( qa_symbol_graphic_identity )
 
 add_test( NAME qa_erc_override_edits
     COMMAND $<TARGET_FILE:qa_symbol_graphic_identity>
-        --run_test=ERCMarkerCountsExclusion,ERCSeverityReportsStoredChangesOnly --log_level=test_suite )
+        --run_test=ERCMarkerCountsExclusion,ERCSeverityReportsStoredChangesOnly,ERCReplacementRejectsIncompletePolicyWithoutChangingLiveState --log_level=test_suite )
 setup_qa_env( qa_erc_override_edits )

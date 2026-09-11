@@ -1062,6 +1062,18 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicItemBatchResult> API_HANDLER_SCH:
                     result.set_library_cache_changed( true );
                 }
             }
+            else if( operation.has_set_erc_settings() )
+            {
+                SCH_ERC_SETTINGS::PREPARED candidate;
+                std::string failure;
+                if( !SCH_ERC_SETTINGS::Prepare( operation.set_erc_settings(), *schematic(), candidate, failure ) )
+                    return reject( prefix + failure );
+                const bool changed = SCH_ERC_SETTINGS::Capture( *schematic() ).SerializeAsString()
+                                     != candidate.canonical.SerializeAsString();
+                if( changed && !nativeCommit->SetErcSettings( candidate, failure ) )
+                    return reject( prefix + failure );
+                result.set_erc_settings_changed( result.erc_settings_changed() || changed );
+            }
             else if( operation.has_replace_embedded_files() )
             {
                 const auto& state = operation.replace_embedded_files();

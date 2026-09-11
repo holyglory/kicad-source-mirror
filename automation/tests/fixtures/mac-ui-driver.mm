@@ -158,11 +158,14 @@ int main( int argc, char** argv )
                         && [textAttribute( window, kAXTitleAttribute ) isEqualToString:title] ) owners.push_back( window );
                 }
             bool raised = false; NSString* focusedTitle = @""; bool frontmost = false;
-            AXError raiseError = kAXErrorNoValue, focusError = kAXErrorNoValue;
+            AXError raiseError = kAXErrorNoValue, focusError = kAXErrorNoValue, activationError = kAXErrorAttributeUnsupported;
             if( owners.size() == 1 && matchesProcess() )
             {
                 [[NSRunningApplication runningApplicationWithProcessIdentifier:pid] activateWithOptions:NSApplicationActivateIgnoringOtherApps];
                 Boolean settable = false;
+                if( AXUIElementIsAttributeSettable( application, kAXFrontmostAttribute, &settable ) == kAXErrorSuccess && settable )
+                    activationError = AXUIElementSetAttributeValue( application, kAXFrontmostAttribute, kCFBooleanTrue );
+                settable = false;
                 if( AXUIElementIsAttributeSettable( owners[0], kAXMainAttribute, &settable ) == kAXErrorSuccess && settable )
                     AXUIElementSetAttributeValue( owners[0], kAXMainAttribute, kCFBooleanTrue );
                 raiseError = AXUIElementPerformAction( owners[0], kAXRaiseAction );
@@ -193,7 +196,7 @@ int main( int argc, char** argv )
                 CFRelease( application );
                 emit( @{ @"schemaVersion": @1, @"status": @"menu_window_not_ready", @"matches": @(owners.size()),
                     @"requestedTitle": title ?: @"", @"focusedTitle": focusedTitle, @"frontmost": @(frontmost),
-                    @"raiseError": @(raiseError), @"focusError": @(focusError) } ); return 5;
+                    @"raiseError": @(raiseError), @"focusError": @(focusError), @"activationError": @(activationError) } ); return 5;
             }
             CFTypeRef bar = nullptr;
             AXUIElementCopyAttributeValue( application, kAXMenuBarAttribute, &bar );

@@ -12,7 +12,7 @@ namespace KiCad.Automation.Tests;
 public sealed class PublicPlatformFeedTests
 {
     [TestMethod]
-    public async Task PublishedMacFeedsDownloadExactArchivesAndLeaveTheLegacyFeedUnchanged()
+    public async Task PublishedNativeFeedsDownloadExactArchivesAndLeaveTheLegacyFeedUnchanged()
     {
         string Required(string name) => Environment.GetEnvironmentVariable(name)
             ?? throw new AssertFailedException("Missing public verification input: " + name);
@@ -32,15 +32,20 @@ public sealed class PublicPlatformFeedTests
         try
         {
             var verifiedTargets = new List<object>();
-            foreach (string platform in new[] { "osx-arm64", "osx-x64" })
+            foreach (string platform in PlatformUpdateFeeds.NativePlatforms)
             {
-                Assert.IsTrue(feeds.TryGet(platform, "preview", out var expected), "The public Mac feed is required for this journey: " + platform);
+                if (!feeds.TryGet(platform, "preview", out var expected))
+                {
+                    Assert.AreEqual("win-x64", platform, "The public Mac feeds are required for this journey.");
+                    continue; // Earlier catalogues have no Windows feed; never claim it was tested.
+                }
                 Uri platformOrigin = PlatformUpdateFeeds.PublisherBase(origin, platform);
                 using var source = new UpdateDownloader(platformOrigin);
                 byte[] envelope = await source.FetchManifestAsync("preview", deadline.Token);
                 CollectionAssert.AreEqual(expected!.CopyEnvelope(), envelope);
                 var manifest = UpdateManifestCodec.Verify(envelope, key, "preview");
-                var download = await source.DownloadAsync(manifest, platform, "tar.gz", scratch, cancellationToken: deadline.Token);
+                string format = platform == "win-x64" ? "zip" : "tar.gz";
+                var download = await source.DownloadAsync(manifest, platform, format, scratch, cancellationToken: deadline.Token);
                 Assert.AreEqual(manifest.PayloadSha256, download.ManifestSha256);
                 Assert.AreEqual(platform, download.Artifact.Platform);
                 using var http = new HttpClient { BaseAddress = platformOrigin };
@@ -57,7 +62,8 @@ public sealed class PublicPlatformFeedTests
             {
                 schemaVersion = 1, verifiedAtUtc = DateTimeOffset.UtcNow, legacyFeedUnchanged = true,
                 nativeFeeds = verifiedTargets, windowsFeedAvailable = feeds.TryGet("win-x64", "preview", out _),
-                nativeMacExecution = false, automaticUpdatingQualified = false, qualifyingDelivery = false
+                nativeMacExecution = false, nativeWindowsExecution = false,
+                automaticUpdatingQualified = false, qualifyingDelivery = false
             }, new JsonSerializerOptions { WriteIndented = true }), deadline.Token);
         }
         finally { Directory.Delete(scratch, recursive: true); }

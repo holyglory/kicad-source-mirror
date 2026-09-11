@@ -4,6 +4,28 @@ Implementation branch: `feature/codex-kicad-automation`, based on
 `f638a860a05b3e48d1074314a656ad9b8f597466`. This is an incomplete implementation
 of the approved six-milestone program, not a release.
 
+## Windows preview — September 11, 2026
+
+[Windows x64 application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-433c5e1fdf5954955a19df546236dce78e78b5b0-windows-x64.zip)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-433c5e1fdf5954955a19df546236dce78e78b5b0-source.tar.gz)
+identify `433c5e1fdf5954955a19df546236dce78e78b5b0`, version
+`preview-20260911-433c5e1fdf59`. Extract the archive and run `bin/kicad.exe`;
+the matching STDIO server is `bin/kicad-mcp.exe`.
+
+The native build and installed package were verified with two independent
+schematic instances, real packaged MCP/NNG loading, preserved dirty objects
+across MCP restart, and native keyboard Save/Close. Native requalification
+`34571626328` passed including final cleanup; it used the unchanged archive
+from build `34555975985`, whose original failed harness receipt remains retained.
+Public check `7d0703` passed all 54 downloads and existing signed-feed/native
+caption-update checks on September 11 at 07:32:44 UTC. Generation 32 publishes
+the Windows archive without removing older downloads or Mac/Linux feeds.
+
+This is a preview, not full project readiness. Extracting the archive alone
+does not configure managed updating. The Windows signed installation and
+two-version native update journey remain under qualification; do not treat
+this download receipt as proof of automatic Windows updates.
+
 ## Latest Apple Silicon preview — September 11, 2026
 
 [Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-3ac5af02cb7eee653578e0d5c85b7d841eb8724a-macos-arm64.tar.gz)

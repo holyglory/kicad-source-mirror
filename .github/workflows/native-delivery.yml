@@ -27,7 +27,7 @@ on:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
         default: all
-        options: [all, package-staging, handoff, caption, harness, registry, integrated-update]
+        options: [all, package-staging, handoff, caption, harness, registry, integrated-update, integrated-mcp-update]
       mac_update_baseline_commit:
         description: With integrated-update, exact baseline commit with a retained signed envelope for each selected Mac architecture
         type: string
@@ -210,7 +210,7 @@ jobs:
         with:
           global-json-file: automation/global.json
       - name: Verify two real Windows designs through the signed caption update
-        if: inputs.windows_fixture == 'integrated-update'
+        if: inputs.windows_fixture == 'integrated-update' || inputs.windows_fixture == 'integrated-mcp-update'
         timeout-minutes: 30
         working-directory: automation
         shell: pwsh
@@ -231,8 +231,10 @@ jobs:
             --filter 'FullyQualifiedName~WindowsCaptionActionTests|FullyQualifiedName~WindowsUiDriverTests' `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight/driver"
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows UI preflight failed.' }
+          $kicad_pair_filter = 'TestCategory=NativeWindowsIntegratedUpdate'
+          if ($env:WINDOWS_FIXTURE -eq 'integrated-mcp-update') { $kicad_pair_filter = 'TestCategory=NativeWindowsIntegratedMcpUpdate' }
           dotnet test KiCad.Automation.slnx --configuration Release --no-build `
-            --filter 'TestCategory=NativeWindowsIntegratedUpdate' `
+            --filter $kicad_pair_filter `
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
           if ($LASTEXITCODE -ne 0) { throw 'The actual Windows update journey failed.' }
       - name: Check Windows delivery contracts and select supported stages

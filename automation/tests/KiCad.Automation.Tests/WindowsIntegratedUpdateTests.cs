@@ -19,7 +19,12 @@ public sealed class WindowsIntegratedUpdateTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod, TestCategory("ExternalIntegration"), TestCategory("NativeWindowsIntegratedUpdate")]
-    public async Task ActualCaptionUpdatePreservesTwoDirtyDesignsAcrossDifferentSignedBuilds()
+    public Task ActualCaptionUpdatePreservesTwoDirtyDesignsAcrossDifferentSignedBuilds() => RunAsync(reconnectMcp: false);
+
+    [TestMethod, TestCategory("ExternalIntegration"), TestCategory("NativeWindowsIntegratedMcpUpdate")]
+    public Task ActualPublicCaptionUpdateReconnectsPackagedMcpAndPreservesBothDesigns() => RunAsync(reconnectMcp: true);
+
+    private async Task RunAsync(bool reconnectMcp)
     {
         if (!OperatingSystem.IsWindows()) { Assert.Inconclusive("Requires native Windows packages and desktop."); return; }
         string Required(string name) => Environment.GetEnvironmentVariable(name) ?? throw new AssertFailedException("Frozen input required: " + name);
@@ -40,7 +45,7 @@ public sealed class WindowsIntegratedUpdateTests
         Assert.IsNotNull(candidate.ForInstallation("win-x64", "zip"));
         string scratch = Directory.CreateTempSubdirectory("kwpair-").FullName;
         string evidence = Directory.CreateDirectory(Path.Combine(Environment.GetEnvironmentVariable("KICAD_HOSTED_FIXTURE_EVIDENCE")
-            ?? TestContext.TestResultsDirectory!, "windows-integrated-update")).FullName;
+            ?? TestContext.TestResultsDirectory!, reconnectMcp ? "windows-integrated-mcp-update" : "windows-integrated-update")).FullName;
         string root = Path.Combine(scratch, "installed"), state = Path.Combine(scratch, "registry");
         string? priorLibrary = Environment.GetEnvironmentVariable("KICAD_AUTOMATION_NNG_LIBRARY");
         var processes = new List<Process>(); var runtimeDirectories = new HashSet<string>();
@@ -53,8 +58,21 @@ public sealed class WindowsIntegratedUpdateTests
             Environment.SetEnvironmentVariable("KICAD_AUTOMATION_NNG_LIBRARY", Path.Combine(installed.Version.VersionDirectory, "bin/nng.dll"));
             var observer = await WindowsUiObserver.CreateAsync(scratch, evidence, deadline.Token);
             var ui = new WindowsUiAutomation(observer);
-            await using var mcp = await WindowsInstalledPackageTests.Mcp.Start(installed.Version.McpExecutable, scratch, state,
+            WindowsInstalledPackageTests.Mcp? mcp = null;
+            NativeCaptionMcpProbe? mcpProbe = null;
+            if (reconnectMcp)
+            {
+                mcpProbe = new NativeCaptionMcpProbe(state, evidence, deadline.Token, async (executable, name) =>
+                {
+                    mcp = await WindowsInstalledPackageTests.Mcp.Start(executable, scratch, state, evidence, name, job,
+                        deadline.Token, traceUpdates: true);
+                    return mcp;
+                });
+                await mcpProbe.StartAsync(installed.Version.McpExecutable);
+            }
+            else mcp = await WindowsInstalledPackageTests.Mcp.Start(installed.Version.McpExecutable, scratch, state,
                 evidence, "pair", job, deadline.Token, traceUpdates: true);
+            await using var mcpLifetime = (IAsyncDisposable?)mcpProbe ?? mcp!;
             var first = await Start("first");
             var second = await Start("second");
             await Task.WhenAll(WaitPrepared(first), WaitPrepared(second));
@@ -68,6 +86,7 @@ public sealed class WindowsIntegratedUpdateTests
             await ui.WaitButtonAsync(first.Identity, "Update", deadline.Token);
             Assert.AreEqual(installed.SelectionId, WindowsVerifiedVersions.InspectSelectionId(root));
             await Marker(first.Client, first.Document, first.MarkerId, first.MarkerText, dirty: true);
+            if (mcpProbe is not null) await mcpProbe.ObserveAsync(first.Record.InstanceId, "first-after-cancel", originalDocumentEpoch: true);
             Assert.IsFalse(File.Exists(first.Schematic));
             var updatedFirst = await Update(first, "first");
             Assert.AreEqual(second.Identity, WindowsProcessIdentity.Read(second.Identity.ProcessId));
@@ -89,7 +108,8 @@ public sealed class WindowsIntegratedUpdateTests
                 schemaVersion = 1, baselineCommit, candidateCommit, platform = "win-x64", publicSignedFeed = origin.AbsoluteUri,
                 actualCaptionClicks = true, automaticInstalledContext = true, cancelPreservedDirtyObject = true,
                 savePersistedMarkerAndIdentity = true, secondInstancePreserved = true, bothInstancesRestarted = true,
-                nativeEpochsChanged = true, postUpdateMcpReconnectionVerified = false,
+                nativeEpochsChanged = true, postUpdateMcpReconnectionVerified = mcpProbe?.ReconnectedDesigns == 2,
+                packagedMcpRestartVerified = mcpProbe?.ServerRestartVerified == true,
                 automaticUpdatingQualified = false, crossPlatformReady = false
             }), deadline.Token);
 
@@ -98,7 +118,7 @@ public sealed class WindowsIntegratedUpdateTests
                 string directory = Directory.CreateDirectory(Path.Combine(scratch, name)).FullName;
                 string project = Path.Combine(directory, name + ".kicad_pro"), schematic = Path.ChangeExtension(project, ".kicad_sch");
                 await File.WriteAllTextAsync(project, "{\"meta\":{\"version\":3}}", deadline.Token);
-                var started = await mcp.Tool("kicad_instance_start", new { executable = installed.Version.NativeExecutable,
+                var started = await mcp!.Tool("kicad_instance_start", new { executable = installed.Version.NativeExecutable,
                     projectPath = project, softwareRendering = true });
                 string id = started.GetProperty("structuredContent").GetProperty("instanceId").GetString()!;
                 var record = JsonSerializer.Deserialize<InstanceRecord>(await File.ReadAllTextAsync(Path.Combine(state, id + ".json"), deadline.Token))!;
@@ -122,6 +142,7 @@ public sealed class WindowsIntegratedUpdateTests
                         Attributes = new() { Size = new() { XNm = 2000000, YNm = 2000000 } } }
                 }) });
                 await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(batch, deadline.Token);
+                if (mcpProbe is not null) await mcpProbe.AttachDesignAsync(id, name, client, document);
                 await Marker(client, document, markerId, markerText, dirty: true);
                 return new(record, WindowsProcessIdentity.Read(process.Id), client, document, schematic, markerId, markerText);
             }
@@ -181,6 +202,9 @@ public sealed class WindowsIntegratedUpdateTests
                 var document = (await client.OpenRootSchematicAsync(old.Schematic, ready.Token)).Document;
                 await Marker(client, document, old.MarkerId, old.MarkerText, dirty: false);
                 CollectionAssert.AreEqual(saved, await File.ReadAllBytesAsync(old.Schematic, ready.Token));
+                if (mcpProbe is not null)
+                    await mcpProbe.ReconnectAsync(old.Record.InstanceId, root, Path.GetFileName(result.JournalDirectory), result.NativeEpoch!,
+                        name == "first" ? version.McpExecutable : null);
                 await Capture(result.ProcessIdentity, name + "-restarted");
                 return process;
             }

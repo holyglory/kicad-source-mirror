@@ -4,8 +4,13 @@ using System.Text.Json;
 
 namespace KiCad.Automation.Tests;
 
+internal interface IMcpToolClient : IAsyncDisposable
+{
+    Task<JsonElement> Tool(string name, object arguments);
+}
+
 /// <summary>Compiled black-box test client; owns only its MCP child, never KiCad.</summary>
-internal sealed class StdioMcpFixture : IAsyncDisposable
+internal sealed class StdioMcpFixture : IMcpToolClient
 {
     private readonly Process process;
     private readonly CancellationToken token;
@@ -44,7 +49,7 @@ internal sealed class StdioMcpFixture : IAsyncDisposable
         }
         catch { await fixture.DisposeAsync(); throw; }
     }
-    internal async Task<JsonElement> Tool(string name, object arguments) =>
+    public async Task<JsonElement> Tool(string name, object arguments) =>
         (await Request("tools/call", new { name, arguments })).GetProperty("result").Clone();
 
     private async Task<JsonElement> Request(string method, object parameters)

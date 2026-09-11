@@ -11,9 +11,10 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace KiCad.Automation.Tests;
 
 /// <summary>Actual packaged STDIO service held across the native caption journey.</summary>
-internal sealed class NativeCaptionMcpProbe(string state, string evidence, CancellationToken token) : IAsyncDisposable
+internal sealed class NativeCaptionMcpProbe(string state, string evidence, CancellationToken token,
+    Func<string, string, Task<IMcpToolClient>>? launch = null) : IAsyncDisposable
 {
-    private StdioMcpFixture? mcp;
+    private IMcpToolClient? mcp;
     private readonly Dictionary<string, Design> designs = new();
     private int starts;
     public int ReconnectedDesigns { get; private set; }
@@ -22,9 +23,11 @@ internal sealed class NativeCaptionMcpProbe(string state, string evidence, Cance
     public async Task StartAsync(string executable)
     {
         Assert.IsTrue(File.Exists(executable));
+        string name = "caption-mcp-" + starts++;
+        if (launch is not null) { mcp = await launch(executable, name); return; }
         var start = new ProcessStartInfo(executable);
         start.Environment.Remove("KICAD_AUTOMATION_NNG_LIBRARY");
-        mcp = await StdioMcpFixture.StartAsync(start, state, Path.Combine(evidence, "caption-mcp-" + starts++ + ".stderr.log"), token);
+        mcp = await StdioMcpFixture.StartAsync(start, state, Path.Combine(evidence, name + ".stderr.log"), token);
     }
 
     public async Task AttachDesignAsync(string id, string name, NativeClient native, DocumentSpecifier document)

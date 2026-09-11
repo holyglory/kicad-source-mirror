@@ -200,9 +200,11 @@ public sealed class WindowsInstalledPackageTests
         string DocumentJson, string Schematic, string MarkerId, string MarkerText);
 
     internal sealed class Mcp(Process process, Task diagnostics, CancellationTokenSource diagnosticStop,
-        string requestStatePath, CancellationToken token) : IAsyncDisposable
+        string requestStatePath, CancellationToken token) : IMcpToolClient
     {
         private int nextId;
+        Task<JsonElement> IMcpToolClient.Tool(string name, object arguments) =>
+            Tool(name, arguments, allowNotReady: name is "kicad_schematic_observe" or "kicad_schematic_save_state");
         public static async Task<Mcp> Start(string executable, string scratch, string state, string evidence,
             string name, WindowsProcessJob job, CancellationToken token, bool traceUpdates = false)
         {

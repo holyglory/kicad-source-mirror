@@ -301,6 +301,9 @@ message SchematicItemOperation {
     SchematicLibraryCacheState replace_library_cache = 14;
     kiapi.schematic.types.SchematicFormattingSettings set_formatting = 15;
     SchematicConnectedSymbolMove move_connected_symbols = 16;
+    // Reserved typed operation contract; clients must discover actual native
+    // support. Defining this field does not make older handlers support it.
+    kiapi.schematic.types.SchematicErcSettings set_erc_settings = 17;
   }
 }
 
@@ -363,6 +366,7 @@ message SchematicItemBatchResult {
   // Retried operations retain their original result, not the current revision.
   DocumentRevision revision = 15;
   bool tracking_complete = 16;
+  bool erc_settings_changed = 17;
 }
 
 message InspectSchematicOperation {

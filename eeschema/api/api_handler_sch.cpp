@@ -48,6 +48,7 @@
 #include <sch_netchain.h>
 #include <sch_commit.h>
 #include <api/api_sch_formatting.h>
+#include <api/api_sch_erc_settings.h>
 #include <api/api_sch_field_text_modes.h>
 #include <sch_symbol_cache_state.h>
 #include <sch_root_instance.h>
@@ -1738,6 +1739,7 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicMetadataSnapshot> API_HANDLER_SCH
     }
 
     *metadata->mutable_formatting() = SCH_FORMATTING::Capture( schematic()->Settings() );
+    *metadata->mutable_erc_settings() = SCH_ERC_SETTINGS::Capture( *schematic() );
     const auto ratios = schematic()->Settings().DrawingRatios();
     auto* drawing = metadata->mutable_drawing_ratios();
     drawing->set_dash_length_ratio( ratios[0] );

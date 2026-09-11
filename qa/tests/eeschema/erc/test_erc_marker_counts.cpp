@@ -27,6 +27,7 @@
 #include <erc/erc.h>
 #include <settings/settings_manager.h>
 #include <locale_io.h>
+#include <api/api_sch_erc_settings.h>
 
 
 struct ERC_MARKER_COUNT_FIXTURE
@@ -92,6 +93,12 @@ BOOST_FIXTURE_TEST_CASE( ERCMarkerCountsExclusion, ERC_MARKER_COUNT_FIXTURE )
     BOOST_REQUIRE( marker != nullptr );
     BOOST_REQUIRE( markerSeverity == RPT_SEVERITY_ERROR || markerSeverity == RPT_SEVERITY_WARNING );
 
+    const auto policyBefore = SCH_ERC_SETTINGS::Capture( *m_schematic );
+    const auto storedBefore = settings.CaptureCurrentState();
+    const auto revisionBefore = m_schematic->ChangeJournal().Sequence();
+    BOOST_CHECK_EQUAL( policyBefore.pin_map_size(), ELECTRICAL_PINTYPES_TOTAL * ELECTRICAL_PINTYPES_TOTAL );
+    BOOST_CHECK( policyBefore.rule_severities_size() > 0 );
+
     BOOST_CHECK( provider.SetMarkerExcluded( marker, true ) );
     BOOST_CHECK( !provider.SetMarkerExcluded( marker, true ) );
 
@@ -99,6 +106,21 @@ BOOST_FIXTURE_TEST_CASE( ERCMarkerCountsExclusion, ERC_MARKER_COUNT_FIXTURE )
     BOOST_CHECK( provider.SetMarkerExcluded( marker, true, wxS( "Intentional fixture exclusion" ) ) );
     BOOST_CHECK( !provider.SetMarkerExcluded( marker, true, wxS( "Intentional fixture exclusion" ) ) );
     BOOST_CHECK_EQUAL( marker->GetComment(), wxS( "Intentional fixture exclusion" ) );
+
+    const auto captured = SCH_ERC_SETTINGS::Capture( *m_schematic );
+    const auto key = ERC_EXCLUSION::FromMarker( *marker ).GetSortKey();
+    int matches = 0;
+    for( const auto& exclusion : captured.exclusions() )
+    {
+        if( exclusion.marker().SerializeAsString() == key )
+        {
+            ++matches;
+            BOOST_CHECK_EQUAL( exclusion.comment(), "Intentional fixture exclusion" );
+        }
+    }
+    BOOST_CHECK_EQUAL( matches, 1 );
+    BOOST_CHECK( settings.CaptureCurrentState() == storedBefore );
+    BOOST_CHECK_EQUAL( m_schematic->ChangeJournal().Sequence(), revisionBefore );
 
     // The exclusion bucket gains one; the marker's original bucket loses one. Total is unchanged.
     BOOST_CHECK_EQUAL( provider.GetCount( RPT_SEVERITY_EXCLUSION ), exclusionsBefore + 1 );
@@ -127,6 +149,8 @@ BOOST_FIXTURE_TEST_CASE( ERCMarkerCountsExclusion, ERC_MARKER_COUNT_FIXTURE )
     // Restoring the marker must move it back and keep counts consistent with a recompute.
     BOOST_CHECK( provider.SetMarkerExcluded( marker, false ) );
     BOOST_CHECK( !provider.SetMarkerExcluded( marker, false ) );
+    BOOST_CHECK_EQUAL( SCH_ERC_SETTINGS::Capture( *m_schematic ).SerializeAsString(),
+                       policyBefore.SerializeAsString() );
 
     BOOST_CHECK_EQUAL( provider.GetCount( RPT_SEVERITY_ERROR ), errorsBefore );
     BOOST_CHECK_EQUAL( provider.GetCount( RPT_SEVERITY_WARNING ), warningsBefore );

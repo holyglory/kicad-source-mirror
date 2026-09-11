@@ -24,6 +24,7 @@ public sealed partial class NativeSessionTests
         using var isolated = new NativeEventSubscription(other);
         var initial = await Task.WhenAll(Receive(first), Receive(second), Receive(isolated));
         Assert.IsTrue(initial.All(value => value.Disposition == NativeEventDisposition.InitialStateRequired));
+        await using var intake = await NativeRecoveryIntakeProbe.StartAsync(client, document, evidence, instanceId, token);
         var journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(
             new() { Document = document }, token);
         var query = new GetItemsById { Header = new() { Document = document } };
@@ -70,6 +71,8 @@ public sealed partial class NativeSessionTests
         NativeKeyboard.SchematicShortcut(display, processId, "z");
         await Change(2);
         Assert.AreEqual(original, await Text());
+
+        await intake.VerifyStopAndMcpDisconnect();
 
         // Cancellation releases only this subscriber. The same process, dirty
         // state and command channel remain available, and another observer works.
@@ -131,6 +134,7 @@ public sealed partial class NativeSessionTests
             Assert.IsFalse(notification.SchematicCommit.TrackingComplete);
             await File.WriteAllTextAsync(Path.Combine(evidence,
                 instanceId + "-native-event-" + notification.Sequence + ".json"), JsonFormatter.Default.Format(notification), token);
+            await intake.WaitForRevision(notification.SchematicCommit.Revision.Sequence);
             return notification;
         }
     }

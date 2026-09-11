@@ -26,7 +26,8 @@ public static class DesignRecoveryInspector
     /// An unconfirmed mutation must first be reconciled through its exact receipt; refreshing
     /// cannot silently drop it or overwrite the revision required for an identical retry.</summary>
     public static async Task<StoredDesignRecovery> RefreshAsync(DesignRecoveryStore store,
-        NativeClient client, string expectedRevisionToken, CancellationToken cancellationToken = default)
+        NativeClient client, string expectedRevisionToken, CancellationToken cancellationToken = default,
+        KiCad.Automation.Model.DocumentRevision? minimumRevision = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var saved = store.Read();
@@ -40,6 +41,9 @@ public static class DesignRecoveryInspector
             throw new AutomationException("design_recovery_changed", "Recovery state changed during native refresh.");
         cancellationToken.ThrowIfCancellationRequested();
         var snapshot = observed.Snapshot;
+        if (minimumRevision is not null && (snapshot.Revision.Epoch != minimumRevision.Epoch
+            || snapshot.Revision.Sequence < minimumRevision.Sequence))
+            throw new AutomationException("invalid_recovery_revision", "The snapshot predates the committed native event.");
         bool changed = !snapshot.Data.Equals(saved.State.Observed)
             || snapshot.Revision.Epoch != saved.State.NativeRevision.Epoch
             || snapshot.Revision.Sequence != saved.State.NativeRevision.Sequence

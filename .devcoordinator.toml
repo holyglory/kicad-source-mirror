@@ -1263,6 +1263,23 @@ name = "native-objects"
 tier = "development"
 command = ["cmake", "--build", "automation/artifacts/native", "--target", "kiapi", "common/CMakeFiles/kicommon.dir/api/api_server.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad.cpp.o", "kicad/CMakeFiles/kicad.dir/kicad_manager_frame.cpp.o"]
 
+[test.native-intake-model]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.native-intake-model.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.native-intake-model.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~DesignRecoveryNativeObserverTests|FullyQualifiedName~NativeIntakeRegistryTests|FullyQualifiedName~DesignRecoveryInspectorTests|FullyQualifiedName~NativeEventCursorTests|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/native-intake-model"]
+retained_artifacts = [{ name = "native-intake-model", path = "automation/artifacts/native-intake-model", max_bytes = 16777216 }]
+
 [test.erc-model]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
@@ -1366,7 +1383,7 @@ tier = "development"
 role = "preflight"
 requires = ["managed-build"]
 invalidates = ["native-build", "native-session"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~DesignRecoveryInspectorTests|FullyQualifiedName~DesignRecoveryStoreTests|FullyQualifiedName~DesignRecoveryFileObserverTests|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~NativeClientTests", "--logger", "trx", "--results-directory", "automation/artifacts/recovery-model-results"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~DesignRecoveryInspectorTests|FullyQualifiedName~DesignRecoveryStoreTests|FullyQualifiedName~DesignRecoveryFileObserverTests|FullyQualifiedName~DesignFileIntakeSessionTests|FullyQualifiedName~DesignRecoveryNativeObserverTests|FullyQualifiedName~NativeIntakeRegistryTests|FullyQualifiedName~NativeClientTests", "--logger", "trx", "--results-directory", "automation/artifacts/recovery-model-results"]
 retained_artifacts = [{ name = "recovery-model-results", path = "automation/artifacts/recovery-model-results", max_bytes = 16777216 }]
 
 [[test.native-foundation.check]]

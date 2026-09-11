@@ -44,6 +44,14 @@ public sealed class McpProcessTests
             string[] names = listed.GetProperty("result").GetProperty("tools").EnumerateArray()
                 .Select(t => t.GetProperty("name").GetString()!).ToArray();
             CollectionAssert.Contains(names, "kicad_instances_list");
+            foreach (string suffix in new[] { "start", "list", "wait", "resume", "stop" })
+                CollectionAssert.Contains(names, "kicad_design_native_intake_" + suffix);
+            var nativeIntakes = await Request(9060, "tools/call", new { name = "kicad_design_native_intake_list",
+                arguments = new { instanceId = Guid.NewGuid().ToString("D") } });
+            Assert.AreEqual(0, nativeIntakes.GetProperty("result").GetProperty("structuredContent").GetProperty("sessions").GetArrayLength());
+            var invalidNativeIntake = await Request(9061, "tools/call", new { name = "kicad_design_native_intake_start",
+                arguments = new { instanceId = Guid.NewGuid().ToString("D"), recoveryPath = "relative.json" } });
+            Assert.AreEqual("invalid_native_intake_target", invalidNativeIntake.GetProperty("result").GetProperty("structuredContent").GetProperty("errorCode").GetString());
             CollectionAssert.Contains(names, "kicad_instance_reconnect_after_update");
             var invalidReconnect = await Request(1000, "tools/call", new { name = "kicad_instance_reconnect_after_update",
                 arguments = new { instanceId = Guid.NewGuid().ToString("D"), installationRoot = Path.Combine(state, "absent-installation"),

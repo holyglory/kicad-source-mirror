@@ -24,14 +24,19 @@ public sealed class WindowsNativeRestartRequestTests
             DirectoryInfo? repository = new(AppContext.BaseDirectory);
             while (repository is not null && !File.Exists(Path.Combine(repository.FullName, "kicad/automation_update_windows.cpp"))) repository = repository.Parent;
             Assert.IsNotNull(repository);
-            string executable = Path.Combine(root, "request.exe");
-            var compiled = await WindowsLauncherTests.Invoke("cl.exe", ["/nologo", "/EHsc", "/std:c++20", "/MT", "/utf-8",
-                "/I" + Path.Combine(repository.FullName, "thirdparty/nlohmann_json"), "/I" + Path.Combine(repository.FullName, "kicad"),
-                Path.Combine(repository.FullName, "kicad/automation_update_windows.cpp"),
-                Path.Combine(repository.FullName, "automation/tests/fixtures/windows-restart-request.cpp"), "/Fe:" + executable], root, deadline.Token, input: null);
-            await File.WriteAllTextAsync(Path.Combine(evidence, "compile.stdout.log"), compiled.Output, deadline.Token);
-            await File.WriteAllTextAsync(Path.Combine(evidence, "compile.stderr.log"), compiled.Error, deadline.Token);
-            Assert.AreEqual(0, compiled.ExitCode, compiled.Output + compiled.Error);
+            string executable = Path.Combine(root, "native_request.exe");
+            foreach (var (name, arguments) in new (string, string[])[]
+            {
+                ("configure", ["-S", Path.Combine(repository.FullName, "automation/tests/fixtures/windows-json-link"),
+                    "-B", root, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"]),
+                ("compile", ["--build", root, "--target", "native_request"])
+            })
+            {
+                var compiled = await WindowsLauncherTests.Invoke("cmake", arguments, root, deadline.Token, input: null);
+                await File.WriteAllTextAsync(Path.Combine(evidence, name + ".stdout.log"), compiled.Output, deadline.Token);
+                await File.WriteAllTextAsync(Path.Combine(evidence, name + ".stderr.log"), compiled.Error, deadline.Token);
+                Assert.AreEqual(0, compiled.ExitCode, compiled.Output + compiled.Error);
+            }
 
             string installation = Directory.CreateDirectory(Path.Combine(root, "安装 Δ")).FullName;
             string manager = Directory.CreateDirectory(Path.Combine(installation, "manager")).FullName;

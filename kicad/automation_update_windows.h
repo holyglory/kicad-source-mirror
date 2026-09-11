@@ -3,7 +3,7 @@
  */
 #pragma once
 
-#include <nlohmann/json.hpp>
+#include <json_common.h>
 #include <string>
 
 namespace AUTOMATION_WINDOWS_UPDATE

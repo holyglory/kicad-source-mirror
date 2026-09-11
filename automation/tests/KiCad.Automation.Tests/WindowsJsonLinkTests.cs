@@ -11,9 +11,12 @@ public sealed class WindowsJsonLinkTests
     [TestMethod]
     public void UpdaterHeaderUsesTheExistingSharedJsonImports()
     {
-        string header = File.ReadAllText(Path.Combine(Repository(), "kicad/automation_update_client.h"));
-        StringAssert.Contains(header, "#include <json_common.h>");
-        Assert.IsFalse(header.Contains("#include <nlohmann/json.hpp>", StringComparison.Ordinal));
+        foreach (string file in new[] { "automation_update_client.h", "automation_update_windows.h" })
+        {
+            string header = File.ReadAllText(Path.Combine(Repository(), "kicad", file));
+            StringAssert.Contains(header, "#include <json_common.h>", file);
+            Assert.IsFalse(header.Contains("#include <nlohmann/json.hpp>", StringComparison.Ordinal), file);
+        }
         string declaration = File.ReadAllText(Path.Combine(Repository(), "qa/tests/common/CMakeLists.txt"));
         var link = System.Text.RegularExpressions.Regex.Match(declaration,
             @"target_link_libraries\(\s*qa_automation_update_client\s+(?<libraries>[^)]*)\)");
@@ -48,6 +51,11 @@ public sealed class WindowsJsonLinkTests
             diagnostic = await File.ReadAllTextAsync(Path.Combine(evidence, "missing-provider.stdout.log"));
             StringAssert.Contains(diagnostic, "LNK2019");
             StringAssert.Contains(diagnostic, "basic_json", "The missing JSON provider must actually be exercised.");
+            Assert.AreEqual(0, await Run("native-request-build", "cmake", ["--build", root, "--target", "native_request"]));
+            Assert.AreNotEqual(0, await Run("raw-native-request-build", "cmake", ["--build", root, "--target", "raw_native_request"]));
+            diagnostic = await File.ReadAllTextAsync(Path.Combine(evidence, "raw-native-request-build.stdout.log"));
+            StringAssert.Contains(diagnostic, "LNK2005", "The actual request-builder translation unit must reproduce the regression.");
+            StringAssert.Contains(diagnostic, "automation_update_windows.cpp.obj");
         }
         finally { Directory.Delete(root, recursive: true); }
 

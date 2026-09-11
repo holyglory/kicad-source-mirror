@@ -196,6 +196,23 @@ tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~InstanceReplacementTests|FullyQualifiedName~InstanceRegistryTests|FullyQualifiedName~NativeClientTests|FullyQualifiedName~UpdateOriginTests|FullyQualifiedName~InstanceUpdateReconnectionTests|FullyQualifiedName~UpdateInspectionTests|FullyQualifiedName~WindowsUpdateInspectionTests", "--logger", "trx", "--results-directory", "automation/artifacts/instance-replacement-tests"]
 retained_artifacts = [{ name = "instance-replacement-tests", path = "automation/artifacts/instance-replacement-tests", max_bytes = 16777216 }]
 
+[test.windows-json-link]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.windows-json-link.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--configuration", "Debug", "--no-restore"]
+
+[[test.windows-json-link.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsJsonLinkTests|FullyQualifiedName~WindowsNativeRestartRequestTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-json-link-tests"]
+retained_artifacts = [{ name = "windows-json-link-tests", path = "automation/artifacts/windows-json-link-tests", max_bytes = 16777216 }]
+
 [test.windows-harness]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

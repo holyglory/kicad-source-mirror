@@ -27,7 +27,7 @@ on:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
         default: all
-        options: [all, package-staging, handoff, caption, harness, registry, integrated-update, integrated-mcp-update]
+        options: [all, package-staging, handoff, caption, harness, registry, json-link, integrated-update, integrated-mcp-update]
       mac_update_baseline_commit:
         description: With integrated-update, exact baseline commit with a retained signed envelope for each selected Mac architecture
         type: string
@@ -238,13 +238,21 @@ jobs:
             --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
           if ($LASTEXITCODE -ne 0) { throw 'The actual Windows update journey failed.' }
       - name: Check Windows delivery contracts and select supported stages
-        if: inputs.windows_fixture == 'all' || inputs.windows_fixture == 'caption' || inputs.windows_fixture == 'harness' || inputs.windows_fixture == 'registry'
+        if: inputs.windows_fixture == 'all' || inputs.windows_fixture == 'caption' || inputs.windows_fixture == 'harness' || inputs.windows_fixture == 'registry' || inputs.windows_fixture == 'json-link'
         id: stages
         timeout-minutes: 10
         working-directory: automation
         shell: pwsh
         run: |
           $env:KICAD_HOSTED_FIXTURE_EVIDENCE = "$env:RUNNER_TEMP/kicad-windows-preflight/evidence"
+          if ($env:WINDOWS_FIXTURE -eq 'json-link') {
+            if ($env:CHECKS_ONLY -ne 'true') { throw 'JSON link verification is a checks-only fixture.' }
+            dotnet test KiCad.Automation.slnx --configuration Release `
+              --filter 'FullyQualifiedName~WindowsJsonLinkTests|FullyQualifiedName~WindowsNativeRestartRequestTests' `
+              --logger trx --results-directory "$env:RUNNER_TEMP/kicad-windows-preflight"
+            if ($LASTEXITCODE -ne 0) { throw 'Windows production JSON DLL boundary failed.' }
+            exit 0
+          }
           if ($env:WINDOWS_FIXTURE -eq 'registry') {
             if ($env:CHECKS_ONLY -ne 'true') { throw 'Registry verification is a checks-only fixture.' }
             dotnet test KiCad.Automation.slnx --configuration Release `

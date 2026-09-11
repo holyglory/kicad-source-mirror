@@ -67,9 +67,11 @@ public sealed partial class NativeSessionTests
             NativeKeyboard.SchematicShortcut(display, processId, "right-click", controlKey: false,
                 focusCanvas: true, clickFromLeft: 640, clickFromTop: 450);
             await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-context-menu.png"), token);
-            // Zoom and Grid are the two final standard submenus. Net Chain
-            // precedes them; Name precedes Create in the single-pin submenu.
-            Key("End"); Key("Up"); Key("Up"); Key("Right"); Key("End"); Key("Up"); Key("Return");
+            // The rendered menu ends with Select All, Unselect All, Zoom and
+            // Grid. Net Chain precedes those four entries; Name precedes Create.
+            Key("End"); for (int i = 0; i < 4; i++) Key("Up"); Key("Right");
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-actions-menu.png"), token);
+            Key("End"); Key("Up"); Key("Return");
             await Window(title, true);
         }
         void Text(string value)

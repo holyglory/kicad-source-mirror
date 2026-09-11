@@ -27,8 +27,15 @@ internal sealed class MacUiAutomation(string executable, string scratch, string 
 
     public async Task PressAsync(MacProcessIdentity process, string title, CancellationToken token)
     {
+        await RevealAsync(process, title, token);
         var result = await Invoke("press", process, title, token);
         Assert.AreEqual("action_sent", result.GetProperty("status").GetString());
+    }
+
+    public async Task RevealAsync(MacProcessIdentity process, string title, CancellationToken token)
+    {
+        var result = await Invoke("reveal", process, title, token);
+        Assert.AreEqual("window_raised", result.GetProperty("status").GetString());
     }
 
     public async Task WaitButtonAsync(MacProcessIdentity process, string title, CancellationToken token)
@@ -39,11 +46,16 @@ internal sealed class MacUiAutomation(string executable, string scratch, string 
         int delay = 50;
         while (true)
         {
-            var observation = await InspectAsync(process, deadline.Token);
+            var observation = await Invoke("inspect", process, title, deadline.Token);
             var buttons = observation.GetProperty("buttons");
+            string current = buttons.GetRawText();
+            if (current != previous)
+                await File.WriteAllTextAsync(Path.Combine(evidence, "last-ui-" + process.ProcessId + ".json"), observation.GetRawText(), deadline.Token);
             if (buttons.EnumerateArray().Count(x => x.GetProperty("title").GetString() == title
                 && x.GetProperty("enabled").GetBoolean() && x.GetProperty("visible").GetBoolean()) == 1) return;
-            string current = buttons.GetRawText();
+            if (buttons.EnumerateArray().Count(x => x.GetProperty("title").GetString() == title
+                && x.GetProperty("enabled").GetBoolean()) == 1)
+                await RevealAsync(process, title, deadline.Token);
             delay = current == previous ? Math.Min(delay * 2, 250) : 50;
             previous = current;
             await Task.Delay(delay, deadline.Token);

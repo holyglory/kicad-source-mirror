@@ -70,6 +70,7 @@ public sealed class MacIntegratedUpdateTests
             var first = await Start("first");
             var second = await Start("second");
             string secondEpoch = second.Client.Epoch;
+            await Task.WhenAll(WaitPrepared(first, "first"), WaitPrepared(second, "second"));
             await ui.WaitButtonAsync(first.Identity, "Update", deadline.Token);
             await ui.WaitButtonAsync(second.Identity, "Update", deadline.Token);
             Assert.IsFalse(File.Exists(first.Schematic));
@@ -147,6 +148,34 @@ public sealed class MacIntegratedUpdateTests
                 }) });
                 await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(batch, deadline.Token);
                 return new(process, MacProcessIdentity.Read(process.Id), client, document, project, schematic, instance, markerId, markerText);
+            }
+
+            async Task WaitPrepared(OpenProject project, string name)
+            {
+                string path = Path.Combine(evidence, name + "-native.log");
+                using var ready = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
+                ready.CancelAfter(TimeSpan.FromMinutes(5));
+                using var changed = new SemaphoreSlim(0, 1);
+                using var watcher = new FileSystemWatcher(evidence, name + "-native.log")
+                { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName };
+                FileSystemEventHandler wake = (_, _) =>
+                {
+                    try { changed.Release(); }
+                    catch (SemaphoreFullException) { }
+                    catch (ObjectDisposedException) { } // A queued filesystem event may outlive watcher disposal.
+                };
+                watcher.Changed += wake; watcher.Created += wake; watcher.EnableRaisingEvents = true;
+                while (true)
+                {
+                    ready.Token.ThrowIfCancellationRequested();
+                    Assert.IsFalse(project.Process.HasExited, "The native instance exited during update preparation.");
+                    string log = File.Exists(path) ? await File.ReadAllTextAsync(path, ready.Token) : "";
+                    if (log.Contains("\"status\":\"candidate_available\"", StringComparison.Ordinal)) return;
+                    Assert.IsFalse(log.Contains("\"status\":\"failed\"", StringComparison.Ordinal), "Native update preparation failed; see " + name + "-native.log.");
+                    // Filesystem notifications drive readiness; a bounded fallback
+                    // recovers a missed notification without polling the design.
+                    await changed.WaitAsync(TimeSpan.FromSeconds(2), ready.Token);
+                }
             }
 
             async Task<Process> UpdateAndSave(OpenProject old, string name)

@@ -66,6 +66,7 @@ public sealed class MacUiDriverTests
                 await Task.Delay(100, deadline.Token);
             }
             var identity = MacProcessIdentity.Read(process.Id);
+            await ui.RevealAsync(identity, "Update", deadline.Token);
             await ui.WaitButtonAsync(identity, "Update", deadline.Token);
             await ui.CaptureAsync(identity, "external-control", deadline.Token);
             await Assert.ThrowsAsync<AssertFailedException>(() => ui.PressAsync(identity with

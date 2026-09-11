@@ -69,7 +69,7 @@ int main( int argc, char** argv )
             return 0;
         }
         if( argc != 3 ) return 2;
-        if( strcmp( argv[1], "inspect" ) != 0 && strcmp( argv[1], "press" ) != 0 ) return 2;
+        if( strcmp( argv[1], "inspect" ) != 0 && strcmp( argv[1], "press" ) != 0 && strcmp( argv[1], "reveal" ) != 0 ) return 2;
         if( !AXIsProcessTrusted() )
         {
             emit( @{ @"schemaVersion": @1, @"status": @"accessibility_unavailable", @"permissionsChanged": @NO } );
@@ -112,17 +112,21 @@ int main( int argc, char** argv )
         {
             AXUIElementRef element = queue[cursor++];
             NSString* role = textAttribute( element, kAXRoleAttribute );
-            NSString* title = textAttribute( element, kAXTitleAttribute );
-            if( ![title length] ) title = textAttribute( element, kAXDescriptionAttribute );
+            // Menus are not window buttons. Avoid traversing their large trees
+            // for every readiness observation of an editor's caption action.
+            if( [role isEqualToString:(NSString*)kAXMenuBarRole] || [role isEqualToString:(NSString*)kAXMenuRole] ) continue;
             if( [role isEqualToString:(NSString*)kAXButtonRole] )
             {
+                NSString* title = textAttribute( element, kAXTitleAttribute );
+                if( ![title length] ) title = textAttribute( element, kAXDescriptionAttribute );
                 CFTypeRef enabledValue = nullptr;
                 bool enabled = AXUIElementCopyAttributeValue( element, kAXEnabledAttribute, &enabledValue ) == kAXErrorSuccess
                     && CFGetTypeID( enabledValue ) == CFBooleanGetTypeID() && CFBooleanGetValue( (CFBooleanRef)enabledValue );
                 if( enabledValue ) CFRelease( enabledValue );
-                bool visible = visibleButton( application, element );
-                [controls addObject:@{ @"role": role, @"title": title, @"enabled": @(enabled), @"visible": @(visible) }];
-                if( wanted && [title isEqualToString:wanted] && enabled && visible ) matches.push_back( element );
+                bool relevant = !wanted || [title isEqualToString:wanted];
+                bool visible = relevant && visibleButton( application, element );
+                if( relevant ) [controls addObject:@{ @"role": role, @"title": title, @"enabled": @(enabled), @"visible": @(visible) }];
+                if( wanted && relevant && enabled && ( visible || strcmp( argv[1], "reveal" ) == 0 ) ) matches.push_back( element );
             }
             CFTypeRef children = nullptr;
             if( AXUIElementCopyAttributeValue( element, kAXChildrenAttribute, &children ) == kAXErrorSuccess )
@@ -156,6 +160,20 @@ int main( int argc, char** argv )
         { emit( @{ @"schemaVersion": @1, @"status": @"no_unique_enabled_target", @"matches": @(matches.size()) } ); result = 5; }
         else if( !matchesProcess() )
         { emit( @{ @"schemaVersion": @1, @"status": @"process_identity_mismatch" } ); result = 7; }
+        else if( strcmp( argv[1], "reveal" ) == 0 )
+        {
+            CFTypeRef window = nullptr;
+            AXError error = AXUIElementCopyAttributeValue( matches[0], kAXWindowAttribute, &window );
+            if( error == kAXErrorSuccess && window && CFGetTypeID( window ) == AXUIElementGetTypeID() )
+            {
+                [[NSRunningApplication runningApplicationWithProcessIdentifier:pid] activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+                error = AXUIElementPerformAction( (AXUIElementRef)window, kAXRaiseAction );
+            }
+            else error = kAXErrorNoValue;
+            if( window ) CFRelease( window );
+            emit( @{ @"schemaVersion": @1, @"status": error == kAXErrorSuccess ? @"window_raised" : @"raise_failed", @"error": @(error) } );
+            result = error == kAXErrorSuccess ? 0 : 6;
+        }
         else if( !visibleButton( application, matches[0] ) )
         { emit( @{ @"schemaVersion": @1, @"status": @"target_not_visible" } ); result = 5; }
         else

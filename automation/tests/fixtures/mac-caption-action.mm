@@ -45,9 +45,15 @@ int main( int argc, char** argv )
             hide( true, true ); show( true, true );
             [window makeKeyAndOrderFront:nil];
             [window displayIfNeeded];
+            NSWindow* cover = [[NSWindow alloc] initWithContentRect:NSMakeRect( 100, 100, 600, 350 )
+                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+                backing:NSBackingStoreBuffered defer:NO];
+            [cover setReleasedWhenClosed:NO]; [cover setTitle:@"KiCad occluding fixture"];
+            [cover setFrame:[window frame] display:YES]; [cover makeKeyAndOrderFront:nil]; [cover displayIfNeeded];
             [@"ready" writeToFile:[directory stringByAppendingPathComponent:@"ready"] atomically:YES
                 encoding:NSUTF8StringEncoding error:nil];
             [NSApp run];
+            [cover release];
             [window release];
             return 0;
         }

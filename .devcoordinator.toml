@@ -151,7 +151,7 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.mac-update-concurrency.check]]
 name = "contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~UpdateStoreLeaseTests|FullyQualifiedName~UpdateRegistrationRetryTests|FullyQualifiedName~MacCaptionActionTests|FullyQualifiedName~MacUiDriverTests|FullyQualifiedName~MacVerifiedInstallationTests|FullyQualifiedName~MacUpdatePairTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-update-concurrency"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~UpdateStoreLeaseTests|FullyQualifiedName~UpdateRegistrationRetryTests|FullyQualifiedName~MacCaptionActionTests|FullyQualifiedName~MacUiDriverTests|FullyQualifiedName~MacVerifiedInstallationTests|FullyQualifiedName~MacUpdatePairTests|FullyQualifiedName~NativeCaptionMcpProbeTests", "--logger", "trx", "--results-directory", "automation/artifacts/mac-update-concurrency"]
 retained_artifacts = [{ name = "mac-update-concurrency", path = "automation/artifacts/mac-update-concurrency", max_bytes = 16777216 }]
 
 [test.mcp-update-reconnection]

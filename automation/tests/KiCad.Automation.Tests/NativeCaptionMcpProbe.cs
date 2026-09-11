@@ -51,14 +51,15 @@ internal sealed class NativeCaptionMcpProbe(string state, string evidence, Cance
     public async Task ObserveAsync(string id, string phase, bool originalDocumentEpoch)
     {
         Design design = designs[id]; JsonElement result;
+        using var ready = CancellationTokenSource.CreateLinkedTokenSource(token);
+        ready.CancelAfter(TimeSpan.FromSeconds(60));
         int delay = 50;
         while (true)
         {
-            result = await mcp!.Tool("kicad_schematic_observe", new { instanceId = id, documentJson = SchematicJson.Formatter.Format(design.Document) });
+            result = await mcp!.Tool("kicad_schematic_observe", new { instanceId = id, documentJson = SchematicJson.Formatter.Format(design.Document) }).WaitAsync(ready.Token);
             if (!IsError(result)) break;
-            string? code = result.TryGetProperty("structuredContent", out var failure) && failure.TryGetProperty("code", out var value) ? value.GetString() : null;
-            if (code is not ("native_status_4" or "native_status_7")) { Success(result); break; }
-            await Task.Delay(delay, token); delay = Math.Min(delay * 2, 500);
+            if (!RenderPending(result)) { Success(result); break; }
+            await Task.Delay(delay, ready.Token); delay = Math.Min(delay * 2, 500);
         }
         Success(result);
         var content = result.GetProperty("structuredContent");
@@ -118,6 +119,22 @@ internal sealed class NativeCaptionMcpProbe(string state, string evidence, Cance
     }
 
     private static bool IsError(JsonElement value) => value.TryGetProperty("isError", out var error) && error.GetBoolean();
+
+    internal static bool RenderPending(JsonElement result)
+    {
+        if (!IsError(result)) return false;
+        if (result.TryGetProperty("structuredContent", out var structured)) return PendingCode(structured);
+        if (!result.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array) return false;
+        var texts = content.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Object
+            && x.TryGetProperty("type", out var type) && type.GetString() == "text").ToArray();
+        if (texts.Length != 1 || !texts[0].TryGetProperty("text", out var text) || text.ValueKind != JsonValueKind.String) return false;
+        try { using var decoded = JsonDocument.Parse(text.GetString()!); return PendingCode(decoded.RootElement); }
+        catch (JsonException) { return false; }
+
+        static bool PendingCode(JsonElement value) => value.ValueKind == JsonValueKind.Object
+            && value.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String
+            && code.GetString() is "native_status_4" or "native_status_7";
+    }
     private static JsonElement Success(JsonElement result)
     { Assert.IsFalse(IsError(result), result.GetRawText()); return result; }
     public async ValueTask DisposeAsync() { if (mcp is not null) { await mcp.DisposeAsync(); mcp = null; } }

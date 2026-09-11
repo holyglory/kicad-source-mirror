@@ -20,6 +20,7 @@ internal static class InstanceToolBoundary
         }
         catch (AutomationException error) { return Public(error.Code, error.Message); }
         catch (NativeApiException error) { return Public("native_status_" + error.Status, error.Message); }
+        catch (ArgumentException error) { return Public("invalid_argument", error.Message); }
         catch (NngException) { return Public("native_transport_unavailable", "The explicit native endpoint could not be reached. Inspect the saved instance and process before retrying; do not launch a replacement blindly."); }
     }
 

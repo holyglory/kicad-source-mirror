@@ -52,6 +52,15 @@ public sealed class InstanceToolBoundaryTests
             using var message = JsonDocument.Parse(((TextContentBlock)wrong.Content.Single()).Text);
             Assert.AreEqual("instance_mismatch", message.RootElement.GetProperty("code").GetString());
             Assert.AreEqual(original, registry.Get(transport.InstanceId)); Assert.AreEqual(1, registry.List().Count);
+            var invalidEndpoint = await tools.Attach("tcp://localhost:1234", transport.InstanceId, default);
+            Assert.IsTrue(invalidEndpoint.IsError);
+            using var endpointMessage = JsonDocument.Parse(((TextContentBlock)invalidEndpoint.Content.Single()).Text);
+            Assert.AreEqual("invalid_argument", endpointMessage.RootElement.GetProperty("code").GetString());
+            var unavailable = await InstanceToolBoundary.Run<int>(() => throw new NngException(5, "Native diagnostic fixture."));
+            Assert.IsTrue(unavailable.IsError);
+            using var transportMessage = JsonDocument.Parse(((TextContentBlock)unavailable.Content.Single()).Text);
+            Assert.AreEqual("native_transport_unavailable", transportMessage.RootElement.GetProperty("code").GetString());
+            Assert.IsFalse(transportMessage.RootElement.GetProperty("message").GetString()!.Contains("Native diagnostic fixture."));
             Assert.IsFalse((await tools.Attach(endpoint, transport.InstanceId, default)).IsError ?? false);
         }
         finally { Directory.Delete(root, true); }

@@ -237,6 +237,25 @@ name = "stage"
 tier = "development"
 command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-requalified-windows", "--candidate", "/mnt/build-storage/codex/kicad/evidence/github-34555975985-windows-corrected-candidate/kicad-delivery", "--qualification", "/mnt/build-storage/codex/kicad/evidence/github-34571626328-windows-retained-passed/native-windows-x64-c9319056c3392875aca22ec78e27e09b05597037-1/kicad-windows-preflight", "--repository", "/mnt/build-storage/codex/kicad/worktrees/windows-source-433.iTweC0", "--commit", "433c5e1fdf5954955a19df546236dce78e78b5b0", "--run-id", "34571626328", "--version", "preview-20260911-433c5e1fdf59", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000013", "--output", "/mnt/build-storage/codex/kicad/public-candidates/windows-433-requalified"]
 
+# Requires the separately retained clean native baseline rerun. The compiled
+# stager refuses failed/missing/mismatched evidence before admitting any bytes.
+# Its signed sequence-1 envelope is a test/installation baseline, never a
+# replacement for the current public Windows sequence-2 feed.
+[test.windows-baseline-stage]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.windows-baseline-stage.check]]
+name = "stage"
+tier = "development"
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-requalified-windows", "--candidate", "/mnt/build-storage/codex/kicad/evidence/github-34555974128-windows-baseline/kicad-delivery", "--qualification", "/mnt/build-storage/codex/kicad/evidence/github-34576800022-windows-baseline-requalified/kicad-windows-preflight", "--repository", "/mnt/build-storage/codex/kicad/worktrees/windows-source-0d4.ks3pLg", "--commit", "0d4b8180ac985d372d12b314ff578aa921a6ea97", "--run-id", "34576800022", "--version", "preview-20260911-0d4b8180ac98", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/windows-433-signed-000002", "--output", "/mnt/build-storage/codex/kicad/public-candidates/windows-pair-0d4-433-verified"]
+
+[[test.windows-baseline-stage.check]]
+name = "sign-baseline"
+tier = "development"
+requires = ["stage"]
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "release-sign", "--release", "/mnt/build-storage/codex/kicad/worktrees/delivery-next.HAjDme/automation/distribution/releases/preview-win-x64-000001.json", "--artifacts", "/mnt/build-storage/codex/kicad/public-candidates/windows-pair-0d4-433-verified", "--private", "/mnt/build-storage/codex/kicad/signing/preview-publisher.pkcs8", "--output", "/mnt/build-storage/codex/kicad/public-candidates/windows-baseline-0d4.signed.json"]
+
 # The first Windows update candidate uses the already requalified, unchanged
 # native archive. Sequence 1 is reserved for the distinct frozen baseline.
 # Staging does not deploy the feed or establish native update qualification.

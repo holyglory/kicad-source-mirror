@@ -91,6 +91,7 @@ public sealed class NativeClient(INativeTransport transport, string endpoint, st
         ReadSchematicMetadata { SchemaVersion: 0 } value => new ReadSchematicMetadata(value) { SchemaVersion = 2 },
         ReadSchematicScreenData { SchemaVersion: 0 } value => new ReadSchematicScreenData(value) { SchemaVersion = 2 },
         ReadSchematicHierarchyData { SchemaVersion: 0 } value => new ReadSchematicHierarchyData(value) { SchemaVersion = 2 },
+        ReadSchematicElectricalState { SchemaVersion: 0 } value => new ReadSchematicElectricalState(value) { SchemaVersion = 2 },
         CaptureSchematicObservation { SchemaVersion: 0 } value => new CaptureSchematicObservation(value) { SchemaVersion = 2 },
         RenderSchematicViews { SchemaVersion: 0 } value => new RenderSchematicViews(value) { SchemaVersion = 2 },
         _ => request

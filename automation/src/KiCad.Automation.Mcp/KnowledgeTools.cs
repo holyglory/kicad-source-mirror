@@ -26,6 +26,22 @@ public sealed record DesignProjectionToolResult(string? CandidateEngineeringXml,
 [McpServerToolType]
 public sealed class KnowledgeTools
 {
+    [McpServerTool(Name = "kicad_design_connectivity_compare", ReadOnly = true, UseStructuredContent = true),
+     Description("Compare the supplied design:1 engineering model with one native SchematicElectricalState protobuf-JSON snapshot using exact sheet/symbol/placed-pin bindings. Returns missing or ambiguous pin bindings and split/joined pin partitions. Net names are not identity matches, and snapshot net indexes are not persistent IDs. Requires exact declared knowledge-library XML. Does not read a live editor, assign successor nets, transfer requirements, change either design, or establish complete native coverage or mutation admission.")]
+    public SchematicElectricalComparisonResult CompareConnectivity(string designXml, string electricalStateJson,
+        string[] knowledgeLibraryXml, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            var libraries = knowledgeLibraryXml.Select(ComponentKnowledgeXml.ReadLibrary).ToArray();
+            return SchematicElectricalComparison.Compare(SchematicDesignXml.Read(designXml, libraries),
+                SchematicJson.Parser.Parse<KiCad.Automation.Protocol.SchematicElectricalState>(electricalStateJson), libraries, cancellationToken);
+        }
+        catch (Exception error) when (error is AutomationException or Google.Protobuf.InvalidJsonException or Google.Protobuf.InvalidProtocolBufferException)
+        { return new(false, false, [], [], [], error is AutomationException known ? known.Code : "invalid_electrical_snapshot", error.Message); }
+    }
+
     [McpServerTool(Name = "kicad_design_reconcile_properties", ReadOnly = true, UseStructuredContent = true),
      Description("Prepare a three-way reverse projection from supplied baseline design:1 XML, desired engineering-design:1 XML and observed typed schematic hierarchy XML. Requires declared knowledge libraries. Reconciles native reference/value/unit/placement changes through explicit bindings while preserving desired instructions and reporting competing edits. Candidate XML is only an engineering-model proposal: unprojected native snapshot changes and coverage gaps remain explicit. Does not read or write files, access a live editor, compare connectivity, verify live revisions, advance synchronization state or apply changes. No candidate is returned for property conflicts or unresolved identity.")]
     public DesignProjectionToolResult ReconcileProperties(string baselineDesignXml, string desiredEngineeringXml,

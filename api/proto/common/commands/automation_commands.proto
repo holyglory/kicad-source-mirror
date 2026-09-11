@@ -60,6 +60,21 @@ message SchematicHierarchyDataSnapshot {
   bool tracking_complete = 3;
 }
 
+// One native checkpoint for electrical reconciliation. Net names are display
+// values, not persistent net identities; memberships use sheet paths and UUIDs.
+message ReadSchematicElectricalState {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  uint32 schema_version = 2;
+  // Optional observation precondition, not native mutation admission.
+  DocumentRevision expected_revision = 3;
+}
+
+message SchematicElectricalState {
+  SchematicHierarchyDataSnapshot hierarchy = 1;
+  repeated kiapi.schematic.types.SchematicNet nets = 2;
+  repeated string limitations = 3;
+}
+
 // Current-canvas capture and supported objects collected in one native dispatch.
 // Incomplete tracking/serializer coverage remain explicit; not edit admission.
 message CaptureSchematicObservation {

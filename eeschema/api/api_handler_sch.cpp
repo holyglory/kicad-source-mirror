@@ -159,6 +159,8 @@ API_HANDLER_SCH::API_HANDLER_SCH( std::shared_ptr<SCH_CONTEXT> aContext,
             &API_HANDLER_SCH::handleReadScreenData );
     registerHandler<kiapi::automation::v1::ReadSchematicHierarchyData, kiapi::automation::v1::SchematicHierarchyDataSnapshot>(
             &API_HANDLER_SCH::handleReadHierarchyData );
+    registerHandler<kiapi::automation::v1::ReadSchematicElectricalState, kiapi::automation::v1::SchematicElectricalState>(
+            &API_HANDLER_SCH::handleReadElectricalState );
     registerHandler<kiapi::automation::v1::CaptureSchematicObservation, kiapi::automation::v1::SchematicObservation>(
             &API_HANDLER_SCH::handleCaptureObservation );
     registerHandler<GetOpenDocuments, GetOpenDocumentsResponse>(
@@ -1605,8 +1607,17 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicHierarchyDataSnapshot> API_HANDLE
     if( auto error = validateSnapshotSchema( aCtx.Request.schema_version() ) )
         return tl::unexpected( *error );
     if( auto busy = checkForStableObservation() ) return tl::unexpected( *busy );
-    if( auto valid = validateDisplayedSheet( aCtx.Request.document() ); !valid )
+    if( auto valid = validateDocument( aCtx.Request.document() ); !valid )
         return tl::unexpected( valid.error() );
+    if( !aCtx.Request.document().has_sheet_path()
+        || UnpackSheetPath( aCtx.Request.document().sheet_path() ).empty()
+        || !resolveBatchSheet( UnpackSheetPath( aCtx.Request.document().sheet_path() ) ) )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+        error.set_error_message( "An explicit loaded schematic sheet instance is required" );
+        return tl::unexpected( error );
+    }
 
     // Do not navigate the UI or yield between instances. Every path is packed
     // from the same native state, including repeated-instance presentation.
@@ -1629,6 +1640,82 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicHierarchyDataSnapshot> API_HANDLE
     result.mutable_revision()->set_epoch( schematic()->ChangeJournal().Epoch() );
     result.mutable_revision()->set_sequence( schematic()->ChangeJournal().Sequence() );
     result.set_tracking_complete( false );
+    return result;
+}
+
+
+HANDLER_RESULT<kiapi::automation::v1::SchematicElectricalState> API_HANDLER_SCH::handleReadElectricalState(
+        const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicElectricalState>& aCtx )
+{
+    using namespace kiapi::automation::v1;
+    auto reject = []( ApiStatusCode code, const std::string& message ) -> HANDLER_RESULT<SchematicElectricalState>
+    {
+        ApiResponseStatus error; error.set_status( code ); error.set_error_message( message );
+        return tl::unexpected( error );
+    };
+    if( auto error = validateSnapshotSchema( aCtx.Request.schema_version() ) )
+        return tl::unexpected( *error );
+    HANDLER_CONTEXT<ReadSchematicHierarchyData> query;
+    query.ClientName = aCtx.ClientName;
+    query.Request.mutable_document()->CopyFrom( aCtx.Request.document() );
+    query.Request.set_schema_version( 2 );
+    auto before = handleReadHierarchyData( query );
+    if( !before ) return tl::unexpected( before.error() );
+    if( aCtx.Request.has_expected_revision()
+        && !google::protobuf::util::MessageDifferencer::Equals( aCtx.Request.expected_revision(), before->revision() ) )
+        return reject( ApiStatusCode::AS_BAD_REQUEST, "Stale schematic electrical observation revision" );
+    if( !schematic()->ConnectionGraph() )
+        return reject( ApiStatusCode::AS_NOT_READY, "Schematic connectivity is unavailable" );
+    const SCH_SHEET_PATH humanPath = *context()->GetCurrentSheet();
+    std::map<SCH_SCREEN*, bool> savedFlags;
+    for( const SCH_SHEET_PATH& path : schematic()->Hierarchy() )
+        savedFlags.emplace( path.LastScreen(), path.LastScreen()->IsContentModified() );
+
+    // Refresh computed connectivity only: no CleanUp, annotation, file save,
+    // native commit, or progress callback that can yield to user edits.
+    schematic()->ConnectionGraph()->Recalculate( schematic()->Hierarchy(), true );
+    HANDLER_CONTEXT<kiapi::schematic::commands::GetSchematicNetlist> netQuery;
+    netQuery.ClientName = aCtx.ClientName;
+    netQuery.Request.mutable_document()->CopyFrom( before->data().document() );
+    auto netlist = handleGetSchematicNetlist( netQuery );
+    if( !netlist ) return tl::unexpected( netlist.error() );
+    auto after = handleReadHierarchyData( query );
+    if( !after ) return tl::unexpected( after.error() );
+    if( !google::protobuf::util::MessageDifferencer::Equals( *before, *after )
+        || *context()->GetCurrentSheet() != humanPath
+        || std::ranges::any_of( savedFlags, []( const auto& entry )
+               { return entry.first->IsContentModified() != entry.second; } ) )
+        return reject( ApiStatusCode::AS_NOT_READY, "Schematic changed during electrical observation; retry" );
+
+    SchematicElectricalState result;
+    result.mutable_hierarchy()->Swap( &*after );
+    std::vector<std::pair<std::string, kiapi::schematic::types::SchematicNet>> nets;
+    for( const auto& source : netlist->nets() )
+    {
+        kiapi::schematic::types::SchematicNet net;
+        net.set_name( source.name() );
+        std::map<std::vector<std::string>, std::set<std::string>> memberships;
+        for( const auto& sheet : source.sheets() )
+        {
+            std::vector<std::string> path;
+            for( const auto& id : sheet.path().path() ) path.push_back( id.value() );
+            for( const auto& id : sheet.items() ) memberships[path].insert( id.value() );
+        }
+        for( const auto& [path, ids] : memberships )
+        {
+            auto* sheet = net.add_sheets();
+            for( const auto& id : path ) sheet->mutable_path()->add_path()->set_value( id );
+            for( const auto& id : ids ) sheet->add_items()->set_value( id );
+        }
+        nets.emplace_back( net.SerializeAsString(), std::move( net ) );
+    }
+    std::sort( nets.begin(), nets.end(), []( const auto& a, const auto& b ) { return a.first < b.first; } );
+    for( auto& [key, net] : nets ) result.add_nets()->Swap( &net );
+    for( auto& screen : *result.mutable_hierarchy()->mutable_data()->mutable_instances() )
+        projectSnapshotSchema( *screen.mutable_metadata(), aCtx.Request.schema_version() );
+    result.add_limitations( "Net names are computed labels, not persistent net identities" );
+    result.add_limitations( "Scalar native net memberships exclude bus containers and unconnected artwork without a pin driver" );
+    result.add_limitations( "Complete native serializer and revision coverage remain unfinished; this read is not mutation admission" );
     return result;
 }
 

@@ -78,7 +78,7 @@ public sealed class NativeClientTests
     public async Task SnapshotRequestsOptIntoCurrentFieldsWithoutChangingCallerMessages()
     {
         IMessage[] requests = [new ReadSchematicMetadata(), new ReadSchematicScreenData(),
-            new ReadSchematicHierarchyData(), new CaptureSchematicObservation(), new RenderSchematicViews()];
+            new ReadSchematicHierarchyData(), new ReadSchematicElectricalState(), new CaptureSchematicObservation(), new RenderSchematicViews()];
         foreach (var request in requests)
         {
             var field = request.Descriptor.FindFieldByName("schema_version");

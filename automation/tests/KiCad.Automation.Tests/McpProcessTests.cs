@@ -61,6 +61,22 @@ public sealed class McpProcessTests
             CollectionAssert.Contains(names, "kicad_schematic_open");
             CollectionAssert.Contains(names, "kicad_schematic_create");
             CollectionAssert.Contains(names, "kicad_schematic_preview");
+            CollectionAssert.Contains(names, "kicad_schematic_electrical_state");
+            CollectionAssert.Contains(names, "kicad_design_connectivity_compare");
+            var electricalFixture = SchematicElectricalComparisonTests.Fixture();
+            var compare = await Request(9070, "tools/call", new { name = "kicad_design_connectivity_compare", arguments = new
+            {
+                designXml = SchematicDesignXml.Write(electricalFixture.Design, [electricalFixture.Library]),
+                electricalStateJson = SchematicJson.Formatter.Format(electricalFixture.State),
+                knowledgeLibraryXml = new[] { ComponentKnowledgeXml.WriteLibrary(electricalFixture.Library) }
+            } });
+            Assert.IsTrue(compare.GetProperty("result").GetProperty("structuredContent").GetProperty("connectivityEquivalent").GetBoolean());
+            var malformedElectrical = await Request(9071, "tools/call", new { name = "kicad_design_connectivity_compare", arguments = new
+            {
+                designXml = SchematicDesignXml.Write(electricalFixture.Design, [electricalFixture.Library]),
+                electricalStateJson = "{broken", knowledgeLibraryXml = new[] { ComponentKnowledgeXml.WriteLibrary(electricalFixture.Library) }
+            } });
+            Assert.AreEqual("invalid_electrical_snapshot", malformedElectrical.GetProperty("result").GetProperty("structuredContent").GetProperty("errorCode").GetString());
             CollectionAssert.Contains(names, "kicad_schematic_render_views");
             CollectionAssert.Contains(names, "kicad_schematic_sheet_activate");
             CollectionAssert.Contains(names, "kicad_schematic_move_connected_symbols");

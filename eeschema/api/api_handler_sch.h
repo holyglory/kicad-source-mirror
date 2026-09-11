@@ -109,6 +109,8 @@ private:
             const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicSaveState>& aCtx );
     HANDLER_RESULT<kiapi::automation::v1::SchematicHierarchyDataSnapshot> handleReadHierarchyData(
             const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicHierarchyData>& aCtx );
+    HANDLER_RESULT<kiapi::automation::v1::SchematicElectricalState> handleReadElectricalState(
+            const HANDLER_CONTEXT<kiapi::automation::v1::ReadSchematicElectricalState>& aCtx );
     HANDLER_RESULT<kiapi::automation::v1::SchematicMetadataSnapshot> readMetadataForPath(
             const SCH_SHEET_PATH& aPath, const kiapi::common::types::DocumentSpecifier& aDocument );
     HANDLER_RESULT<kiapi::schematic::types::SchematicScreenData> readScreenDataForPath(

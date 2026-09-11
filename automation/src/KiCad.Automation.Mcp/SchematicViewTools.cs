@@ -14,6 +14,18 @@ namespace KiCad.Automation.Mcp;
 [McpServerToolType]
 public sealed class SchematicViewTools(InstanceRegistry registry)
 {
+    [McpServerTool(Name = "kicad_schematic_electrical_state", ReadOnly = true),
+     Description("Capture the loaded schematic hierarchy and native scalar-net memberships together at one stable revision, for an explicit attached instance and loaded sheet target. Does not navigate the human view, save, annotate or repair the design. requestJson is ReadSchematicElectricalState protobuf JSON with document and optional expectedRevision. Net names are labels, not persistent net identities; membership uses exact sheet paths and UUIDs. Returns typed hierarchy XML, native revision, memberships and explicit coverage limitations. This is not full reconstruction, simulation or mutation admission.")]
+    public Task<CallToolResult> ReadElectricalState(string instanceId, string requestJson, CancellationToken cancellationToken) => Execute(async () =>
+    {
+        var request = SchematicJson.Parser.Parse<ReadSchematicElectricalState>(requestJson);
+        var observed = await registry.Client(instanceId).InvokeAsync<ReadSchematicElectricalState, SchematicElectricalState>(request, cancellationToken);
+        var data = JsonSerializer.SerializeToElement(new { instanceId,
+            state = JsonSerializer.Deserialize<JsonElement>(SchematicJson.Formatter.Format(observed)),
+            xml = SchematicDataXml.Write(observed.Hierarchy.Data), liveMutationAuthorized = false });
+        return new CallToolResult { Content = [new TextContentBlock { Text = data.GetRawText() }], StructuredContent = data };
+    });
+
     [McpServerTool(Name = "kicad_design_recovery_refresh"),
      Description("Capture and persist the current native hierarchy into an existing recovery record for an explicitly attached instance. Requires the absolute recovery path and exact expected recovery revision token. Preserves baseline, desired XML bytes and libraries. Rejects unconfirmed pending mutations; use recovery observation and reconciliation first. Changed native data/revision invalidates saved hierarchy choices. A concurrent recovery write rejects the refresh. Does not modify KiCad, write design XML, advance the baseline, or imply complete tracking or automatic synchronization.")]
     public Task<CallToolResult> RefreshRecovery(string instanceId, string recoveryPath,

@@ -6,6 +6,31 @@ of the approved six-milestone program, not a release.
 
 ## Latest Apple Silicon preview — September 11, 2026
 
+[Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-3ac5af02cb7eee653578e0d5c85b7d841eb8724a-macos-arm64.tar.gz)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-3ac5af02cb7eee653578e0d5c85b7d841eb8724a-source.tar.gz)
+identify `3ac5af02cb7eee653578e0d5c85b7d841eb8724a`, version
+`preview-20260911-3ac5af02cb7e`. Extract and open `install/KiCad.app`; the
+companion entry is `kicad-mcp`. macOS 15.7+ is required; the build is ad-hoc
+signed, not notarized. Use the verified installer for managed updates.
+
+Native build `34552278753`, signed staging `cf1345`, and public verification
+`8b39c7` passed. Generation 27 serves ARM sequence 7, retaining Intel sequence 4,
+Linux sequence 11, and 46 downloads. Native Mac run `34559868961` verified the
+public `670961b39bb1` to `3ac5af02cb7e` update with two preserved designs,
+connected packaged MCP services, exact-operation retries, a candidate MCP restart,
+matching images/state, and the manager/schematic/PCB module journey.
+The earlier run `34559219495` reached those operations but failed final log
+inspection; its receipt is not substituted for the clean rerun.
+
+Current-task Codex tools were subsequently exercised directly against two Linux
+native editors in governed run `025181`: both connected moves, duplicate-operation
+retries, stale/wrong-instance rejection, matching PNG/state, independent region
+images, and native undo were observed. This is more than a standalone MCP harness,
+but does not establish native-Mac Codex frontend identity, automatic reverse XML
+synchronization, or complete Desktop qualification. Those outcomes remain open.
+
+### Previous Apple Silicon checkpoint — September 11, 2026
+
 [Apple Silicon application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-670961b39bb12d162b71f38e36ce0755653e92db-macos-arm64.tar.gz)
 and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-670961b39bb12d162b71f38e36ce0755653e92db-source.tar.gz)
 identify `670961b39bb12d162b71f38e36ce0755653e92db`, version

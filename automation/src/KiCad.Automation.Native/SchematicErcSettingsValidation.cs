@@ -10,6 +10,27 @@ namespace KiCad.Automation.Native;
 // identified native peer; this does not invent defaults or resolve marker IDs.
 internal static class SchematicErcSettingsValidation
 {
+    internal static SchematicErcSettings Normalize(SchematicErcSettings value, IReadOnlySet<ErcErrorType> requiredRules)
+    {
+        Validate(value, requiredRules);
+        var result = value.Clone();
+        result.RuleSeverities.Clear();
+        result.RuleSeverities.Add(value.RuleSeverities.OrderBy(rule => (int)rule.RuleType).Select(rule => rule.Clone()));
+        result.PinMap.Clear();
+        result.PinMap.Add(value.PinMap.OrderBy(cell => (int)cell.First).ThenBy(cell => (int)cell.Second).Select(cell => cell.Clone()));
+        result.Exclusions.Clear();
+        result.Exclusions.Add(value.Exclusions.OrderBy(exclusion => exclusion.Marker.ToByteString().ToBase64(), StringComparer.Ordinal)
+            .Select(exclusion => exclusion.Clone()));
+        return result;
+    }
+
+    internal static bool Same(SchematicErcSettings? first, SchematicErcSettings? second)
+    {
+        if (first is null || second is null) return first is null && second is null;
+        var rules = first.RuleSeverities.Select(rule => rule.RuleType).ToHashSet();
+        return Normalize(first, rules).Equals(Normalize(second, rules));
+    }
+
     internal static void Validate(SchematicErcSettings value, IReadOnlySet<ErcErrorType> requiredRules)
     {
         if (requiredRules.Count == 0 || requiredRules.Any(rule => !KnownRule(rule)))

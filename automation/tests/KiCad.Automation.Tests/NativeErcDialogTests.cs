@@ -219,7 +219,13 @@ public sealed class NativeErcDialogTests
                 ExpectedRevision = new() { Epoch = beforeXmlJournal.DocumentEpoch, Sequence = beforeXmlJournal.Sequence },
                 OperationId = Guid.NewGuid().ToString("D"), Description = "Restore ERC from XML"
             };
-            replace.Operations.Add(new SchematicItemOperation { SetErcSettings = fromXml });
+            var nativeScreen = await first.Client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(
+                new() { Document = first.Document }, deadline.Token);
+            var desiredScreen = nativeScreen.Data.Clone(); desiredScreen.Metadata.ErcSettings = fromXml;
+            var planned = SchematicItemDelta.Plan(nativeScreen.Data, desiredScreen);
+            Assert.AreEqual(1, planned.Count);
+            Assert.IsNotNull(planned[0].SetErcSettings);
+            replace.Operations.Add(planned);
             var failing = replace.Clone(); failing.OperationId = Guid.NewGuid().ToString("D");
             failing.Operations.Add(new SchematicItemOperation());
             await Assert.ThrowsExactlyAsync<NativeApiException>(() =>
@@ -261,12 +267,25 @@ public sealed class NativeErcDialogTests
                     await Task.Delay(undoDelay, undoDeadline.Token); undoDelay = Math.Min(undoDelay * 2, 500);
                 }
                 Assert.AreEqual(expectedState, await CapturedErc(count, comment));
+                NativeKeyboard.SchematicShortcut(display, first.ProcessId, "motion", "Electrical Rules Checker", false, false);
                 await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "xml-" + key + ".png"), deadline.Token);
             }
             await first.Client.InvokeAsync<SaveDocument, Empty>(new() { Document = first.Document }, deadline.Token);
             using (var restoredProject = JsonDocument.Parse(await File.ReadAllBytesAsync(first.Project, deadline.Token)))
                 Assert.AreEqual("restored", restoredProject.RootElement.GetProperty("erc")
                     .GetProperty("erc_exclusions")[0].GetProperty("comment").GetString());
+            NativeKeyboard.SchematicShortcut(display, first.ProcessId, "click", "Electrical Rules Checker", false,
+                clickFromRight: 150, clickFromBottom: 25);
+            using (var closed = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token))
+            {
+                closed.CancelAfter(TimeSpan.FromSeconds(10));
+                while (NativeKeyboard.HasWindow(display, first.ProcessId, "Electrical Rules Checker"))
+                    await Task.Delay(50, closed.Token);
+            }
+            await first.Client.InvokeAsync<RevertDocument, Empty>(new() { Document = first.Document }, deadline.Token);
+            var reopened = await first.Client.OpenRootSchematicAsync(Path.ChangeExtension(first.Project, ".kicad_sch"), deadline.Token);
+            Assert.AreEqual(first.Document, reopened.Document);
+            Assert.IsTrue(SchematicErcSettingsValidation.Same(desired, await CapturedErc(1, "restored")));
 
             var otherJournal = await other.Client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(
                 new() { Document = other.Document }, deadline.Token);
@@ -283,6 +302,7 @@ public sealed class NativeErcDialogTests
                 liveErcXmlCaptureVerified = true,
                 xmlRestoreVerified = true, failedBatchRolledBack = true, retryReusedReceipt = true,
                 reorderedPolicyNoOp = true, nativeUndoRedoVerified = true,
+                plannedXmlDeltaApplied = true, nativeSaveReopenVerified = true,
                 completeErcOverrideCoverage = false, trackingComplete = false
             }), deadline.Token);
 

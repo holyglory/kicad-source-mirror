@@ -249,9 +249,19 @@ public static class SchematicItemDelta
         remainder.VariantDescriptions.Clear(); remainder.VariantDescriptions.Add(current.VariantDescriptions);
         remainder.DrawingRatios = current.DrawingRatios?.Clone();
         remainder.Formatting = current.Formatting?.Clone();
+        remainder.ErcSettings = current.ErcSettings?.Clone();
         if (!current.Equals(remainder))
             throw Invalid("Unsupported settings or document identity changed; those changes cannot be discarded.");
         var operations = new List<SchematicItemOperation>();
+        if (current.ErcSettings is not null || desired.ErcSettings is not null)
+        {
+            var beforeErc = current.ErcSettings ?? throw Invalid("The native peer did not capture an ERC policy catalogue.");
+            var afterErc = desired.ErcSettings ?? throw Invalid("ERC settings cannot be removed or inferred from defaults.");
+            var rules = beforeErc.RuleSeverities.Select(rule => rule.RuleType).ToHashSet();
+            var before = SchematicErcSettingsValidation.Normalize(beforeErc, rules);
+            var after = SchematicErcSettingsValidation.Normalize(afterErc, rules);
+            if (!before.Equals(after)) operations.Add(new() { SetErcSettings = after });
+        }
         if (!Equals(current.Formatting, desired.Formatting))
         {
             var formatting = desired.Formatting ?? throw Invalid("Project formatting cannot be removed or inferred from application defaults.");

@@ -297,7 +297,7 @@ public static class SchematicItemMerge
             var copy = metadata.Clone(); copy.EmbeddedFiles = null;
             copy.EmbeddedFonts = false; copy.RootInstance = null; copy.TitleBlock = null; copy.Page = null;
             copy.TextVariables.Clear(); copy.BusAliases.Clear(); copy.NetChains.Clear();
-            copy.VariantDescriptions.Clear(); copy.DrawingRatios = null; copy.Formatting = null; return copy;
+            copy.VariantDescriptions.Clear(); copy.DrawingRatios = null; copy.Formatting = null; copy.ErcSettings = null; return copy;
         }
         var assetsBefore = (baseline.EmbeddedFiles, baseline.EmbeddedFonts);
         var assetsXml = (xml.EmbeddedFiles, xml.EmbeddedFonts);
@@ -312,6 +312,7 @@ public static class SchematicItemMerge
             || !Choose(baseline.Page, xml.Page, native.Page, out var page)
             || !Choose(baseline.DrawingRatios, xml.DrawingRatios, native.DrawingRatios, out var drawing)
             || !MergeFormatting(baseline.Formatting, xml.Formatting, native.Formatting, out var formatting)
+            || !MergeErc(baseline.ErcSettings, xml.ErcSettings, native.ErcSettings, out var erc)
             || !Choose(baseline.BusAliases, xml.BusAliases, native.BusAliases, out var aliases)
             || !Choose(assetsBefore, assetsXml, assetsNative, out var assets)) return null;
         var result = rest.Clone(); result.RootInstance = root?.Clone();
@@ -319,6 +320,7 @@ public static class SchematicItemMerge
         result.Page = page?.Clone();
         result.DrawingRatios = drawing?.Clone();
         result.Formatting = formatting?.Clone();
+        result.ErcSettings = erc?.Clone();
         result.EmbeddedFiles = assets.Item1?.Clone(); result.EmbeddedFonts = assets.Item2;
         result.TextVariables.Add(variables);
         result.BusAliases.Add(aliases.Select(alias => alias.Clone()));
@@ -397,6 +399,41 @@ public static class SchematicItemMerge
             field.Accessor.SetValue(merged, value);
         }
         result = merged;
+        return true;
+    }
+
+    private static bool MergeErc(SchematicErcSettings? baseline, SchematicErcSettings? xml,
+        SchematicErcSettings? native, out SchematicErcSettings? result)
+    {
+        result = null;
+        if (baseline is null || xml is null || native is null)
+            return Choose(baseline, xml, native, out result);
+        var rules = baseline.RuleSeverities.Select(rule => rule.RuleType).ToHashSet();
+        var before = SchematicErcSettingsValidation.Normalize(baseline, rules);
+        var requested = SchematicErcSettingsValidation.Normalize(xml, rules);
+        var observed = SchematicErcSettingsValidation.Normalize(native, rules);
+        var merged = new SchematicErcSettings();
+        bool Entries<T>(IEnumerable<T> b, IEnumerable<T> x, IEnumerable<T> n, Func<T, string> key, Action<T> add)
+            where T : class, IMessage<T>
+        {
+            var old = b.ToDictionary(key, StringComparer.Ordinal);
+            var desired = x.ToDictionary(key, StringComparer.Ordinal);
+            var live = n.ToDictionary(key, StringComparer.Ordinal);
+            foreach (string id in old.Keys.Concat(desired.Keys).Concat(live.Keys).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+            {
+                old.TryGetValue(id, out var bv); desired.TryGetValue(id, out var xv); live.TryGetValue(id, out var nv);
+                if (!Choose(bv, xv, nv, out var value)) return false;
+                if (value is not null) add(value.Clone());
+            }
+            return true;
+        }
+        if (!Entries(before.RuleSeverities, requested.RuleSeverities, observed.RuleSeverities,
+                rule => rule.RuleType.ToString(), merged.RuleSeverities.Add)
+            || !Entries(before.PinMap, requested.PinMap, observed.PinMap,
+                cell => cell.First + "/" + cell.Second, merged.PinMap.Add)
+            || !Entries(before.Exclusions, requested.Exclusions, observed.Exclusions,
+                exclusion => exclusion.Marker.ToByteString().ToBase64(), merged.Exclusions.Add)) return false;
+        result = SchematicErcSettingsValidation.Normalize(merged, rules);
         return true;
     }
 

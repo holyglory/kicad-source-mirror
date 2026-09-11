@@ -23,7 +23,12 @@ public sealed class MacIntegratedUpdateTests
     [TestMethod]
     [TestCategory("ExternalIntegration")]
     [TestCategory("NativeMacIntegratedUpdate")]
-    public async Task ActualCaptionUpdatePreservesDirtyObjectsAndIndependentProjects()
+    public Task ActualCaptionUpdatePreservesDirtyObjectsAndIndependentProjects() => RunAsync(reconnectMcp: false);
+
+    [TestMethod, TestCategory("ExternalIntegration"), TestCategory("NativeMacIntegratedMcpUpdate")]
+    public Task ActualPublicCaptionUpdateReconnectsPackagedMcpAndKeepsBothDesigns() => RunAsync(reconnectMcp: true);
+
+    private async Task RunAsync(bool reconnectMcp)
     {
         if (!OperatingSystem.IsMacOS()) { Assert.Inconclusive("Native Mac Update-button journey."); return; }
         string Required(string name) => Environment.GetEnvironmentVariable(name)
@@ -51,11 +56,12 @@ public sealed class MacIntegratedUpdateTests
         Assert.AreNotEqual(baseline.Release.Commit, candidate.Release.Commit, "This journey must change the actual source build.");
         string scratch = Directory.CreateTempSubdirectory("kicad-mac-caption-journey-").FullName;
         string evidence = Directory.CreateDirectory(Path.Combine(Environment.GetEnvironmentVariable("KICAD_HOSTED_FIXTURE_EVIDENCE")
-            ?? TestContext.TestResultsDirectory!, "mac-integrated-update")).FullName;
+            ?? TestContext.TestResultsDirectory!, reconnectMcp ? "mac-integrated-mcp-update" : "mac-integrated-update")).FullName;
         string installation = Path.Combine(scratch, "installed");
         var processes = new List<Process>();
         var captures = new List<Task>();
         string? previousNng = Environment.GetEnvironmentVariable("KICAD_AUTOMATION_NNG_LIBRARY");
+        NativeCaptionMcpProbe? mcpProbe = null;
         try
         {
             var ui = await MacUiAutomation.CreateAsync(scratch, evidence, deadline.Token);
@@ -67,6 +73,11 @@ public sealed class MacIntegratedUpdateTests
             string quit = await MacProcessIdentityTests.CompileProbe(scratch, deadline.Token);
             var installed = await MacVerifiedInstallation.InstallAsync(installation, archive, baselineEnvelope, key, origin, "preview", deadline.Token);
             Environment.SetEnvironmentVariable("KICAD_AUTOMATION_NNG_LIBRARY", Path.Combine(installed.VersionDirectory, "managed/libnng.dylib"));
+            if (reconnectMcp)
+            {
+                mcpProbe = new NativeCaptionMcpProbe(Path.Combine(scratch, "mcp-registry"), evidence, deadline.Token);
+                await mcpProbe.StartAsync(Path.Combine(installed.VersionDirectory, "managed/kicad-mcp"));
+            }
             string initialTarget = MacVerifiedInstallation.InspectTarget(installation);
             var first = await Start("first");
             var second = await Start("second");
@@ -87,6 +98,7 @@ public sealed class MacIntegratedUpdateTests
             Assert.IsFalse(File.Exists(first.Schematic));
             await VerifyMarker(first.Client, first.Document, first.MarkerId, first.MarkerText);
             Assert.IsTrue((await first.Client.InvokeAsync<ReadSchematicSaveState, SchematicSaveState>(new() { Document = first.Document }, deadline.Token)).UnsavedSchematicChanges);
+            if (mcpProbe is not null) await mcpProbe.ObserveAsync(first.Instance.ToString("D"), "first-after-cancel", originalDocumentEpoch: true);
 
             var updatedFirst = await UpdateAndSave(first, "first");
             Assert.IsFalse(second.Process.HasExited, "Updating one design closed the other instance.");
@@ -113,6 +125,8 @@ public sealed class MacIntegratedUpdateTests
                 publicSignedFeed = origin.AbsoluteUri, nativeEpochsChanged = true,
                 actualManagerSchematicAndPcbSameProcess = true, nativePcbOpenedThroughMenu = true,
                 duplicateObjectiveCClassesAbsent = true,
+                packagedMcpReconnectedBothDesigns = mcpProbe?.ReconnectedDesigns == 2,
+                packagedMcpRestartVerified = mcpProbe?.ServerRestartVerified == true,
                 automaticUpdatingQualified = false, crossPlatformReady = false
             }), deadline.Token);
 
@@ -159,6 +173,7 @@ public sealed class MacIntegratedUpdateTests
                         Attributes = new() { Size = new() { XNm = 2000000, YNm = 2000000 } } }
                 }) });
                 await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(batch, deadline.Token);
+                if (mcpProbe is not null) await mcpProbe.AttachDesignAsync(instance.ToString("D"), name, client, schematic);
                 return new(process, MacProcessIdentity.Read(process.Id), client, document, project, schematic, instance, markerId, markerText);
             }
 
@@ -231,6 +246,9 @@ public sealed class MacIntegratedUpdateTests
                 var document = (await client.OpenRootSchematicAsync(old.Schematic, wait.Token)).Document;
                 await VerifyMarker(client, document, old.MarkerId, old.MarkerText);
                 CollectionAssert.AreEqual(saved, await File.ReadAllBytesAsync(old.Schematic, wait.Token));
+                if (mcpProbe is not null)
+                    await mcpProbe.ReconnectAsync(old.Instance.ToString("D"), installation, Path.GetFileName(result.JournalDirectory), result.NativeEpoch!,
+                        name == "first" ? Path.Combine(version.VersionDirectory, "managed/kicad-mcp") : null);
                 await ui.CaptureAsync(result.ProcessIdentity, name + "-restarted", wait.Token);
                 await VerifyPcbModule(client, result.ProcessIdentity, old.Project, name, wait.Token);
                 return replacement;
@@ -309,6 +327,7 @@ public sealed class MacIntegratedUpdateTests
         }
         finally
         {
+            if (mcpProbe is not null) await mcpProbe.DisposeAsync();
             deadline.Cancel();
             // Stop only helpers identified in this fixture's native logs and
             // reverified inside its unique installation. Do this before closing

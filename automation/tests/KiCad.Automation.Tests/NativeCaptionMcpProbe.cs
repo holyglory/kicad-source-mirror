@@ -76,16 +76,15 @@ internal sealed class NativeCaptionMcpProbe(string state, string evidence, Cance
         await File.WriteAllTextAsync(Path.Combine(evidence, phase + "-mcp.json"), content.GetRawText(), token);
     }
 
-    public async Task ReconnectAsync(string id, string installation, UpdateHandoffState replacement, string? restartExecutable = null)
+    public async Task ReconnectAsync(string id, string installation, string operation, string expectedEpoch, string? restartExecutable = null)
     {
         Design design = designs[id];
-        string operation = Path.GetFileName(replacement.JournalDirectory);
         Assert.IsTrue(Guid.TryParseExact(operation, "D", out _));
         var arguments = new { instanceId = id, installationRoot = installation, operationId = operation, expectedOldEpoch = design.OriginalEpoch };
         var result = Success(await mcp!.Tool("kicad_instance_reconnect_after_update", arguments));
         var adopted = result.GetProperty("structuredContent");
         Assert.AreEqual(id, adopted.GetProperty("instanceId").GetString());
-        Assert.AreEqual(replacement.NativeEpoch, adopted.GetProperty("epoch").GetString());
+        Assert.AreEqual(expectedEpoch, adopted.GetProperty("epoch").GetString());
         Assert.IsFalse(adopted.GetProperty("reused").GetBoolean());
         Assert.IsTrue(adopted.GetProperty("freshSnapshotRequired").GetBoolean());
         await ObserveAsync(id, design.Name + "-after-update", originalDocumentEpoch: false);

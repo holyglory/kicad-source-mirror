@@ -22,7 +22,7 @@ on:
         description: With checks_only, select all Mac checks or a focused native fixture
         type: choice
         default: all
-        options: [all, caption, handoff, staging, ui-access, concurrency, registry, integrated-update]
+        options: [all, caption, handoff, staging, ui-access, concurrency, registry, integrated-update, integrated-mcp-update]
       windows_fixture:
         description: With checks_only, use all fixtures or stage the retained 84359 Windows archive (no publication)
         type: choice
@@ -108,7 +108,7 @@ jobs:
           if [ "$CHECKS_ONLY" = true ] && [ "$MAC_FIXTURE" = registry ]; then
             kicad_mac_test_filter='FullyQualifiedName~InstanceReplacementTests|FullyQualifiedName~InstanceUpdateReconnectionTests|FullyQualifiedName~UpdateOriginTests|FullyQualifiedName~InstanceRegistryTests.PlatformLocalLaunchReceiptUsesTheSameEndpointAsNativeStartup'
           fi
-          if [ "$MAC_FIXTURE" = integrated-update ]; then
+          if [ "$MAC_FIXTURE" = integrated-update ] || [ "$MAC_FIXTURE" = integrated-mcp-update ]; then
             test "$CHECKS_ONLY" = true
             # Prove the native action driver before downloading/installing the
             # frozen KiCad pair. A failed control fixture gates the costly journey.
@@ -126,6 +126,9 @@ jobs:
             export KICAD_MAC_UI_EXPECTED_COMMIT="$MAC_UPDATE_CANDIDATE_COMMIT"
             export KICAD_MAC_UI_ORIGIN="https://kicad.vr.ae/platforms/osx-$DELIVERY_ARCHITECTURE/"
             kicad_mac_test_filter='TestCategory=NativeMacIntegratedUpdate'
+            if [ "$MAC_FIXTURE" = integrated-mcp-update ]; then
+              kicad_mac_test_filter='TestCategory=NativeMacIntegratedMcpUpdate'
+            fi
           fi
           dotnet test KiCad.Automation.slnx --configuration Release \
             --filter "$kicad_mac_test_filter" --logger trx \

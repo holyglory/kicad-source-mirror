@@ -320,7 +320,7 @@ public sealed partial class NativeSessionTests
             }
             await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "after-caption-update.png"), deadline.Token);
             if (mcpProbe is not null)
-                await mcpProbe.ReconnectAsync(instance, installationRoot, restarted,
+                await mcpProbe.ReconnectAsync(instance, installationRoot, Path.GetFileName(restarted.JournalDirectory), restarted.NativeEpoch!,
                     Path.Combine(candidateDirectory, "runtime/lib/kicad-automation/kicad-mcp"));
             if (secondNative is not null)
             {
@@ -355,7 +355,8 @@ public sealed partial class NativeSessionTests
                 Assert.AreNotEqual(secondEpoch, secondPeer.Epoch);
                 await secondPeer.OpenRootSchematicAsync(secondSchematic!, deadline.Token);
                 CollectionAssert.AreEqual(secondSaved, await File.ReadAllBytesAsync(secondSchematic!, deadline.Token));
-                if (mcpProbe is not null) await mcpProbe.ReconnectAsync(secondInstance!, installationRoot, secondRestart);
+                if (mcpProbe is not null) await mcpProbe.ReconnectAsync(secondInstance!, installationRoot,
+                    Path.GetFileName(secondRestart.JournalDirectory), secondRestart.NativeEpoch!);
                 await NativeKeyboard.CaptureAsync(displayName, Path.Combine(evidence, "second-instance-updated.png"), deadline.Token);
                 Assert.IsFalse(replacement.HasExited);
                 NativeKeyboard.SchematicShortcut(displayName, secondReplacement.Id, "q", "KiCad", true, false);

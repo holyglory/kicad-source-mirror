@@ -341,8 +341,25 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.windows-harness.check]]
 name = "contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~McpToolPayloadTests|FullyQualifiedName~WindowsRetainedPackageInputTests|FullyQualifiedName~WindowsRequalifiedPreviewTests|FullyQualifiedName~WindowsDiagnosticPackageTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-harness-tests"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~WindowsInstalledHarnessTests|FullyQualifiedName~WindowsFixtureCleanupTests|FullyQualifiedName~McpToolPayloadTests|FullyQualifiedName~WindowsNativeLogTests|FullyQualifiedName~WindowsRetainedPackageInputTests|FullyQualifiedName~WindowsRequalifiedPreviewTests|FullyQualifiedName~WindowsDiagnosticPackageTests|FullyQualifiedName~HostedDeliveryTests|FullyQualifiedName~HostedPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/windows-harness-tests"]
 retained_artifacts = [{ name = "windows-harness-tests", path = "automation/artifacts/windows-harness-tests", max_bytes = 16777216 }]
+
+[test.landing-browser]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_LANDING_URL = "https://kicad.vr.ae", KICAD_BROWSER_EXECUTABLE = "/home/holyglory/.local/bin/agent-browser" }
+
+[[test.landing-browser.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["browser"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.landing-browser.check]]
+name = "browser"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=LandingBrowser", "--logger", "trx", "--results-directory", "automation/artifacts/landing-browser-tests"]
+retained_artifacts = [{ name = "browser-tests", path = "automation/artifacts/landing-browser-tests", max_bytes = 16777216 }]
 
 [test.windows-caption]
 timeout_seconds = 600

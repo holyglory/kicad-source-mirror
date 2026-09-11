@@ -3,6 +3,9 @@ using System.Text.Json;
 using KiCad.Automation.Distribution;
 using KiCad.Automation.Mcp;
 using KiCad.Automation.Native;
+using KiCad.Automation.Protocol;
+using Kiapi.Schematic.Types;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace KiCad.Automation.Tests;
@@ -13,7 +16,7 @@ public sealed partial class NativeSessionTests
         string evidence, CancellationToken token, bool rejectCandidateStartup = false, Func<Task>? beforeHandoff = null,
         bool rejectActivation = false, bool changeSelectionDuringClose = false, bool useInstalledHelper = false,
         bool exitBeforeIdentity = false, bool inspectHandoff = false, bool interruptBeforeClose = false,
-        bool recoverAfterClose = false)
+        bool recoverAfterClose = false, bool reconnectMcp = false)
     {
         string temporary = Directory.CreateTempSubdirectory("kicad-restart-").FullName;
         var processes = new List<Process>();
@@ -23,6 +26,7 @@ public sealed partial class NativeSessionTests
         using var handoffCancellation = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
         Task<UpdateHandoffState>? handoff = null;
         Process? helperToInterrupt = null;
+        StdioMcpFixture? mcp = null;
         try
         {
             var displayStart = new ProcessStartInfo("Xvfb") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
@@ -67,8 +71,28 @@ public sealed partial class NativeSessionTests
                 catch (NativeApiException error) when (error.Status is 4 or 7) { }
                 await Task.Delay(100, deadline.Token);
             }
-            await client.CreateRootSchematicAsync(schematic, deadline.Token);
+            var created = await client.CreateRootSchematicAsync(schematic, deadline.Token);
             string oldEpoch = client.Epoch;
+            string markerId = Guid.NewGuid().ToString("D"), markerText = "Reconnection marker " + Guid.NewGuid().ToString("N");
+            string? oldDocumentEpoch = null;
+            string oldEventEpoch = (await client.HandshakeAsync(deadline.Token)).EventEpoch;
+            string registryPath = Path.Combine(temporary, "mcp-registry");
+            if (reconnectMcp)
+            {
+                var before = await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = created.Document }, deadline.Token);
+                oldDocumentEpoch = before.Revision.Epoch;
+                var batch = new ApplySchematicItemBatch { Document = created.Document, ExpectedRevision = before.Revision,
+                    DocumentEpoch = before.Revision.Epoch, OperationId = Guid.NewGuid().ToString("D"), Description = "Reconnection preservation fixture" };
+                batch.Operations.Add(new SchematicItemOperation { Create = Any.Pack(new SchematicText
+                { Id = new() { Value = markerId }, Text = new() { Text_ = markerText,
+                    Position = new() { XNm = 100000000, YNm = 80000000 },
+                    Attributes = new() { Size = new() { XNm = 2000000, YNm = 2000000 } } } }) });
+                await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(batch, deadline.Token);
+                Assert.IsFalse(useInstalledHelper, "Origin verification needs the matching source helper in this integration fixture.");
+                mcp = await StdioMcpFixture.StartAsync(registryPath, Path.Combine(evidence, "before-mcp.stderr.log"), deadline.Token);
+                var attached = await mcp.Tool("kicad_instance_attach", new { endpoint = client.Endpoint, expectedInstanceId = instance });
+                Assert.IsFalse(attached.TryGetProperty("isError", out var attachError) && attachError.GetBoolean(), attached.GetRawText());
+            }
             if (beforeHandoff is not null)
             {
                 await beforeHandoff().WaitAsync(deadline.Token);
@@ -80,7 +104,8 @@ public sealed partial class NativeSessionTests
             string replacementSocket = Path.Combine(temporary, "new.sock");
             var request = new LinuxUpdateHandoffRequest(interruptBeforeClose ? installed.Root + Path.DirectorySeparatorChar : installed.Root,
                 selectedTarget, candidate.ManifestSha256,
-                Guid.NewGuid(), LinuxProcessIdentity.Read(old.Id), project, Guid.Parse(instance), replacementSocket, true);
+                Guid.NewGuid(), LinuxProcessIdentity.Read(old.Id), project, Guid.Parse(instance), replacementSocket, true,
+                reconnectMcp ? new UpdateOrigin(client.Endpoint, oldEpoch) : null);
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => LinuxUpdateHandoff.ExecuteAsync(
                 request with { OldProcess = request.OldProcess with { StartTicks = request.OldProcess.StartTicks + 1 } }, _ => Task.CompletedTask, deadline.Token));
             if (beforeHandoff is not null)
@@ -322,6 +347,40 @@ public sealed partial class NativeSessionTests
                 + (expectRestored ? ".r" : ""), result.NativeEpoch);
             await replacementClient.OpenRootSchematicAsync(schematic, deadline.Token);
             CollectionAssert.AreEqual(savedSchematic, await File.ReadAllBytesAsync(schematic, deadline.Token));
+            if (reconnectMcp)
+            {
+                var arguments = new { instanceId = instance, installationRoot = installed.Root,
+                    operationId = request.OperationId.ToString("D"), expectedOldEpoch = oldEpoch };
+                var adopted = await mcp!.Tool("kicad_instance_reconnect_after_update", arguments);
+                Assert.IsFalse(adopted.TryGetProperty("isError", out var failure) && failure.GetBoolean(), adopted.GetRawText());
+                Assert.AreEqual(result.NativeEpoch, adopted.GetProperty("structuredContent").GetProperty("epoch").GetString());
+                var staleEvents = await mcp.Tool("kicad_events_wait", new { instanceId = instance, eventEpoch = oldEventEpoch, afterSequence = 0 });
+                Assert.IsTrue(staleEvents.GetProperty("isError").GetBoolean());
+                Assert.AreEqual("event_stream_changed", staleEvents.GetProperty("structuredContent").GetProperty("errorCode").GetString());
+                await mcp.DisposeAsync(); mcp = null;
+                Assert.IsFalse(replacement.HasExited);
+                mcp = await StdioMcpFixture.StartAsync(registryPath, Path.Combine(evidence, "after-mcp.stderr.log"), deadline.Token);
+                var repeated = await mcp.Tool("kicad_instance_reconnect_after_update", arguments);
+                Assert.IsFalse(repeated.TryGetProperty("isError", out var repeatError) && repeatError.GetBoolean(), repeated.GetRawText());
+                Assert.IsTrue(repeated.GetProperty("structuredContent").GetProperty("reused").GetBoolean());
+                var opened = await mcp.Tool("kicad_schematic_open", new { instanceId = instance, path = schematic });
+                Assert.IsFalse(opened.TryGetProperty("isError", out var openError) && openError.GetBoolean(), opened.GetRawText());
+                string documentJson = opened.GetProperty("content")[0].GetProperty("text").GetString()!;
+                var fresh = await mcp.Tool("kicad_schematic_data", new { instanceId = instance, documentJson });
+                Assert.IsFalse(fresh.TryGetProperty("isError", out var snapshotError) && snapshotError.GetBoolean(), fresh.GetRawText());
+                var snapshot = SchematicJson.Parser.Parse<SchematicScreenDataSnapshot>(fresh.GetProperty("structuredContent").GetProperty("snapshot").GetRawText());
+                Assert.AreNotEqual(oldDocumentEpoch, snapshot.Revision.Epoch);
+                var marker = snapshot.Data.Items.Where(item => item.Is(SchematicText.Descriptor))
+                    .Select(item => item.Unpack<SchematicText>()).Single(item => item.Id.Value == markerId);
+                Assert.AreEqual(markerText, marker.Text.Text_);
+                CollectionAssert.AreEqual(savedSchematic, await File.ReadAllBytesAsync(schematic, deadline.Token));
+                await File.WriteAllTextAsync(Path.Combine(evidence, "mcp-reconnection.json"), JsonSerializer.Serialize(new
+                { schemaVersion = 1, status = "passed", nativeRestart = true, stdioMcpReconnected = true,
+                    mcpRestartReusedProof = true, staleEventsRejected = true, nativeSnapshotRefreshed = true,
+                    schematicObjectAndIdentityPreserved = true, documentEpochChanged = true,
+                    automaticXmlSynchronization = false }), deadline.Token);
+                await mcp.DisposeAsync(); mcp = null;
+            }
             if (expectRestored)
                 Assert.AreEqual(Path.Combine(installed.VersionDirectory, "runtime/bin/kicad"), replacement.MainModule!.FileName,
                     "Recovery must restore this editor's version, not another project's selected version.");
@@ -504,6 +563,12 @@ public sealed partial class NativeSessionTests
         }
         finally
         {
+            if (mcp is not null)
+            {
+                try { await mcp.DisposeAsync(); }
+                catch (Exception error) when (error is IOException or OperationCanceledException or InvalidOperationException or TimeoutException)
+                { await File.WriteAllTextAsync(Path.Combine(evidence, "mcp-cleanup-error.txt"), error.ToString()); }
+            }
             handoffCancellation.Cancel();
             if (handoff is not null)
             {

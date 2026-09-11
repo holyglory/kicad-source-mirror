@@ -63,6 +63,7 @@ builder.Services.AddMcpServer(options =>
 })
     .WithStdioServerTransport()
     .WithTools<InstanceTools>()
+    .WithTools<InstanceUpdateTools>()
     .WithTools<EventTools>()
     .WithTools<SchematicViewTools>()
     .WithTools<SchematicMutationTools>()

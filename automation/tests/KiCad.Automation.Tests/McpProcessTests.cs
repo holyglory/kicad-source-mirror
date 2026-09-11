@@ -44,6 +44,12 @@ public sealed class McpProcessTests
             string[] names = listed.GetProperty("result").GetProperty("tools").EnumerateArray()
                 .Select(t => t.GetProperty("name").GetString()!).ToArray();
             CollectionAssert.Contains(names, "kicad_instances_list");
+            CollectionAssert.Contains(names, "kicad_instance_reconnect_after_update");
+            var invalidReconnect = await Request(1000, "tools/call", new { name = "kicad_instance_reconnect_after_update",
+                arguments = new { instanceId = Guid.NewGuid().ToString("D"), installationRoot = Path.Combine(state, "absent-installation"),
+                    operationId = "invalid", expectedOldEpoch = "old" } });
+            Assert.IsTrue(invalidReconnect.GetProperty("result").GetProperty("isError").GetBoolean());
+            Assert.AreEqual("invalid_operation", invalidReconnect.GetProperty("result").GetProperty("structuredContent").GetProperty("code").GetString());
             CollectionAssert.Contains(names, "kicad_schematic_open");
             CollectionAssert.Contains(names, "kicad_schematic_create");
             CollectionAssert.Contains(names, "kicad_schematic_preview");

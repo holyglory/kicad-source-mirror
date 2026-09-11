@@ -41,8 +41,14 @@ public sealed partial class NativeSessionTests
         => VerifyCloseRecoveryFixture(concurrentSelection: false, rejectStartup: false,
             inspectHandoff: true, interruptBeforeClose: true, recoverAfterClose: true);
 
+    [TestMethod]
+    [TestCategory("NativeMcpUpdateReconnection")]
+    public Task McpReconnectsToTheVerifiedNativeReplacementAndRejectsOldEvents()
+        => VerifyCloseRecoveryFixture(concurrentSelection: false, rejectStartup: false,
+            inspectHandoff: true, reconnectMcp: true);
+
     private async Task VerifyCloseRecoveryFixture(bool concurrentSelection, bool rejectStartup, bool earlyExit = false,
-        bool inspectHandoff = false, bool interruptBeforeClose = false, bool recoverAfterClose = false)
+        bool inspectHandoff = false, bool interruptBeforeClose = false, bool recoverAfterClose = false, bool reconnectMcp = false)
     {
         string cataloguePath = Environment.GetEnvironmentVariable("KICAD_PACKAGE_CATALOGUE")
             ?? throw new AssertFailedException("Select an exact frozen native package for recovery checks.");
@@ -88,7 +94,8 @@ public sealed partial class NativeSessionTests
                 rejectActivation: !concurrentSelection && !rejectStartup && !inspectHandoff,
                 changeSelectionDuringClose: concurrentSelection && !rejectStartup,
                 useInstalledHelper: helperMode == "1" && !rejectStartup, exitBeforeIdentity: earlyExit,
-                inspectHandoff: inspectHandoff, interruptBeforeClose: interruptBeforeClose, recoverAfterClose: recoverAfterClose);
+                inspectHandoff: inspectHandoff, interruptBeforeClose: interruptBeforeClose, recoverAfterClose: recoverAfterClose,
+                reconnectMcp: reconnectMcp);
         }
         finally { Directory.Delete(temporary, recursive: true); }
     }

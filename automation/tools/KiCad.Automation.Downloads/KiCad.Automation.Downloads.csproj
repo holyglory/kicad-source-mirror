@@ -4,5 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/KiCad.Automation.Distribution/KiCad.Automation.Distribution.csproj" />
+    <EmbeddedResource Include="Web/**/*" LogicalName="kicad-downloads.Web.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" data-theme="{{THEME}}">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light"><meta name="ui-source-revision" content="landing-v1">
+<title>KiCad Codex — AI-assisted PCB development</title>
+<meta name="description" content="Build your next board with KiCad Codex. Download preview builds for macOS, Windows and Linux. An independent KiCad fork for AI-assisted electronics.">
+<script src="/site/theme.js"></script><link rel="stylesheet" href="/site/site.css">
+<link rel="preload" href="/site/inter.woff2" as="font" type="font/woff2" crossorigin>
+</head>
+<body>
+<a class="skip" href="#main">Skip to downloads</a>
+<header class="masthead wrap"><a class="brand" href="/">KiCad <span>Codex</span></a><span class="preview">Preview</span>
+<nav aria-label="Page navigation"><a class="source-link" aria-label="Source code on GitHub" href="{{REPO}}"><span>Source code</span><img class="icon" src="/site/github.svg" width="24" height="24" alt=""></a>
+<button class="theme-toggle" id="theme-toggle" aria-label="Switch theme" hidden><img class="icon" id="theme-icon" src="/site/sun.svg" width="20" height="20" alt=""></button></nav></header>
+<main id="main">
+<section class="hero wrap" aria-labelledby="headline" data-ui-region="download-primary">
+<h1 id="headline">From an idea to your next board.</h1><p class="tagline">AI-assisted electronics, built on KiCad.</p>
+<div class="recommended" id="recommended" aria-live="polite">{{CHOICE}}</div>
+<a class="change-platform" href="#downloads">Change platform</a>
+<p class="preview-note">Experimental builds. Your designs stay in KiCad.</p>
+<div class="hero-art" data-ui-theme-exception="Illustrative product photograph preserves the black PCB in both themes">
+<img class="hero-dark" src="/site/hero-dark.png" width="1774" height="887" fetchpriority="high" alt="Black PCB with gold mounting holes and fine copper connections">
+<img class="hero-light" src="/site/hero-light.png" width="1774" height="887" alt="Black PCB on a light studio surface">
+</div></section>
+<section id="downloads" class="downloads wrap" aria-labelledby="download-heading"><h2 id="download-heading">Download preview builds</h2>
+<p class="section-intro">Choose your platform and architecture.</p><div class="platforms">{{CARDS}}</div>
+<details class="install-notes"><summary>Installation &amp; automatic updates</summary><div class="notes-content">
+<p>Extract the archive to try the preview. For automatic updates, use the managed installation instructions; unpacking alone does not configure updates.</p>
+<p>macOS builds require macOS 15.7 or later and are ad-hoc signed, not notarized. Linux archives target Debian 13 x64. Windows packages target x64.</p>
+<p>Updates download in the background. Apply them with the app’s Update button when you are ready. Windows upgrade qualification is still in progress.</p>
+<a href="{{REPO}}/blob/feature/codex-kicad-automation/automation/README.md">Read installation instructions</a></div></details>
+</section>
+<section id="releases" class="releases wrap" aria-labelledby="releases-heading"><details id="release-list"><summary><span id="releases-heading">All versions &amp; source</span><span class="summary-hint">Browse releases</span></summary>
+<div class="release-toolbar" hidden><label for="platform-filter">Platform</label><select id="platform-filter"><option value="all">All platforms</option><option value="osx-arm64">macOS · Apple Silicon</option><option value="osx-x64">macOS · Intel</option><option value="win-x64">Windows · x64</option><option value="linux-x64">Linux · x64</option></select></div>
+<div id="release-rows">{{ROWS}}</div><p id="no-releases" hidden>No builds match this platform.</p></details></section>
+</main>
+<footer class="wrap"><p>An independent KiCad fork for AI-assisted PCB design.</p><a href="{{REPO}}">Source code<img class="icon" src="/site/github.svg" width="22" height="22" alt=""></a></footer>
+<script id="download-data" type="application/json">{{DATA}}</script><script src="/site/site.js" defer></script>
+</body></html>

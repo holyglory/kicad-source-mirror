@@ -34,6 +34,45 @@ env = { ASPNETCORE_ENVIRONMENT = "Production", KICAD_DOWNLOAD_ROOT = "/mnt/build
 [test]
 default = "automation"
 
+[deployment.download-page-preview]
+source = ["checkout"]
+components = ["page"]
+public = false
+build = ["dotnet", "publish", "automation/tools/KiCad.Automation.Downloads/KiCad.Automation.Downloads.csproj", "--configuration", "Release", "-p:RestoreLockedMode=true", "--output", "automation/artifacts/landing-host"]
+
+[deployment.download-page-preview.component.page]
+type = "process"
+command = ["dotnet", "automation/artifacts/landing-host/kicad-downloads.dll"]
+port = true
+health = { path = "/healthz", timeout_seconds = 60 }
+env = { KICAD_DOWNLOAD_ROOT = "/mnt/build-storage/codex/kicad/public-candidates/windows-pair-0d4-433-verified", KICAD_UPDATE_PUBLISHER_SPKI_FILE = "/home/holyglory/kicad/automation/distribution/preview-publisher.spki" }
+
+[test.download-page]
+timeout_seconds = 600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.download-page.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.download-page.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=LandingPage|FullyQualifiedName~DownloadServerTests|FullyQualifiedName~SignedUpdateServerTests", "--logger", "trx", "--results-directory", "automation/artifacts/landing-tests"]
+retained_artifacts = [{ name = "landing-tests", path = "automation/artifacts/landing-tests", max_bytes = 16777216 }]
+
+[test.landing-verifier-self-test]
+timeout_seconds = 360
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", FORMAL_WEB_UI_SKILL_DIR = "/home/holyglory/.codex/skills/formal-web-ui-verification" }
+
+[[test.landing-verifier-self-test.check]]
+name = "verifier"
+tier = "development"
+command = ["devcoordinator2-tooling", "formal-ui", "self-test", "--workspace-parent", "/mnt/build-storage/codex/kicad/t", "--timeout-seconds", "300"]
+
 # Authorized by kicad-update-signing-standing-authority on 2026-09-08.
 # Already provisioned: re-running refuses to replace either existing key file.
 # Explicit one-time publisher provisioning, not verification/readiness proof.

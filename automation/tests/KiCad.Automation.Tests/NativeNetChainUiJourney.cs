@@ -418,6 +418,31 @@ public sealed partial class NativeSessionTests
                 CollectionAssert.Contains(sheet.Metadata.NetChainClasses.Definitions.ToArray(), "emptygroup");
                 Assert.IsFalse(sheet.Metadata.NetChainClasses.Assignments.Values.Contains("emptygroup"));
             }
+            foreach (string invalid in new[] { "", "fastbus" })
+            {
+                await OpenSetupPage();
+                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                    focusCanvas: true, clickFromLeft: 440, clickFromTop: 24);
+                await StableSetupGeometry();
+                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                    focusCanvas: true, clickFromLeft: 300, clickFromBottom: 65);
+                await Window("Add Class", true);
+                nuint entry = 0;
+                NativeKeyboard.SchematicShortcut(display, processId, "", "Add Class", observeWindow: value => entry = value);
+                Key("a", "Add Class", control: true); Key("BackSpace", "Add Class");
+                foreach (char c in invalid) Key(c.ToString(), "Add Class");
+                Key("Return", "Add Class");
+                using (var limit = CancellationTokenSource.CreateLinkedTokenSource(token))
+                {
+                    limit.CancelAfter(TimeSpan.FromSeconds(5));
+                    while (!NativeKeyboard.HasWindow(display, processId, "Add Class", excludeWindow: entry))
+                        await Task.Delay(50, limit.Token);
+                    NativeKeyboard.SchematicShortcut(display, processId, "Return", "Add Class", controlKey: false,
+                        focusCanvas: false, excludeWindow: entry);
+                }
+                await Window("Add Class", false); await FinishSetup(true);
+                await Same(registryBaseline, await Read(token), "chain-class-rejected");
+            }
             foreach (string action in new[] { "add", "rename", "delete" })
             foreach (bool accept in new[] { false, true })
             {

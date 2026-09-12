@@ -293,6 +293,52 @@ public sealed partial class NativeSessionTests
             reverted = await History("z", reapplied); await Same(setupBaseline.Data, reverted.Data, "chain-setup-restored");
             await Saved(false);
         }
+        foreach (string operation in new[] { "cancel", "noop", "edit", "clear" })
+        foreach (bool accept in new[] { false, true })
+        {
+            const string picker = "Color Picker";
+            var previous = await Read(token);
+            await OpenSetupPage();
+            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                focusCanvas: true, clickFromLeft: 950, clickFromTop: 107);
+            Key("F2", "Schematic Setup"); await Window(picker, true); await StableSetupGeometry(picker);
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-color-picker.png"), token);
+            if (operation is "edit" or "cancel")
+            {
+                NativeKeyboard.SchematicShortcut(display, processId, "click", picker, controlKey: false,
+                    focusCanvas: true, clickFromLeft: 300, clickFromBottom: 25);
+                Key("a", picker, control: true);
+                foreach (char c in "#CC884480") Key(c.ToString(), picker);
+            }
+            else if (operation == "clear")
+                NativeKeyboard.SchematicShortcut(display, processId, "click", picker, controlKey: false,
+                    focusCanvas: true, clickFromLeft: 450, clickFromBottom: 25);
+            if (operation == "cancel") Key("Escape", picker);
+            else NativeKeyboard.SchematicShortcut(display, processId, "click", picker, controlKey: false,
+                focusCanvas: true, clickFromRight: 60, clickFromBottom: 25);
+            await Window(picker, false);
+            await FinishSetup(accept);
+            var actual = await Read(token);
+            if (!accept || operation is "cancel" or "noop")
+            {
+                await Same(previous, actual, "chain-color-" + operation + "-unchanged");
+                await Saved(false); continue;
+            }
+            var expected = previous.Data.Clone();
+            foreach (var screen in expected.Instances)
+                screen.Metadata.NetChains.Single(c => c.Name == oldName).Color = operation == "clear" ? null
+                    : new() { R = 204.0 / 255, G = 136.0 / 255, B = 68.0 / 255, A = 128.0 / 255 };
+            await Same(expected, actual.Data, "chain-color-" + operation);
+            journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
+                { Document = root, DocumentEpoch = previous.Revision.Epoch, AfterSequence = previous.Revision.Sequence }, token);
+            Assert.AreEqual(1, journal.Changes.Count);
+            Assert.AreEqual("Edit Net Chains", journal.Changes.Single().Description);
+            await Saved(false);
+            var undoneColor = await History("z", actual); await Same(previous.Data, undoneColor.Data, "chain-color-undo");
+            var redoneColor = await History("y", undoneColor); await Same(expected, redoneColor.Data, "chain-color-redo");
+            undoneColor = await History("z", redoneColor); await Same(previous.Data, undoneColor.Data, "chain-color-restored");
+            await Saved(false);
+        }
         foreach (string operation in new[] { "class", "netclass", "delete" })
         foreach (bool accept in new[] { false, true })
         {

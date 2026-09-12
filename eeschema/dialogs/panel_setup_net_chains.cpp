@@ -56,7 +56,7 @@ PANEL_SETUP_NET_CHAINS::PANEL_SETUP_NET_CHAINS( wxWindow* aParent, SCH_EDIT_FRAM
 {
     wxGridCellAttr* attr = new wxGridCellAttr;
     attr->SetRenderer( new GRID_CELL_COLOR_RENDERER( PAGED_DIALOG::GetDialog( this ) ) );
-    attr->SetEditor( new GRID_CELL_COLOR_SELECTOR( PAGED_DIALOG::GetDialog( this ), m_chainsGrid ) );
+    attr->SetEditor( new GRID_CELL_COLOR_SELECTOR( PAGED_DIALOG::GetDialog( this ), m_chainsGrid, true ) );
     m_chainsGrid->SetColAttr( COL_COLOUR, attr );
 
     m_hintBeforeFunctionCall->SetFont( KIUI::GetInfoFont( this ).Italic() );

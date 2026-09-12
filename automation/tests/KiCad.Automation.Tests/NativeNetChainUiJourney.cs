@@ -279,5 +279,48 @@ public sealed partial class NativeSessionTests
             reverted = await History("z", reapplied); await Same(setupBaseline.Data, reverted.Data, "chain-setup-restored");
             await Saved(false);
         }
+        foreach (string operation in new[] { "class", "delete" })
+        foreach (bool accept in new[] { false, true })
+        {
+            var previous = await Read(token);
+            await OpenSetupPage();
+            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                focusCanvas: true, clickFromLeft: operation == "class" ? 720 : 350, clickFromTop: 107);
+            if (operation == "class")
+            {
+                Key("F2", "Schematic Setup"); Key("a", "Schematic Setup", control: true);
+                foreach (char c in "changedclass") Key(c.ToString(), "Schematic Setup");
+                Key("Tab", "Schematic Setup");
+            }
+            else
+            {
+                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                    focusCanvas: true, clickFromLeft: 294, clickFromBottom: 66);
+                await Window("Delete Net Chain", true);
+                Key("Return", "Delete Net Chain"); await Window("Delete Net Chain", false);
+            }
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-setup-" + operation + ".png"), token);
+            await FinishSetup(accept);
+            var actual = await Read(token);
+            if (!accept) { await Same(previous, actual, "chain-setup-cancel-" + operation); await Saved(false); continue; }
+            Assert.IsTrue(actual.Revision.Sequence > previous.Revision.Sequence);
+            journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
+                { Document = root, DocumentEpoch = previous.Revision.Epoch, AfterSequence = previous.Revision.Sequence }, token);
+            Assert.AreEqual(1, journal.Changes.Count);
+            Assert.AreEqual("Edit Net Chains", journal.Changes.Single().Description);
+            foreach (var screen in actual.Data.Instances)
+                Assert.AreEqual(operation != "delete", screen.Metadata.NetChains.Any(c => c.Name == oldName));
+            await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+            using (var project = JsonDocument.Parse(await File.ReadAllTextAsync(Path.ChangeExtension(rootFile, ".kicad_pro"), token)))
+            {
+                var classes = project.RootElement.GetProperty("net_settings").GetProperty("net_chain_classes");
+                Assert.AreEqual("preserved", classes.GetProperty("UNAFFECTED_CHAIN").GetString());
+                if (operation == "class") Assert.AreEqual("changedclass", classes.GetProperty(oldName).GetString());
+                else Assert.IsFalse(classes.TryGetProperty(oldName, out _));
+            }
+            var reverted = await History("z", actual); await Same(previous.Data, reverted.Data, "chain-setup-undo-" + operation); await Saved(false);
+            var reapplied = await History("y", reverted); await Same(actual.Data, reapplied.Data, "chain-setup-redo-" + operation);
+            reverted = await History("z", reapplied); await Same(previous.Data, reverted.Data, "chain-setup-restore-" + operation); await Saved(false);
+        }
     }
 }

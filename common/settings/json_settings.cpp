@@ -510,6 +510,10 @@ void JSON_SETTINGS::ApplyCurrentStateDelta( const nlohmann::json& aBefore,
     auto prepare = [&]( auto&& self, JSON_SETTINGS& owner,
                         const nlohmann::json::json_pointer& prefix ) -> void
     {
+        const auto schema = prefix / owner.m_internals->PointerFromString( "meta.version" );
+        if( !aBefore.contains( schema ) || !aAfter.contains( schema )
+                || aBefore.at( schema ) != owner.m_schemaVersion || aAfter.at( schema ) != owner.m_schemaVersion )
+            throw std::runtime_error( "A settings delta cannot change the native schema: " + schema.to_string() );
         // Match CaptureCurrentState ownership: nested values first, then parent
         // parameters that can own paths inside those nested records.
         for( NESTED_SETTINGS* child : owner.m_nested_settings )

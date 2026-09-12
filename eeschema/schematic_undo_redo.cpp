@@ -383,7 +383,7 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
             if( auto* allPages = dynamic_cast<SCH_PAGE_SETTINGS_UNDO_ITEM*>( item ) )
             {
                 if( !allPages->BusAliasesMatch( Schematic() ) || !allPages->TextVariablesMatch( this )
-                        || allPages->IncludesNetChains() )
+                        || allPages->IncludesNetChains() || allPages->IncludesSetup() )
                 {
                     dirtyConnectivity = true;
                     connectivityCleanUp = GLOBAL_CLEANUP;

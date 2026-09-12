@@ -56,6 +56,14 @@ public sealed partial class NativeSessionTests
                 NativeKeyboard.SchematicShortcut(display, processId, "a", "Schematic Setup", true, false);
                 foreach (var key in new[] { "1", "2", "0" })
                     NativeKeyboard.SchematicShortcut(display, processId, key, "Schematic Setup", false, false);
+                // Leaving Formatting must transfer into the shared draft, not
+                // into the live project. Return to it before Cancel or OK.
+                NativeKeyboard.SchematicShortcut(display, processId, "Home", "Schematic Setup", false,
+                    clickFromLeft: 80, clickFromTop: 40);
+                NativeKeyboard.SchematicShortcut(display, processId, "Down", "Schematic Setup", false, false);
+                await NativeKeyboard.CaptureAsync(display,
+                    Path.Combine(evidence, instanceId + "-setup-" + stage + "-other-page.png"), token);
+                NativeKeyboard.SchematicShortcut(display, processId, "Home", "Schematic Setup", false, false);
             }
             await NativeKeyboard.CaptureAsync(display,
                 Path.Combine(evidence, instanceId + "-setup-" + stage + ".png"), token);
@@ -93,6 +101,13 @@ public sealed partial class NativeSessionTests
                     await client.InvokeAsync<ReadSchematicSaveState, SchematicSaveState>(new() { Document = document }, token),
                     "Cancelled or unchanged setup must preserve dirty-sheet state.");
         }
+        var acceptedState = await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(
+            new() { Document = document }, token);
+        NativeKeyboard.SchematicShortcut(display, processId, "z");
+        await WaitForState(baseline.Data);
+        NativeKeyboard.SchematicShortcut(display, processId, "click", controlKey: false,
+            clickFromLeft: 280, clickFromTop: 43, focusCanvas: false);
+        await WaitForState(acceptedState.Data);
         var stale = new ApplySchematicItemBatch
         {
             Document = document, DocumentEpoch = baseline.Revision.Epoch, ExpectedRevision = baseline.Revision,
@@ -113,5 +128,19 @@ public sealed partial class NativeSessionTests
             (await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(
                 new() { Document = document }, token)).Data.Metadata.DrawingRatios.OverbarHeightRatio);
         await client.InvokeAsync<SaveDocument, Google.Protobuf.WellKnownTypes.Empty>(new() { Document = document }, token);
+
+        async Task WaitForState(Kiapi.Schematic.Types.SchematicScreenData expected)
+        {
+            using var wait = CancellationTokenSource.CreateLinkedTokenSource(token);
+            wait.CancelAfter(TimeSpan.FromSeconds(8));
+            int delay = 25;
+            while (true)
+            {
+                var state = await client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(
+                    new() { Document = document }, wait.Token);
+                if (state.Data.Equals(expected)) return;
+                await Task.Delay(delay, wait.Token); delay = Math.Min(delay * 2, 500);
+            }
+        }
     }
 }

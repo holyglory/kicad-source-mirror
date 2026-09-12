@@ -28,6 +28,7 @@ public:
     PROJECT_FILE& ProjectSettings() { return m_file; }
     ERC_SETTINGS& ErcSettings() { return m_erc; }
     SCHEMATIC_SETTINGS& SchematicSettings() { return m_schematic; }
+    const nlohmann::json& Baseline() const { return m_baseline; }
     bool Changed() const { return m_file.CaptureCurrentState() != m_baseline; }
     bool MatchesLive( const PROJECT_FILE& aSource ) const
     {

@@ -32,6 +32,7 @@
 class SCH_EDIT_FRAME;
 class SCH_NETCHAIN;
 class SCH_COMMIT;
+class NET_SETTINGS;
 
 
 /**
@@ -50,7 +51,8 @@ class SCH_COMMIT;
 class PANEL_SETUP_NET_CHAINS : public PANEL_SETUP_NET_CHAINS_BASE
 {
 public:
-    PANEL_SETUP_NET_CHAINS( wxWindow* aParent, SCH_EDIT_FRAME* aFrame );
+    PANEL_SETUP_NET_CHAINS( wxWindow* aParent, SCH_EDIT_FRAME* aFrame,
+                            std::shared_ptr<NET_SETTINGS> aDraftSettings = nullptr );
 
     ~PANEL_SETUP_NET_CHAINS() override;
 
@@ -58,9 +60,11 @@ public:
     bool TransferDataFromWindow() override;
     bool Validate() override;
 
-    bool ApplyEdits();
+    bool ApplyEdits( SCH_COMMIT* aParentCommit = nullptr );
     void CommitEdits();
     void RollbackEdits();
+    void ReleaseModelPointers();
+    void RebindModelPointers();
 
 protected:
     void OnDeleteChainClicked( wxCommandEvent& aEvent ) override;
@@ -119,6 +123,7 @@ private:
 
     SCH_EDIT_FRAME* m_frame;
     std::unique_ptr<SCH_COMMIT> m_pendingCommit;
+    std::shared_ptr<NET_SETTINGS> m_draftSettings;
 
     std::vector<CHAIN_ROW> m_chainRows;
     std::vector<int>       m_gridToChainIdx;

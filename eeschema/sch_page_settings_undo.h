@@ -19,6 +19,8 @@
 #include <api/api_sch_erc_settings.h>
 #include <project/project_file.h>
 #include <project/net_settings.h>
+#include <json_common.h>
+#include <stdexcept>
 
 // A page dialog can export settings to several screens. Keep the native
 // worksheet snapshot plus each screen's exact identity and page/title state;
@@ -59,6 +61,11 @@ public:
 
     void RestoreAll( SCH_EDIT_FRAME* aFrame, bool aRestoreDirtyState = false )
     {
+        if( m_restoreSetup )
+        {
+            aFrame->Prj().GetProjectFile().ApplyCurrentStateDelta( *m_setupAfter, *m_setupBefore );
+            RefreshSetup( aFrame );
+        }
         DS_PROXY_UNDO_ITEM::Restore( aFrame );
         aFrame->Schematic().Settings().m_SchDrawingSheetFileName = BASE_SCREEN::m_DrawingSheetFileName;
         if( !BusAliasesMatch( aFrame->Schematic() ) )
@@ -186,6 +193,49 @@ public:
         aFrame->GetCanvas()->GetView()->MarkDirty();
     }
     bool IncludesNetChains() const { return m_restoreNetChains; }
+    bool IncludesSetup() const { return m_restoreSetup; }
+
+    void ApplySetupDelta( SCH_EDIT_FRAME* aFrame, const nlohmann::json& aBefore,
+                          const nlohmann::json& aAfter )
+    {
+        // Allocate rollback records before invoking any live setter. Arm the
+        // native undo only after the parameter layer has verified the result.
+        if( m_restoreSetup )
+            throw std::runtime_error( "A native commit already contains a Setup delta" );
+        m_setupBefore = aBefore;
+        m_setupAfter = aAfter;
+        aFrame->Prj().GetProjectFile().ApplyCurrentStateDelta( aBefore, aAfter );
+        m_restoreSetup = true;
+        RefreshSetup( aFrame );
+    }
+
+    static void RefreshSetup( SCH_EDIT_FRAME* aFrame )
+    {
+        auto& schematic = aFrame->Schematic();
+        const auto& desiredAliases = aFrame->Prj().GetProjectFile().m_BusAliases;
+        std::map<wxString, std::vector<wxString>> actualAliases;
+        for( const auto& alias : schematic.GetAllBusAliases() )
+            actualAliases[alias->GetName()] = alias->Members();
+        if( actualAliases != desiredAliases )
+        {
+            std::vector<std::shared_ptr<BUS_ALIAS>> aliases;
+            for( const auto& [name, members] : desiredAliases )
+            {
+                auto alias = std::make_shared<BUS_ALIAS>();
+                alias->SetName( name );
+                alias->SetMembers( members );
+                aliases.push_back( std::move( alias ) );
+            }
+            schematic.SetBusAliases( aliases );
+        }
+        ApplyFormatting( aFrame, SCH_FORMATTING::Capture( schematic.Settings() ) );
+        aFrame->Prj().IncrementTextVarsTicker();
+        aFrame->Prj().IncrementNetclassesTicker();
+        if( auto* adapter = schematic.GetTextVarAdapter() )
+            adapter->Tracker().InvalidateProjectScoped();
+        aFrame->Kiway().CommonSettingsChanged( TEXTVARS_CHANGED );
+        aFrame->RefreshErcDialog();
+    }
 
     void CopyProjectSettingsScope( const SCH_PAGE_SETTINGS_UNDO_ITEM& aOther )
     {
@@ -197,6 +247,14 @@ public:
         m_restoreDrawingRatios = aOther.m_restoreDrawingRatios;
         m_restoreFormatting = aOther.m_restoreFormatting;
         m_restoreErcPolicy = aOther.m_restoreErcPolicy;
+        m_restoreSetup = aOther.m_restoreSetup;
+        if( m_restoreSetup )
+        {
+            // The opposite history entry restores precisely the same parameter
+            // scope in reverse; unrelated project values do not become undo data.
+            m_setupBefore = aOther.m_setupAfter;
+            m_setupAfter = aOther.m_setupBefore;
+        }
     }
 
     bool TextVariablesMatch( SCH_EDIT_FRAME* aFrame ) const
@@ -245,6 +303,9 @@ private:
     bool m_restoreFormatting = false;
     SCH_FORMATTING::MESSAGE m_formatting;
     bool m_restoreErcPolicy = false;
+    bool m_restoreSetup = false;
+    std::optional<nlohmann::json> m_setupBefore;
+    std::optional<nlohmann::json> m_setupAfter;
     SCH_ERC_SETTINGS::MESSAGE m_ercPolicy;
     std::array<double, 5> m_drawingRatios;
     std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION> m_netChains;

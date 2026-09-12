@@ -18,7 +18,7 @@
  */
 
 #include <boost/test/unit_test.hpp>
-#include <charconv>
+#include <locale>
 #include <sstream>
 
 #include <qa_utils/wx_utils/unit_test_utils.h>
@@ -376,8 +376,13 @@ BOOST_FIXTURE_TEST_CASE( NetChain_OpacityWriterPreservesDoublePrecision,
         auto end = text.find( ')', start );
         BOOST_REQUIRE( end != std::string::npos );
         double parsed = -1;
-        auto result = std::from_chars( text.data() + start, text.data() + end, parsed );
-        BOOST_REQUIRE( result.ec == std::errc{} && result.ptr == text.data() + end );
+        // Apple libc++ in the supported toolchain does not provide floating
+        // from_chars. Preserve locale-independent, full-token parsing and the
+        // exact-double assertion without dropping the precision regression.
+        std::istringstream value( text.substr( start, end - start ) );
+        value.imbue( std::locale::classic() );
+        value >> std::noskipws >> parsed;
+        BOOST_REQUIRE( !value.fail() && value.eof() );
         BOOST_CHECK_EQUAL( parsed, alpha );
     }
 }

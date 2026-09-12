@@ -44,7 +44,7 @@ public sealed partial class NativeSessionTests
             while (NativeKeyboard.HasWindow(display, processId, title) != visible)
                 await Task.Delay(50, limit.Token);
         }
-        async Task Menus(int expected)
+        async Task<int> Menus(int expected, bool allowFewer = false)
         {
             using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
             limit.CancelAfter(TimeSpan.FromSeconds(5));
@@ -52,7 +52,7 @@ public sealed partial class NativeSessionTests
             {
                 int count = -1;
                 NativeKeyboard.SchematicShortcut(display, processId, "", observePopupCount: value => count = value);
-                if (count == expected) return;
+                if (count == expected || (allowFewer && count >= 0 && count < expected)) return count;
                 await Task.Delay(50, limit.Token);
             }
         }
@@ -208,7 +208,15 @@ public sealed partial class NativeSessionTests
                     await Menus(2);
                     await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, stage + "-menu.png"), token);
                     if (accept) { Key("Home"); Key("Down"); Key("Return"); await Menus(0); }
-                    else { Key("Escape"); await Menus(1); Key("Escape"); await Menus(0); }
+                    else
+                    {
+                        // GTK may dismiss either the submenu or the whole
+                        // popup stack. Both are valid Cancel behavior; wait
+                        // for the observed transition before sending more input.
+                        Key("Escape");
+                        if (await Menus(1, allowFewer: true) == 1)
+                        { Key("Escape"); await Menus(0); }
+                    }
                 }
                 await OpenRemoval(false); await Same(before, await Read(), stage + "-cancel");
                 await OpenRemoval(true);

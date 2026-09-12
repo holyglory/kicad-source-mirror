@@ -109,6 +109,16 @@ BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpda
             BOOST_REQUIRE( PackSymbol( &message, symbol, path ) );
             const LIB_ID originalDefinitionId = symbol->GetLibSymbolRef()->GetLibId();
             const wxString originalCacheKey = symbol->GetSchSymbolLibraryName();
+            auto describeCache = [&]( const char* phase )
+            {
+                auto cached = path.LastScreen()->GetLibSymbols().find( originalCacheKey );
+                if( cached == path.LastScreen()->GetLibSymbols().end() ) return;
+                WX_STRING_REPORTER report;
+                if( cached->second->Compare( *symbol->GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UNIT, &report ) )
+                    BOOST_TEST_MESSAGE( std::string( phase ) + " cache/placement mismatch "
+                        + symbol->GetRef( &path ).ToStdString() + ": " + report.GetMessages().ToStdString() );
+            };
+            describeCache( "Before update" );
             message.set_passthrough( SPM_BLOCK );
             packed.PackFrom( message );
             SCH_SYMBOL decoded;
@@ -124,6 +134,7 @@ BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpda
             for( SCH_PIN* pin : symbol->GetPins() ) graph->RemoveItem( pin );
             symbol->SwapItemData( &decoded );
             ApplySymbolInstance( symbol, message, path, schematic.get() );
+            describeCache( "After swap" );
             path.LastScreen()->Update( symbol );
             BOOST_CHECK_MESSAGE( symbol->GetLibSymbolRef()->GetLibId() == originalDefinitionId,
                                  "Placement-only update changed the embedded definition ID" );

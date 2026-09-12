@@ -450,21 +450,31 @@ public sealed partial class NativeSessionTests
                 string targetClass = assigned ? "fastbus" : "emptygroup";
                 string evidenceKey = "chain-class-" + action + (assigned ? "-assigned" : "-unused");
                 var previous = await Read(token);
-                await OpenSetupPage();
-                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
-                    focusCanvas: true, clickFromLeft: 440, clickFromTop: 24);
-                await StableSetupGeometry();
-                if (action != "add")
-                {
-                    NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
-                        focusCanvas: true, clickFromLeft: 400, clickFromTop: 112);
-                    if (assigned) Key("Down", "Schematic Setup");
-                }
-                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
-                    focusCanvas: true, clickFromLeft: action == "add" ? 300 : action == "rename" ? 330 : 365,
-                    clickFromBottom: 65);
                 string dialog = action == "add" ? "Add Class" : action == "rename" ? "Rename Class" : "Delete Class";
-                await Window(dialog, true);
+                async Task OpenClassEditor()
+                {
+                    await OpenSetupPage();
+                    NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                        focusCanvas: true, clickFromLeft: 440, clickFromTop: 24);
+                    await StableSetupGeometry();
+                    if (action != "add")
+                    {
+                        NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                            focusCanvas: true, clickFromLeft: 400, clickFromTop: 112);
+                        if (assigned) Key("Down", "Schematic Setup");
+                    }
+                    NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                        focusCanvas: true, clickFromLeft: action == "add" ? 300 : action == "rename" ? 330 : 365,
+                        clickFromBottom: 65);
+                    await Window(dialog, true);
+                }
+                await OpenClassEditor();
+                if (!accept)
+                {
+                    Key("Escape", dialog); await Window(dialog, false); await FinishSetup(true);
+                    await Same(previous, await Read(token), evidenceKey + "-dialog-cancel");
+                    await OpenClassEditor();
+                }
                 if (action != "delete")
                 {
                     Key("a", dialog, control: true);

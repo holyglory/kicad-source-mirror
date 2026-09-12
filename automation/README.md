@@ -991,11 +991,12 @@ occlusion analysis.
 Full glyph clipping/occlusion and complete multi-page coverage remain open;
 an incomplete report cannot declare the diagram clear.
 
-Each native journey retains only `automation/artifacts/native-session-current`.
-Before the next journey, that directory is moved intact into
-`automation/artifacts/native-session-history`; older `native-session-results`
-outputs are preserved too. This keeps per-run evidence bounded without deleting
-historical local artifacts. Coordinator retains the hash-bound run archive.
+The full native journey retains `automation/artifacts/native-session-current`.
+Focused table-variant and net-chain journeys use the same current/history layout
+under `automation/artifacts/native-table-variants` and `automation/artifacts/native-net-chains`.
+Before the next journey, its current directory is moved intact into the matching
+`native-session-history`; older test results are preserved too. Coordinator retains
+the hash-bound run archive.
 
 The read-only `kicad_schematic_metadata` tool returns typed screen identity,
 page/title data, project text variables, bus aliases and embedded-file records.
@@ -1008,6 +1009,24 @@ on repeated sheets, typed XML equality, save/reload and restoring the original f
 The XML planner supports schematic-wide declaration replacement/removal in one native
 undoable batch. Membership is recomputed: callers cannot force the observed `committed`
 flag. Native journeys cover rollback, retries, no-ops and keyboard undo/redo.
+
+In the development source, native **Tools → Create Net Chain**, two-pin creation,
+chain naming and terminal replacement, and the **Schematic Setup → Net Chains**
+name/class/netclass/color/deletion controls use native commits. The Linux journey
+verifies both manual links and a real four-net path through three resistors in two
+independent editor instances. It checks Cancel, unchanged OK, reserved-name rejection,
+stale requests, exact Undo/Redo, and save/reload. Declared endpoint order and opacity
+survive reload; the color picker exposes opacity and preserves unchanged values.
+Run the `native-net-chains` development graph in an isolated build worktree to repeat
+this journey. Its focused pass is not whole-project or native-Mac qualification.
+
+The removal action now records the exact selected bridge propagation changes in
+Undo history, including multi-pin selections. Its promised committed-membership
+removal still needs repair (`peb6785f04af5b15c`); do not treat the bridge-setting test
+as proof of that outcome. Unassigned class persistence (`p84344eb08fab3ef8`) and
+all-page Schematic Setup cancellation (`pef184f5d6044415b`) also remain open in
+the Coordinator ledger. These source changes are not yet part of the public downloads.
+
 The net-chain coverage gap remains until complete identity and electrical-change
 restoration are qualified; this is not proof of full schematic reconstruction.
 Its structured result retains incomplete revision tracking and lists

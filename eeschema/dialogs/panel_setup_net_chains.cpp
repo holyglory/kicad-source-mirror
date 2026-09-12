@@ -36,6 +36,7 @@
 #include <project.h>
 #include <project/project_file.h>
 #include <project/net_settings.h>
+#include <sch_commit.h>
 
 #include <widgets/grid_color_swatch_helpers.h>
 #include <widgets/std_bitmap_button.h>
@@ -55,7 +56,7 @@ PANEL_SETUP_NET_CHAINS::PANEL_SETUP_NET_CHAINS( wxWindow* aParent, SCH_EDIT_FRAM
 {
     wxGridCellAttr* attr = new wxGridCellAttr;
     attr->SetRenderer( new GRID_CELL_COLOR_RENDERER( PAGED_DIALOG::GetDialog( this ) ) );
-    attr->SetEditor( new GRID_CELL_COLOR_SELECTOR( PAGED_DIALOG::GetDialog( this ), m_chainsGrid ) );
+    attr->SetEditor( new GRID_CELL_COLOR_SELECTOR( PAGED_DIALOG::GetDialog( this ), m_chainsGrid, true ) );
     m_chainsGrid->SetColAttr( COL_COLOUR, attr );
 
     m_hintBeforeFunctionCall->SetFont( KIUI::GetInfoFont( this ).Italic() );
@@ -106,6 +107,7 @@ PANEL_SETUP_NET_CHAINS::PANEL_SETUP_NET_CHAINS( wxWindow* aParent, SCH_EDIT_FRAM
 
 PANEL_SETUP_NET_CHAINS::~PANEL_SETUP_NET_CHAINS()
 {
+    RollbackEdits();
 }
 
 
@@ -323,7 +325,7 @@ bool PANEL_SETUP_NET_CHAINS::Validate()
 
         if( colorStr.IsEmpty() )
             row.newColor = KIGFX::COLOR4D::UNSPECIFIED;
-        else
+        else if( row.newColor == KIGFX::COLOR4D::UNSPECIFIED || colorStr != row.newColor.ToCSSString() )
             row.newColor = KIGFX::COLOR4D( colorStr );
     }
 
@@ -357,7 +359,10 @@ bool PANEL_SETUP_NET_CHAINS::Validate()
             return false;
         }
 
-        if( nameInChainGridAlready( row.newName, static_cast<int>( i ) ) )
+        const auto* graph = m_frame ? m_frame->Schematic().ConnectionGraph() : nullptr;
+        bool reserved = graph && row.origName != row.newName
+                && graph->GetNetChainDefinitions().contains( row.newName );
+        if( reserved || nameInChainGridAlready( row.newName, static_cast<int>( i ) ) )
         {
             wxMessageBox( wxString::Format( _( "Duplicate net chain name '%s' on row %zu." ), row.newName, i + 1 ),
                           _( "Net Chains" ), wxOK | wxICON_ERROR, this );
@@ -394,16 +399,15 @@ bool PANEL_SETUP_NET_CHAINS::Validate()
 
 bool PANEL_SETUP_NET_CHAINS::TransferDataFromWindow()
 {
-    if( !Validate() )
-        return false;
-
-    return ApplyEdits();
+    // PAGED_DIALOG also calls this while changing pages. Keep the desired
+    // values in the form until the owning dialog accepts all of its pages.
+    return Validate();
 }
 
 
 bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
 {
-    if( !m_frame )
+    if( !m_frame || m_pendingCommit )
         return false;
 
     CONNECTION_GRAPH* graph = m_frame->Schematic().ConnectionGraph();
@@ -412,6 +416,18 @@ bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
         return false;
 
     std::shared_ptr<NET_SETTINGS> ns = m_frame->Prj().GetProjectFile().NetSettings();
+
+    const auto before = graph->GetNetChainDefinitions();
+    const auto beforeClasses = ns ? ns->GetNetChainClasses() : std::map<wxString, wxString>{};
+    std::set<SCH_SYMBOL*> members;
+    for( const CHAIN_ROW& row : m_chainRows )
+        if( row.livePtr ) members.insert( row.livePtr->GetSymbols().begin(), row.livePtr->GetSymbols().end() );
+    m_pendingCommit = std::make_unique<SCH_COMMIT>( m_frame );
+    if( !m_pendingCommit->StageNetChainEdit( members ) )
+    {
+        m_pendingCommit.reset();
+        return false;
+    }
 
     // Apply renames on chains whose name changed.
     for( CHAIN_ROW& row : m_chainRows )
@@ -434,7 +450,13 @@ bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
                     }
                 }
 
-                row.origName = row.newName;
+                // Keep the original identity for rollback and retry. The live
+                // chain was renamed; the edit buffer must still name its owner.
+            }
+            else
+            {
+                RollbackEdits();
+                return false;
             }
         }
     }
@@ -521,9 +543,36 @@ bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
         }
     }
 
-    m_frame->OnModify();
+    const auto afterClasses = ns ? ns->GetNetChainClasses() : std::map<wxString, wxString>{};
+    if( before == graph->GetNetChainDefinitions() && beforeClasses == afterClasses )
+        m_pendingCommit.reset();
 
     return true;
+}
+
+
+void PANEL_SETUP_NET_CHAINS::CommitEdits()
+{
+    if( !m_pendingCommit ) return;
+    // Pushing rebuilds the graph. Do not retain borrowed chain pointers while
+    // native model-change callbacks run. The parent is accepting the dialog.
+    for( CHAIN_ROW& row : m_chainRows ) row.livePtr = nullptr;
+    auto commit = std::move( m_pendingCommit );
+    commit->Push( _( "Edit Net Chains" ) );
+}
+
+
+void PANEL_SETUP_NET_CHAINS::RollbackEdits()
+{
+    if( !m_pendingCommit ) return;
+    for( CHAIN_ROW& row : m_chainRows ) row.livePtr = nullptr;
+    auto commit = std::move( m_pendingCommit );
+    commit->Revert();
+    // Validation failure leaves the form open. Preserve desired row values
+    // and rebind only their exact pre-edit owners for the next attempt.
+    if( auto* graph = m_frame->Schematic().ConnectionGraph() )
+        for( CHAIN_ROW& row : m_chainRows )
+            row.livePtr = graph->GetNetChainByName( row.origName );
 }
 
 

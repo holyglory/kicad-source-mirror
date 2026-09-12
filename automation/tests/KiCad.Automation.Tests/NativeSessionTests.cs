@@ -36,9 +36,11 @@ public sealed partial class NativeSessionTests
         string evidence = NativeEvidenceDirectory.Begin(journey == NativeJourney.Foundation ? artifacts
             : Path.Combine(artifacts, journey == NativeJourney.TableVariants ? "native-table-variants" : "native-net-chains"));
         string temporary = Directory.CreateTempSubdirectory("kicad-native-").FullName;
-        // Aggregate ceiling for the expanded editor journey. Local startup,
-        // undo and competing-instance deadlines remain separately bounded.
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(300));
+        // Full composed verification includes all editor/chain/color journeys
+        // in both instances (first instance measured at 166s). Keep individual
+        // action/startup limits; only the complete journey gets a larger ceiling.
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(
+            journey == NativeJourney.Foundation ? 480 : 300));
         var elapsed = Stopwatch.StartNew();
         var processes = new List<Process>();
         var captures = new List<Task>();
@@ -73,6 +75,8 @@ public sealed partial class NativeSessionTests
                 await File.WriteAllTextAsync(project, System.Text.Json.JsonSerializer.Serialize(new
                 {
                     meta = new { version = 3 }, text_variables = new { ENGINEERING_NOTE = "電源 & timing" },
+                    net_settings = new { meta = new { version = 5 }, net_chain_classes = new Dictionary<string, string>
+                        { ["AUTOMATION_PATH"] = "fastbus", ["UNAFFECTED_CHAIN"] = "preserved" } },
                     schematic = new
                     {
                         top_level_sheets = new[] { new { uuid = declaredRootId, name = "fixture", filename = "fixture.kicad_sch" } },
@@ -242,7 +246,7 @@ public sealed partial class NativeSessionTests
                             ":" + displayNumber, evidence, deadline.Token);
                     else
                         await VerifyNetChainMetadata(client, opened.Document, schematic, electrical, focusProcessId,
-                            ":" + displayNumber, deadline.Token);
+                            ":" + displayNumber, evidence, deadline.Token);
                     Console.WriteLine($"Focused {journey} {target.Id} completed at {elapsed.Elapsed.TotalSeconds:F1}s.");
                     continue;
                 }
@@ -513,7 +517,7 @@ public sealed partial class NativeSessionTests
                     ":" + displayNumber, deadline.Token);
                 await VerifySharedRootOwnership(client, opened.Document, hierarchyFixture, schematic, nativeProcessId,
                     ":" + displayNumber, evidence, target.Id, deadline.Token);
-                await VerifyNetChainMetadata(client, opened.Document, schematic, electrical, nativeProcessId, ":" + displayNumber, deadline.Token);
+                await VerifyNetChainMetadata(client, opened.Document, schematic, electrical, nativeProcessId, ":" + displayNumber, evidence, deadline.Token);
                 await VerifyVariantDescriptionDialog(client, opened.Document, schematic, nativeProcessId, ":" + displayNumber, evidence, deadline.Token);
                 await VerifyVariantRegistryXml(client, opened.Document, schematic, nativeProcessId, ":" + displayNumber, deadline.Token);
                 await VerifyDrawingRatios(client, opened.Document, schematic, nativeProcessId, ":" + displayNumber, evidence, deadline.Token);

@@ -26,6 +26,7 @@
 #include <map>
 #include <optional>
 #include <array>
+#include <set>
 #include <connection_graph.h>
 
 class EMBEDDED_FILES;
@@ -40,6 +41,7 @@ class SCH_SYMBOL_CACHE_EDIT_SCOPE;
 class SCH_SYMBOL_CACHE_STATE;
 class SCH_SHEET;
 class SCH_SCREEN;
+class SCH_SYMBOL;
 class TITLE_BLOCK;
 class PAGE_INFO;
 
@@ -91,6 +93,9 @@ public:
     void SetFormatting( const kiapi::schematic::types::SchematicFormattingSettings& aFormatting );
     bool SetErcSettings( SCH_ERC_SETTINGS::PREPARED& aPrepared, std::string& aFailure );
     void SetVariantRegistry( const std::map<wxString, wxString>& aDescriptions );
+    // Stage graph declarations and the exact affected symbols before a native
+    // net-chain action. Shared screens are captured once; foreign owners fail.
+    bool StageNetChainEdit( const std::set<SCH_SYMBOL*>& aSymbols );
     void SetNetChainDefinitions( const std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION>& aDefinitions );
     void SetPageSettings( SCH_SCREEN* aScreen, const PAGE_INFO& aPage,
                           const wxString& aDrawingSheet, const wxString& aPreparedLayout );

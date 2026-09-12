@@ -26,11 +26,12 @@ internal static class NativeKeyboard
         if (process.ExitCode != 0) throw new InvalidOperationException("Fixture screenshot failed: " + await error);
     }
 
-    public static bool HasWindow(string fixtureDisplay, int processId, string titleMatch, Action<string>? describe = null)
+    public static bool HasWindow(string fixtureDisplay, int processId, string titleMatch, Action<string>? describe = null,
+        nuint? excludeWindow = null)
     {
         try
         {
-            SchematicShortcut(fixtureDisplay, processId, "", titleMatch, false, false, describe: describe);
+            SchematicShortcut(fixtureDisplay, processId, "", titleMatch, false, false, describe: describe, excludeWindow: excludeWindow);
             return true;
         }
         catch (InvalidOperationException error) when (error.Message.StartsWith($"Expected one '{titleMatch}'", StringComparison.Ordinal))
@@ -43,7 +44,8 @@ internal static class NativeKeyboard
         string titleMatch = "Schematic Editor", bool controlKey = true, bool focusCanvas = true,
         int? clickFromRight = null, int? clickFromBottom = null, Action<string>? describe = null,
         int? clickFromLeft = null, int? clickFromTop = null, bool altKey = false,
-        Action<nuint>? observeWindow = null)
+        Action<nuint>? observeWindow = null, Action<(int X, int Y, int Width, int Height)>? observeGeometry = null,
+        nuint? excludeWindow = null, Action<int>? observePopupCount = null)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException();
         using var errors = new WindowErrorScope();
@@ -59,6 +61,7 @@ internal static class NativeKeyboard
                 throw new InvalidOperationException("Cannot inspect fixture windows.");
             var targets = new List<nuint>();
             var observed = new List<string>();
+            int popupCount = 0;
             try
             {
                 for (int index = 0; index < count; index++)
@@ -91,7 +94,11 @@ internal static class NativeKeyboard
                         describe?.Invoke($"Fixture window {window}: {name}, map={attributes.MapState}, "
                             + $"geometry={attributes.X},{attributes.Y},{attributes.Width},{attributes.Height}");
                         if (attributes.MapState != 2) continue; // X11 IsViewable.
-                        if (name.Contains(titleMatch, StringComparison.Ordinal)) targets.Add(window);
+                        // GTK context menus are viewable override-redirect
+                        // windows. Exclude its tiny offscreen grab windows.
+                        if (IsVisiblePopup(attributes.MapState, attributes.OverrideRedirect, attributes.Width, attributes.Height))
+                            popupCount++;
+                        if (window != excludeWindow && name.Contains(titleMatch, StringComparison.Ordinal)) targets.Add(window);
                     }
                     finally
                     {
@@ -103,11 +110,18 @@ internal static class NativeKeyboard
             finally { if (children != 0) XFree(children); }
             XSync(display, 0);
             errors.Enumerating = false;
+            observePopupCount?.Invoke(popupCount);
             if (targets.Count != 1)
                 throw new InvalidOperationException($"Expected one '{titleMatch}' window for fixture process {processId}; found {targets.Count}. "
                     + string.Join("; ", observed));
 
             observeWindow?.Invoke(targets.Single());
+            if (observeGeometry is not null)
+            {
+                if (XGetWindowAttributes(display, targets[0], out var geometry) == 0)
+                    throw new InvalidOperationException("Cannot inspect fixture window geometry.");
+                observeGeometry((geometry.X, geometry.Y, geometry.Width, geometry.Height));
+            }
             if (key.Length == 0) return; // Read-only fixture window-presence query.
 
             XRaiseWindow(display, targets[0]);
@@ -175,6 +189,9 @@ internal static class NativeKeyboard
 
     internal static bool IsWindowEnumerationRace(byte error, byte request) =>
         error == 3 && request is 3 or 14 or 15 or 20; // BadWindow on read-only window inspection.
+
+    internal static bool IsVisiblePopup(int mapState, int overrideRedirect, int width, int height) =>
+        mapState == 2 && overrideRedirect != 0 && width > 20 && height > 20;
 
     private sealed class WindowErrorScope : IDisposable
     {

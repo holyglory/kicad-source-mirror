@@ -18,6 +18,7 @@
  */
 
 #include <boost/test/unit_test.hpp>
+#include <charconv>
 
 #include <qa_utils/wx_utils/unit_test_utils.h>
 #include <schematic_utils/schematic_file_util.h>
@@ -26,8 +27,13 @@
 #include <schematic.h>
 #include <sch_netchain.h>
 #include <sch_sheet.h>
+#include <sch_screen.h>
+#include <sch_symbol.h>
+#include <sch_pin.h>
 #include <settings/settings_manager.h>
 #include <locale_io.h>
+#include <richio.h>
+#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
 
 
 // Regression for [H-1]. CONNECTION_GRAPH::Reset() clears every committed chain's
@@ -48,6 +54,96 @@ struct NETCHAIN_RECALC_REFRESH_FIXTURE
     SETTINGS_MANAGER           m_settingsManager;
     std::unique_ptr<SCHEMATIC> m_schematic;
 };
+
+
+BOOST_FIXTURE_TEST_CASE( NetChain_RenamePreservesUnresolvedDeclaration,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO dummy;
+    KI_TEST::LoadSchematic( m_settingsManager, wxString( "net_chains_four_nets" ), m_schematic );
+    CONNECTION_GRAPH* graph = m_schematic->ConnectionGraph();
+    SCH_SHEET_LIST sheets = m_schematic->BuildSheetListSortedByPageNumbers();
+    graph->Recalculate( sheets, true );
+    BOOST_REQUIRE( !graph->GetPotentialNetChains().empty() );
+    SCH_NETCHAIN* chain = graph->CreateNetChainFromPotential(
+            graph->GetPotentialNetChains().front().get(), "OWNED" );
+    BOOST_REQUIRE( chain );
+    auto overrides = graph->GetNetChainNetClassOverrides();
+    overrides["UNRESOLVED"] = "PreserveRequirement";
+    graph->SetNetChainNetClassOverrides( overrides );
+    const auto before = graph->GetNetChainDefinitions();
+    BOOST_CHECK( !graph->GetNetChainByName( "UNRESOLVED" ) );
+    BOOST_CHECK( !graph->RenameCommittedNetChain( "OWNED", "UNRESOLVED" ) );
+    BOOST_CHECK( graph->GetNetChainDefinitions() == before );
+    for( SCH_SYMBOL* symbol : chain->GetSymbols() )
+        BOOST_CHECK_EQUAL( symbol->GetNetChainName(), "OWNED" );
+    BOOST_REQUIRE( graph->RenameCommittedNetChain( "OWNED", "RENAMED" ) );
+    BOOST_CHECK( graph->GetNetChainDefinitions().at( "UNRESOLVED" ) == before.at( "UNRESOLVED" ) );
+}
+
+
+BOOST_FIXTURE_TEST_CASE( NetChain_RestoreKeepsDeclaredTerminalOrder,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO dummy;
+    KI_TEST::LoadSchematic( m_settingsManager, wxString( "net_chains_four_nets" ), m_schematic );
+    CONNECTION_GRAPH* graph = m_schematic->ConnectionGraph();
+    SCH_SHEET_LIST sheets = m_schematic->BuildSheetListSortedByPageNumbers();
+    graph->Recalculate( sheets, true );
+    BOOST_REQUIRE( !graph->GetPotentialNetChains().empty() );
+    SCH_NETCHAIN* chain = graph->CreateNetChainFromPotential(
+            graph->GetPotentialNetChains().front().get(), "ORDERED" );
+    BOOST_REQUIRE( chain );
+    const KIID pinA = chain->GetTerminalPinB();
+    const KIID pinB = chain->GetTerminalPinA();
+    auto definitions = graph->GetNetChainDefinitions();
+    auto& expected = definitions.at( "ORDERED" );
+    std::swap( expected.terminals.first, expected.terminals.second );
+    graph->SetNetChainDefinitions( definitions );
+    for( int pass = 0; pass < 2; ++pass )
+    {
+        SCH_NETCHAIN* restored = graph->GetNetChainByName( "ORDERED" );
+        BOOST_REQUIRE( restored );
+        BOOST_CHECK( graph->GetNetChainDefinitions().at( "ORDERED" ) == expected );
+        BOOST_CHECK( restored->GetTerminalPinA() == pinA );
+        BOOST_CHECK( restored->GetTerminalPinB() == pinB );
+        graph->Recalculate( sheets, true );
+    }
+}
+
+
+BOOST_FIXTURE_TEST_CASE( NetChain_OpacityWriterPreservesDoublePrecision,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO locale;
+    KI_TEST::LoadSchematic( m_settingsManager, wxString( "net_chains_four_nets" ), m_schematic );
+    CONNECTION_GRAPH* graph = m_schematic->ConnectionGraph();
+    graph->Recalculate( m_schematic->BuildSheetListSortedByPageNumbers(), true );
+    BOOST_REQUIRE( !graph->GetPotentialNetChains().empty() );
+    SCH_NETCHAIN* chain = graph->CreateNetChainFromPotential(
+            graph->GetPotentialNetChains().front().get(), "PRECISION" );
+    BOOST_REQUIRE( chain );
+    for( double alpha : { 0.0, 1.0, 0.5, 128.0 / 255.0, 0.12345678901234567, 1e-30, 1e-200 } )
+    {
+        chain->SetColor( KIGFX::COLOR4D( 51.0 / 255, 102.0 / 255, 153.0 / 255, alpha ) );
+        STRING_FORMATTER formatter;
+        SCH_IO_KICAD_SEXPR writer;
+        writer.FormatSchematicToFormatter( &formatter, m_schematic->GetTopLevelSheet( 0 ), m_schematic.get() );
+        const std::string& text = formatter.GetString();
+        auto declaration = text.find( "(net_chain \"PRECISION\"" );
+        BOOST_REQUIRE( declaration != std::string::npos );
+        const std::string prefix = " (color 51 102 153 ";
+        auto color = text.find( prefix, declaration );
+        BOOST_REQUIRE( color != std::string::npos );
+        auto start = color + prefix.size();
+        auto end = text.find( ')', start );
+        BOOST_REQUIRE( end != std::string::npos );
+        double parsed = -1;
+        auto result = std::from_chars( text.data() + start, text.data() + end, parsed );
+        BOOST_REQUIRE( result.ec == std::errc{} && result.ptr == text.data() + end );
+        BOOST_CHECK_EQUAL( parsed, alpha );
+    }
+}
 
 
 BOOST_FIXTURE_TEST_CASE( NetChain_RefreshCommittedChainAcrossUnconditionalRecalc,
@@ -213,4 +309,82 @@ BOOST_FIXTURE_TEST_CASE( NetChain_RefreshPreservesTerminalPinOverride,
     BOOST_REQUIRE( twice );
     BOOST_CHECK( twice->GetTerminalPinA() == newPinA );
     BOOST_CHECK( twice->GetTerminalPinB() == originalPinB );
+}
+
+BOOST_FIXTURE_TEST_CASE( NetChain_SetTerminalPersistsExactSelectedPin,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO locale;
+    KI_TEST::LoadSchematic( m_settingsManager, wxString( "net_chains_four_nets" ), m_schematic );
+    CONNECTION_GRAPH* graph = m_schematic->ConnectionGraph();
+    BOOST_REQUIRE( graph );
+    SCH_SHEET_LIST sheets = m_schematic->BuildSheetListSortedByPageNumbers();
+    graph->Recalculate( sheets, true );
+    BOOST_REQUIRE( !graph->GetPotentialNetChains().empty() );
+    SCH_NETCHAIN* chain = graph->CreateNetChainFromPotential( graph->GetPotentialNetChains().front().get(), "REAL_TERMINAL" );
+    BOOST_REQUIRE( chain );
+    const KIID originalA = chain->GetTerminalPinA(), originalB = chain->GetTerminalPinB();
+    const wxString oldRef = chain->GetTerminalRef( 0 ), oldNumber = chain->GetTerminalPinNum( 0 );
+    const wxString otherRef = chain->GetTerminalRef( 1 ), otherNumber = chain->GetTerminalPinNum( 1 );
+    SCH_PIN* replacement = nullptr;
+    SCH_SHEET_PATH replacementPath;
+    for( const SCH_SHEET_PATH& path : sheets )
+    {
+        for( SCH_ITEM* item : path.LastScreen()->Items() )
+        {
+            auto* symbol = dynamic_cast<SCH_SYMBOL*>( item );
+            if( !symbol ) continue;
+            for( SCH_PIN* pin : symbol->GetPins() )
+            {
+                auto* connection = pin->Connection( &path );
+                if( !replacement && pin->m_Uuid != originalA && pin->m_Uuid != originalB
+                        && connection && graph->GetNetChainForNet( connection->Name() ) == chain )
+                {
+                    replacement = pin;
+                    replacementPath = path;
+                }
+            }
+        }
+    }
+    BOOST_REQUIRE( replacement );
+    SCH_NETCHAIN_TERMINAL_CHANGE change;
+    change.chain = "REAL_TERMINAL";
+    change.terminal = 0;
+    change.expectedPin = originalA;
+    change.expectedReference = oldRef;
+    change.expectedNumber = oldNumber;
+    change.selectedPin = replacement->m_Uuid;
+    change.selectedPath = replacementPath.Path();
+    auto bad = change; bad.terminal = 2;
+    BOOST_CHECK( !graph->SetNetChainTerminal( bad, *replacement, replacementPath ) );
+    bad = change; bad.expectedPin = KIID();
+    BOOST_CHECK( !graph->SetNetChainTerminal( bad, *replacement, replacementPath ) );
+    bad = change; bad.expectedReference = "unrelated";
+    BOOST_CHECK( !graph->SetNetChainTerminal( bad, *replacement, replacementPath ) );
+    bad = change; bad.selectedPath.push_back( KIID() );
+    BOOST_CHECK( !graph->SetNetChainTerminal( bad, *replacement, replacementPath ) );
+    bad = change; bad.selectedPin = KIID();
+    BOOST_CHECK( !graph->SetNetChainTerminal( bad, *replacement, replacementPath ) );
+    BOOST_CHECK( chain->GetTerminalPinA() == originalA );
+    BOOST_CHECK( chain->GetTerminalRef( 0 ) == oldRef );
+
+    BOOST_REQUIRE( graph->SetNetChainTerminal( change, *replacement, replacementPath ) );
+    const auto definition = graph->GetNetChainDefinitions().at( "REAL_TERMINAL" );
+    const wxString newRef = replacement->GetParentSymbol()->GetRef( &replacementPath );
+    BOOST_CHECK( definition.terminals.first.ref == newRef );
+    BOOST_CHECK( definition.terminals.first.pin == replacement->GetNumber() );
+    BOOST_CHECK( definition.terminals.second.ref == otherRef );
+    BOOST_CHECK( definition.terminals.second.pin == otherNumber );
+    BOOST_CHECK( !graph->SetNetChainTerminal( change, *replacement, replacementPath ) ); // stale
+    change.expectedPin = replacement->m_Uuid; change.expectedReference = newRef;
+    change.expectedNumber = replacement->GetNumber();
+    BOOST_CHECK( !graph->SetNetChainTerminal( change, *replacement, replacementPath ) ); // unchanged
+    const KIID newId = replacement->m_Uuid;
+    graph->Recalculate( sheets, true );
+    chain = graph->GetNetChainByName( "REAL_TERMINAL" );
+    BOOST_REQUIRE( chain );
+    BOOST_CHECK( chain->GetTerminalPinA() == newId );
+    BOOST_CHECK( chain->GetTerminalPinB() == originalB );
+    BOOST_CHECK( chain->GetTerminalRef( 0 ) == newRef );
+    BOOST_CHECK( graph->GetNetChainDefinitions().at( "REAL_TERMINAL" ).terminals.first.ref == newRef );
 }

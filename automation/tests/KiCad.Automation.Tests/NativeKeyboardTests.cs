@@ -32,4 +32,16 @@ public sealed class NativeKeyboardTests
         foreach (byte request in new byte[] { 4, 8, 12, 42, 132 })
             Assert.IsFalse(NativeKeyboard.IsWindowEnumerationRace(3, request));
     }
+
+    [TestMethod]
+    public void PopupReadinessExcludesHiddenMenusDialogsAndGrabWindows()
+    {
+        Assert.IsTrue(NativeKeyboard.IsVisiblePopup(2, 1, 334, 589));
+        Assert.IsTrue(NativeKeyboard.IsVisiblePopup(2, 1, 223, 133));
+        Assert.IsFalse(NativeKeyboard.IsVisiblePopup(0, 1, 334, 589));
+        Assert.IsFalse(NativeKeyboard.IsVisiblePopup(1, 1, 334, 589));
+        Assert.IsFalse(NativeKeyboard.IsVisiblePopup(2, 0, 334, 589));
+        Assert.IsFalse(NativeKeyboard.IsVisiblePopup(2, 1, 10, 10));
+        Assert.IsFalse(NativeKeyboard.IsVisiblePopup(2, 1, 334, 10));
+    }
 }

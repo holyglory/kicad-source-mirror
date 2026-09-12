@@ -1584,6 +1584,49 @@ requires = ["native-build"]
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeTableVariant", "--logger", "trx", "--results-directory", "automation/artifacts/native-table-variant-results"]
 retained_artifacts = [{ name = "native-table-evidence", path = "automation/artifacts/native-table-variants/native-session-current", max_bytes = 33554432 }]
 
+[test.native-net-chains]
+timeout_seconds = 1800
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.native-net-chains.check]]
+name = "managed-build"
+tier = "development"
+role = "preflight"
+invalidates = ["input-contracts", "native-build", "native-chains"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.native-net-chains.check]]
+name = "configure"
+tier = "development"
+role = "preflight"
+invalidates = ["native-build", "native-chains"]
+command = ["cmake", "-S", ".", "-B", "automation/artifacts/native", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug", "-DKICAD_USE_CMAKE_FINDPROTOBUF=ON", "-DKICAD_BUILD_QA_TESTS=ON"]
+
+[[test.native-net-chains.check]]
+name = "input-contracts"
+tier = "development"
+role = "preflight"
+invalidates = ["native-chains"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NativeKeyboardTests", "--logger", "trx", "--results-directory", "automation/artifacts/native-input-results"]
+
+[[test.native-net-chains.check]]
+name = "native-build"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "kicad", "kicad-cli", "eeschema_kiface", "pcbnew_kiface", "cvpcb_kiface", "schema_build_copy", "api_schema_build_copy", "bitmap_archive_build", "qa_symbol_graphic_identity"]
+
+[[test.native-net-chains.check]]
+name = "native-terminal-contracts"
+tier = "development"
+requires = ["native-build"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_net_chain_terminals$", "--output-on-failure", "--no-tests=error"]
+
+[[test.native-net-chains.check]]
+name = "native-chains"
+tier = "development"
+requires = ["native-build"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeNetChains", "--logger", "trx", "--results-directory", "automation/artifacts/native-net-chain-results"]
+retained_artifacts = [{ name = "native-chain-evidence", path = "automation/artifacts/native-net-chains/native-session-current", max_bytes = 33554432 }]
+
 [test.mac-runtime-contracts]
 timeout_seconds = 600
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t", KICAD_TEST_NNG_LIBRARY = "/usr/lib/x86_64-linux-gnu/libnng.so" }

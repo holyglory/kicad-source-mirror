@@ -3625,6 +3625,7 @@ void CONNECTION_GRAPH::RebuildNetChains()
 
         // Build ref+pin → net lookup from current schematic
         std::map<std::pair<wxString, wxString>, wxString> refPinToNet;
+        std::map<std::pair<wxString, wxString>, KIID> refPinToPin;
 
         for( const SCH_SHEET_PATH& sp : m_sheetList )
         {
@@ -3648,6 +3649,7 @@ void CONNECTION_GRAPH::RebuildNetChains()
                         // both-endpoint matching.
                         refPinToNet[{ ref, pin->GetNumber() }] =
                                 netChainKeyFor( sg->GetNetName(), sg->m_code );
+                        refPinToPin[{ ref, pin->GetNumber() }] = pin->m_Uuid;
                     }
                 }
             }
@@ -3675,6 +3677,15 @@ void CONNECTION_GRAPH::RebuildNetChains()
             if( !match )
                 continue;
 
+            // A potential's endpoint order is derived from screen iteration,
+            // not from the persisted From/To declaration. Save/reload can
+            // change that order; keep the explicitly declared endpoints.
+            const CHAIN_TERMINAL_REFS declared = termRefs;
+            auto pinA = refPinToPin.find( { declared.first.ref, declared.first.pin } );
+            auto pinB = refPinToPin.find( { declared.second.ref, declared.second.pin } );
+            if( pinA != refPinToPin.end() && pinB != refPinToPin.end() )
+                m_netChainTerminalOverrides.try_emplace( chainName, pinA->second, pinB->second );
+
             if( alreadyCommitted.count( chainName ) )
             {
                 auto it = committedByName.find( chainName );
@@ -3688,7 +3699,13 @@ void CONNECTION_GRAPH::RebuildNetChains()
                 continue;
             }
 
-            CreateNetChainFromPotential( match, chainName );
+            SCH_NETCHAIN* restored = CreateNetChainFromPotential( match, chainName );
+            if( !restored ) continue;
+            if( auto pins = m_netChainTerminalOverrides.find( chainName ); pins != m_netChainTerminalOverrides.end() )
+                restored->SetTerminalPins( pins->second.first, pins->second.second );
+            restored->SetTerminalRefs( declared.first.ref, declared.first.pin,
+                                       declared.second.ref, declared.second.pin );
+            m_netChainTerminalRefOverrides[chainName] = declared;
             alreadyCommitted.insert( chainName );
             refreshedThisPass.insert( chainName );
         }
@@ -3996,9 +4013,9 @@ bool CONNECTION_GRAPH::RenameCommittedNetChain( const wxString& aOld, const wxSt
     if( !existing )
         return false;
 
-    // Reject collisions: if some other committed chain already owns aNew, don't
-    // silently merge them.
-    if( findByName( aNew ) )
+    // A declaration whose endpoints cannot currently be resolved still owns
+    // its name. Rekeying into it would overwrite its electrical requirements.
+    if( GetNetChainDefinitions().contains( aNew ) )
         return false;
 
     existing->SetName( aNew );
@@ -4078,7 +4095,18 @@ void CONNECTION_GRAPH::refreshCommittedChainPayload( SCH_NETCHAIN* aTarget,
     else
         aTarget->SetTerminalPins( aTerminalPinA, aTerminalPinB );
 
-    aTarget->SetTerminalRefs( aRefA, aPinNumA, aRefB, aPinNumB );
+    // An explicitly retargeted pin has a persisted reference as well as a
+    // runtime UUID. Keep that declared endpoint when refreshing the inferred
+    // potential; otherwise saving after recalculation loses the user's edit.
+    auto refOverride = m_netChainTerminalRefOverrides.find( aTarget->GetName() );
+    if( termOverride != m_netChainTerminalOverrides.end()
+            && refOverride != m_netChainTerminalRefOverrides.end() )
+    {
+        const auto& refs = refOverride->second;
+        aTarget->SetTerminalRefs( refs.first.ref, refs.first.pin, refs.second.ref, refs.second.pin );
+    }
+    else
+        aTarget->SetTerminalRefs( aRefA, aPinNumA, aRefB, aPinNumB );
 
     for( SCH_SYMBOL* sym : aTarget->GetSymbols() )
         sym->SetNetChainName( aTarget->GetName() );
@@ -4329,6 +4357,46 @@ void CONNECTION_GRAPH::ReplaceNetChainTerminalPin( const wxString& aNetChain, co
     }
 }
 
+
+bool CONNECTION_GRAPH::SetNetChainTerminal( const SCH_NETCHAIN_TERMINAL_CHANGE& aChange,
+                                          const SCH_PIN& aPin, const SCH_SHEET_PATH& aPath )
+{
+    if( !m_schematic || aChange.terminal < 0 || aChange.terminal > 1 || aChange.selectedPin != aPin.m_Uuid
+            || aChange.selectedPath != aPath.Path() || !aPath.LastScreen() || !aPin.GetParentSymbol() )
+        return false;
+    bool loaded = false;
+    for( const SCH_SHEET_PATH& path : m_schematic->Hierarchy() )
+        if( path.Path() == aPath.Path() && path.LastScreen() == aPath.LastScreen() ) loaded = true;
+    if( !loaded || aPin.GetParentSymbol()->Schematic() != m_schematic ) return false;
+    bool owned = false;
+    for( SCH_ITEM* item : aPath.LastScreen()->Items() )
+        if( item == aPin.GetParentSymbol() ) owned = true;
+    SCH_CONNECTION* connection = aPin.Connection( &aPath );
+    SCH_NETCHAIN* chain = GetNetChainByName( aChange.chain );
+    if( !owned || !connection || !chain || GetNetChainForNet( connection->Name() ) != chain )
+        return false;
+    const int index = aChange.terminal;
+    const KIID& prior = index == 0 ? chain->GetTerminalPinA() : chain->GetTerminalPinB();
+    if( prior != aChange.expectedPin || chain->GetTerminalRef( index ) != aChange.expectedReference
+            || chain->GetTerminalPinNum( index ) != aChange.expectedNumber )
+        return false;
+    wxString reference = aPin.GetParentSymbol()->GetRef( &aPath );
+    wxString number = aPin.GetNumber();
+    if( reference.IsEmpty() || number.IsEmpty()
+            || ( prior == aPin.m_Uuid && reference == aChange.expectedReference && number == aChange.expectedNumber ) )
+        return false;
+
+    auto pins = std::make_pair( chain->GetTerminalPinA(), chain->GetTerminalPinB() );
+    CHAIN_TERMINAL_REFS refs{ { chain->GetTerminalRef( 0 ), chain->GetTerminalPinNum( 0 ) },
+                              { chain->GetTerminalRef( 1 ), chain->GetTerminalPinNum( 1 ) } };
+    ( index == 0 ? pins.first : pins.second ) = aPin.m_Uuid;
+    ( index == 0 ? refs.first : refs.second ) = { reference, number };
+    chain->SetTerminalPins( pins.first, pins.second );
+    chain->SetTerminalRefs( refs.first.ref, refs.first.pin, refs.second.ref, refs.second.pin );
+    m_netChainTerminalOverrides[aChange.chain] = pins;
+    m_netChainTerminalRefOverrides[aChange.chain] = refs;
+    return true;
+}
 
 void CONNECTION_GRAPH::SetNetChainTerminalOverrides( const std::map<wxString,
                                                 std::pair<KIID, KIID>>& aOverrides )

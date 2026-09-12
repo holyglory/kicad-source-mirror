@@ -1289,26 +1289,31 @@ int SCH_EDITOR_CONTROL::RemoveFromNetChain( const TOOL_EVENT& aEvent )
     KIGFX::VIEW_CONTROLS* controls  = getViewControls();
     VECTOR2D              cursorPos = controls->GetCursorPosition( !aEvent.DisableGridSnapping() );
 
-    SCH_ITEM* target = nullptr;
-
-    // Prefer current selection; otherwise, use item under cursor
-    if( selTool && selTool->GetSelection().GetSize() == 1 )
-        target = static_cast<SCH_ITEM*>( selTool->GetSelection().Front() );
-    else if( selTool )
-        target = static_cast<SCH_ITEM*>( selTool->GetNode( cursorPos ) );
-
-    if( !target )
-        return 0;
-
-    SCH_CONNECTION* conn = target->Connection();
-    if( !conn )
-        return 0;
-
     SCHEMATIC& schematic = editFrame->Schematic();
     SCH_SCREEN* screen = editFrame->GetCurrentSheet().LastScreen();
+    CONNECTION_GRAPH* graph = schematic.ConnectionGraph();
+    if( !screen || !graph ) return 0;
+
+    std::set<wxString> selectedNets;
+    auto addTarget = [&]( SCH_ITEM* target )
+    {
+        SCH_CONNECTION* connection = target ? target->Connection( &editFrame->GetCurrentSheet() ) : nullptr;
+        if( connection && graph->GetNetChainForNet( connection->Name() ) )
+            selectedNets.insert( connection->Name() );
+    };
+    // The menu accepts multiple selected pins. Never fall back to an unrelated
+    // cursor item when an explicit selection was supplied.
+    if( selTool && !selTool->GetSelection().Empty() )
+    {
+        for( EDA_ITEM* item : selTool->GetSelection() )
+            addTarget( dynamic_cast<SCH_ITEM*>( item ) );
+    }
+    else if( selTool )
+        addTarget( static_cast<SCH_ITEM*>( selTool->GetNode( cursorPos ) ) );
+    if( selectedNets.empty() ) return 0;
 
     // Find any 2-pin symbols that bridge this connection's net into another net and disable propagation
-    int disabled = 0;
+    std::set<SCH_SYMBOL*> bridges;
 
     for( SCH_ITEM* item : screen->Items().OfType( SCH_SYMBOL_T ) )
     {
@@ -1329,28 +1334,23 @@ int SCH_EDITOR_CONTROL::RemoveFromNetChain( const TOOL_EVENT& aEvent )
 
         // If either side matches the selected net and the other side is a different net,
         // this symbol is bridging the selected net into its chain.
-        if( ( ca->Name() == conn->Name() && cb->Name() != conn->Name() )
-            || ( cb->Name() == conn->Name() && ca->Name() != conn->Name() ) )
+        if( ca->Name() != cb->Name()
+            && ( selectedNets.contains( ca->Name() ) || selectedNets.contains( cb->Name() ) ) )
         {
             if( symbol->GetPassthroughMode() != SCH_SYMBOL::PASSTHROUGH_MODE::BLOCK )
-            {
-                symbol->SetPassthroughMode( SCH_SYMBOL::PASSTHROUGH_MODE::BLOCK );
-                disabled++;
-            }
+                bridges.insert( symbol );
         }
     }
 
-    if( disabled > 0 )
+    if( !bridges.empty() )
     {
-        // Rebuild connectivity/chains so the change takes effect
-        CONNECTION_GRAPH* graph = schematic.ConnectionGraph();
-        if( graph )
-        {
-            wxLogTrace( "KICAD_SCH_HIGHLIGHT", "RemoveFromNetChain: disabled=%d, rebuilding chains", disabled );
-            SCH_SHEET_LIST sheets = schematic.Hierarchy();
-            graph->Recalculate( sheets, /*aUnconditional=*/true );
-            m_frame->GetCanvas()->Refresh();
-        }
+        SCH_COMMIT commit( editFrame );
+        if( !commit.StageNetChainEdit( bridges ) ) return 0;
+        for( SCH_SYMBOL* symbol : bridges )
+            symbol->SetPassthroughMode( SCH_SYMBOL::PASSTHROUGH_MODE::BLOCK );
+        commit.Push( _( "Remove from Net Chain" ) );
+        editFrame->UpdateNetHighlightStatus();
+        editFrame->GetCanvas()->Refresh();
     }
 
     return 0;
@@ -1828,15 +1828,20 @@ int SCH_EDITOR_CONTROL::HighlightNetCursor( const TOOL_EVENT& aEvent )
 int SCH_EDITOR_CONTROL::ReplaceTerminalPin( const TOOL_EVENT& aEvent )
 {
     SCH_EDIT_FRAME* editFrame = static_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
-    auto ids = aEvent.Parameter<std::pair<wxString, wxString>>();
-    wxString oldStr = ids.first;
-    wxString newStr = ids.second;
-    KIID oldPin( oldStr );
-    KIID newPin( newStr );
-    wxString sig = editFrame->GetHighlightedNetChain();
-
-    if( !sig.IsEmpty() )
-        editFrame->Schematic().ConnectionGraph()->ReplaceNetChainTerminalPin( sig, oldPin, newPin );
+    const auto change = aEvent.Parameter<SCH_NETCHAIN_TERMINAL_CHANGE>();
+    const auto& selection = m_toolMgr->GetTool<SCH_SELECTION_TOOL>()->GetSelection();
+    if( selection.GetSize() != 1 ) return 0;
+    auto* pin = dynamic_cast<SCH_PIN*>( selection.Front() );
+    if( !pin || pin->m_Uuid != change.selectedPin || editFrame->GetCurrentSheet().Path() != change.selectedPath )
+        return 0;
+    auto* graph = editFrame->Schematic().ConnectionGraph();
+    if( !graph ) return 0;
+    SCH_COMMIT commit( editFrame );
+    if( commit.StageNetChainEdit( {} ) && graph->SetNetChainTerminal( change, *pin, editFrame->GetCurrentSheet() ) )
+    {
+        commit.Push( _( "Replace terminal pin" ) );
+        editFrame->UpdateNetHighlightStatus();
+    }
 
     return 0;
 }
@@ -1860,7 +1865,29 @@ int SCH_EDITOR_CONTROL::NameNetChain( const TOOL_EVENT& aEvent )
 
         if( !newName.IsEmpty() && newName != sig->GetName() )
         {
-            sig->SetName( newName );
+            if( !SCH_NETCHAIN::IsValidName( newName ) )
+            {
+                DisplayError( editFrame, _( "Chain name cannot contain spaces, quotes, or parentheses." ) );
+                return 0;
+            }
+            if( graph->GetNetChainByName( newName ) || graph->GetNetChainDefinitions().contains( newName ) )
+            {
+                DisplayError( editFrame, wxString::Format( _( "A net chain named '%s' already exists." ), newName ) );
+                return 0;
+            }
+            wxString oldName = sig->GetName();
+            const auto& members = sig->GetSymbols();
+            SCH_COMMIT commit( editFrame );
+            if( !commit.StageNetChainEdit( std::set<SCH_SYMBOL*>( members.begin(), members.end() ) )
+                    || !graph->RenameCommittedNetChain( oldName, newName ) )
+                return 0;
+            if( auto settings = editFrame->Prj().GetProjectFile().NetSettings() )
+            {
+                wxString chainClass = settings->GetNetChainClass( oldName );
+                settings->SetNetChainClass( oldName, wxEmptyString );
+                settings->SetNetChainClass( newName, chainClass );
+            }
+            commit.Push( _( "Name Net Chain" ) );
 
             editFrame->SetHighlightedNetChain( newName );
             TOOL_EVENT dummy;
@@ -1949,8 +1976,23 @@ int SCH_EDITOR_CONTROL::CreateNetChainBetweenPins( const TOOL_EVENT& aEvent )
         return 0; // cancelled
     }
 
+    if( !SCH_NETCHAIN::IsValidName( name ) )
+    {
+        DisplayError( editFrame, _( "Chain name cannot contain spaces, quotes, or parentheses." ) );
+        return 0;
+    }
+    if( graph->GetNetChainByName( name ) || graph->GetNetChainDefinitions().contains( name ) )
+    {
+        DisplayError( editFrame, wxString::Format( _( "A net chain named '%s' already exists." ), name ) );
+        return 0;
+    }
+    const auto& members = potential->GetSymbols();
+    SCH_COMMIT commit( editFrame );
+    if( !commit.StageNetChainEdit( std::set<SCH_SYMBOL*>( members.begin(), members.end() ) ) )
+        return 0;
     if( graph->CreateNetChainFromPotential( potential, name ) )
     {
+        commit.Push( _( "Create Net Chain" ) );
         // Replace temporary highlight with new chain name
         editFrame->SetHighlightedNetChain( name );
         editFrame->SetHighlightedConnection( wxEmptyString );

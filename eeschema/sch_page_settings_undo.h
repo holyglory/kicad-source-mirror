@@ -17,6 +17,8 @@
 #include <sch_painter.h>
 #include <api/api_sch_formatting.h>
 #include <api/api_sch_erc_settings.h>
+#include <project/project_file.h>
+#include <project/net_settings.h>
 
 // A page dialog can export settings to several screens. Keep the native
 // worksheet snapshot plus each screen's exact identity and page/title state;
@@ -35,6 +37,8 @@ public:
         m_ercPolicy.clear_exclusions(); // marker undo owns exclusion flags and added markers
         m_currentVariant = aFrame->Schematic().GetCurrentVariant();
         m_netChains = aFrame->Schematic().ConnectionGraph()->GetNetChainDefinitions();
+        if( auto settings = aFrame->Prj().GetProjectFile().NetSettings() )
+            m_netChainClasses = settings->GetNetChainClasses();
         for( const auto& alias : aFrame->Schematic().GetAllBusAliases() )
             m_busAliases.push_back( alias->Clone() );
         for( const SCH_SHEET_PATH& path : aFrame->Schematic().Hierarchy() )
@@ -67,7 +71,15 @@ public:
         else if( m_restoreVariantDescriptions )
             ApplyVariantDescriptions( aFrame, m_variantDescriptions );
         if( m_restoreNetChains )
+        {
             aFrame->Schematic().ConnectionGraph()->SetNetChainDefinitions( m_netChains );
+            if( auto settings = aFrame->Prj().GetProjectFile().NetSettings(); settings && m_netChainClasses )
+            {
+                settings->ClearNetChainClasses();
+                for( const auto& [name, value] : *m_netChainClasses )
+                    settings->SetNetChainClass( name, value );
+            }
+        }
         if( m_restoreDrawingRatios )
             ApplyDrawingRatios( aFrame, m_drawingRatios );
         if( m_restoreFormatting )
@@ -232,6 +244,7 @@ private:
     SCH_ERC_SETTINGS::MESSAGE m_ercPolicy;
     std::array<double, 5> m_drawingRatios;
     std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION> m_netChains;
+    std::optional<std::map<wxString, wxString>> m_netChainClasses;
     std::map<KIID, std::optional<SCH_SHEET_INSTANCE>> m_roots;
 };
 

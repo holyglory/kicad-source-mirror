@@ -450,7 +450,7 @@ static bool addCreateNetChainBetweenPinsIfApplicable( NET_CHAIN_MENU* aMenu, SCH
 
     CONNECTION_GRAPH* graph = aFrame->Schematic().ConnectionGraph();
 
-    if( graph->FindPotentialNetChainBetweenPins( pa, pb ) )
+    if( graph->FindPotentialNetChainBetweenPins( pa, aFrame->GetCurrentSheet(), pb, aFrame->GetCurrentSheet() ) )
     {
         wxString label = wxString::Format( _( "Create Net Chain between %s:%s and %s:%s" ),
                                            pa->GetParentSymbol()->GetRef( &aFrame->GetCurrentSheet() ), pa->GetNumber(),

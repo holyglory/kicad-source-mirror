@@ -1132,6 +1132,7 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicItemBatchResult> API_HANDLER_SCH:
                 if( known.ByteSizeLong() != desired.ByteSizeLong() )
                     return reject( prefix + "Net chains contain unsupported fields" );
                 std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION> definitions;
+                const auto current = schematic()->ConnectionGraph()->GetNetChainDefinitions();
                 for( const auto& packed : desired.definitions() )
                 {
                     wxString name = wxString::FromUTF8( packed.name() );
@@ -1164,8 +1165,32 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicItemBatchResult> API_HANDLER_SCH:
                                 || !definition.memberNets.insert( net ).second )
                             return reject( prefix + "Net chain member nets must be unique nonempty persisted names" );
                     }
+                    if( auto prior = current.find( name ); prior != current.end()
+                        && ( !prior->second.excludedNets.empty() || !prior->second.excludedPins.empty() ) && !packed.has_exclusions() )
+                        return reject( prefix + "Existing removal restrictions require an explicit supported representation" );
+                    for( const auto& value : packed.exclusions().net_names() )
+                    {
+                        wxString net = wxString::FromUTF8( value );
+                        if( net.IsEmpty() || !noNul( value ) || net.StartsWith( SCH_NETCHAIN::SYNTHETIC_NET_PREFIX )
+                            || definition.memberNets.contains( net ) || !definition.excludedNets.insert( net ).second )
+                            return reject( prefix + "Excluded net names must be unique persisted names disjoint from retained members" );
+                    }
+                    auto validId = []( const std::string& id )
+                    { return id.size() == 36 && KIID( id ) != niluuid && KIID( id ).AsStdString() == id; };
+                    for( const auto& anchor : packed.exclusions().pins() )
+                    {
+                        if( !validId( anchor.pin().value() ) || anchor.path().path().empty() )
+                            return reject( prefix + "Excluded pins require exact nonempty UUIDs and sheet paths" );
+                        KIID_PATH path;
+                        for( const auto& id : anchor.path().path() )
+                        {
+                            if( !validId( id.value() ) ) return reject( prefix + "Excluded pin sheet path contains an invalid UUID" );
+                            path.push_back( KIID( id.value() ) );
+                        }
+                        if( !definition.excludedPins.emplace( path, KIID( anchor.pin().value() ) ).second )
+                            return reject( prefix + "Excluded pin identities must be unique" );
+                    }
                 }
-                const auto current = schematic()->ConnectionGraph()->GetNetChainDefinitions();
                 bool equal = current.size() == definitions.size() && std::equal( current.begin(), current.end(), definitions.begin(),
                     []( const auto& a, const auto& b )
                     {
@@ -1173,7 +1198,8 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicItemBatchResult> API_HANDLER_SCH:
                         return a.first == b.first && x.terminals.first.ref == y.terminals.first.ref
                                 && x.terminals.first.pin == y.terminals.first.pin && x.terminals.second.ref == y.terminals.second.ref
                                 && x.terminals.second.pin == y.terminals.second.pin && x.netClass == y.netClass
-                                && x.color == y.color && x.memberNets == y.memberNets;
+                                && x.color == y.color && x.memberNets == y.memberNets && x.excludedNets == y.excludedNets
+                                && x.excludedPins == y.excludedPins;
                     } );
                 if( !equal )
                 {
@@ -1513,7 +1539,7 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicOperationReceipt> API_HANDLER_SCH
 
 std::optional<ApiResponseStatus> API_HANDLER_SCH::validateSnapshotSchema( uint32_t aVersion )
 {
-    if( aVersion <= 3 ) return std::nullopt;
+    if( aVersion <= 4 ) return std::nullopt;
     ApiResponseStatus error;
     error.set_status( ApiStatusCode::AS_BAD_REQUEST );
     error.set_error_message( "Unsupported schematic snapshot schema version" );
@@ -1534,6 +1560,11 @@ void API_HANDLER_SCH::projectSnapshotSchema(
         aMetadata.clear_net_chain_classes();
         aMetadata.add_unrepresented_state( "net_chain_classes_require_snapshot_schema_3" );
     }
+    if( aVersion < 4 && !aMetadata.net_chains().empty() )
+    {
+        for( auto& chain : *aMetadata.mutable_net_chains() ) chain.clear_exclusions();
+        aMetadata.add_unrepresented_state( "net_chain_exclusions_require_snapshot_schema_4" );
+    }
 }
 
 
@@ -1546,7 +1577,7 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicObservation> API_HANDLER_SCH::han
     query.ClientName = aCtx.ClientName;
     query.Request.mutable_document()->CopyFrom( aCtx.Request.document() );
     // Compare full current state across rendering, even for legacy clients.
-    query.Request.set_schema_version( 3 );
+    query.Request.set_schema_version( 4 );
     auto before = handleReadScreenData( query );
     if( !before )
         return tl::unexpected( before.error() );
@@ -1695,7 +1726,7 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicElectricalState> API_HANDLER_SCH:
     HANDLER_CONTEXT<ReadSchematicHierarchyData> query;
     query.ClientName = aCtx.ClientName;
     query.Request.mutable_document()->CopyFrom( aCtx.Request.document() );
-    query.Request.set_schema_version( 3 );
+    query.Request.set_schema_version( 4 );
     auto before = handleReadHierarchyData( query );
     if( !before ) return tl::unexpected( before.error() );
     if( aCtx.Request.has_expected_revision()
@@ -1909,6 +1940,14 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicMetadataSnapshot> API_HANDLER_SCH
             for( const wxString& net : definition.memberNets )
                 chain.add_member_nets( net.ToUTF8() );
             chain.set_committed( definition.committed );
+            auto* exclusions = chain.mutable_exclusions();
+            for( const wxString& net : definition.excludedNets ) exclusions->add_net_names( net.ToUTF8() );
+            for( const auto& [path, pin] : definition.excludedPins )
+            {
+                auto* anchor = exclusions->add_pins();
+                anchor->mutable_pin()->set_value( pin.AsStdString() );
+                for( const KIID& id : path ) anchor->mutable_path()->add_path()->set_value( id.AsStdString() );
+            }
         }
     }
 

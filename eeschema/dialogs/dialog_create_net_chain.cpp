@@ -389,7 +389,7 @@ void DIALOG_CREATE_NET_CHAIN::OnFindPathClicked( wxCommandEvent& aEvent )
     {
         for( SCH_PIN* pinB : toPins )
         {
-            SCH_NETCHAIN* chain = graph->FindPotentialNetChainBetweenPins( pinA, pinB );
+            SCH_NETCHAIN* chain = graph->FindPotentialNetChainBetweenPins( pinA, fromSheet, pinB, toSheet );
 
             if( chain && !seenChains.count( chain ) )
             {

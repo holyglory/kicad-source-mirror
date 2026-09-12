@@ -1037,10 +1037,16 @@ survive reload; the color picker exposes opacity and preserves unchanged values.
 Run the `native-net-chains` development graph in an isolated build worktree to repeat
 this journey. Its focused pass is not whole-project or native-Mac qualification.
 
-The removal action now records the exact selected bridge propagation changes in
-Undo history, including multi-pin selections. Its promised committed-membership
-removal still needs repair (`peb6785f04af5b15c`); do not treat the bridge-setting test
-as proof of that outcome. All-page Schematic Setup cancellation
+The development removal action records explicit removed-member restrictions,
+including exact placed-pin UUIDs and sheet-instance paths. It subtracts the
+selected electrical net and blocks adjacent propagation without rewiring the
+circuit. If the original path or endpoints no longer resolve, the declaration
+stays uncommitted with its original endpoints and class intent; it does not guess
+new endpoints or revive membership from a saved-net fallback. Native tests cover
+label renames, splits/merges and shared-screen instance isolation; rendered tests
+cover terminal, interior, multi-pin and manual no-bridge removals with save/reload
+and Undo/Redo. Full integration remains tracked under `peb6785f04af5b15c`.
+All-page Schematic Setup cancellation
 (`pef184f5d6044415b`) also remains open in the Coordinator ledger.
 These source changes are not yet part of the public downloads.
 
@@ -1062,6 +1068,9 @@ explicit coverage gap and no unknown class fields; absent state never means an
 instruction to clear the registry. These are KiCad net-chain groups, not the
 separate inheritable component-guidance classes. Broader integration and platform
 qualification remain distinct from this focused Linux evidence.
+Snapshot schema 4 adds presence-aware chain exclusions. Earlier schemas omit
+those fields with an explicit coverage gap; an older/incomplete replacement
+cannot clear existing restrictions by leaving the exclusion field out.
 
 The net-chain coverage gap remains until complete identity and electrical-change
 restoration are qualified; this is not proof of full schematic reconstruction.
@@ -1074,10 +1083,10 @@ checks payload preservation, native legacy-checksum migration, repeated-sheet
 metadata and the compiled MCP round trip.
 Metadata also distinguishes `loaded_native_format_version` (the version read
 from disk; zero means unknown) from `writer_native_format_version` (this build's
-save format). Native tests pin the latter to fork version `20260907` and preserve both through
+save format). Native tests pin the latter to fork version `20260912` and preserve both through
 typed XML and compiled MCP. These are provenance fields, not editable settings
 or proof of complete serializer compatibility. Item planning rejects a loaded
-or writer version above the supported `20260907` ceiling, and a loaded version
+or writer version above the supported `20260912` ceiling, and a loaded version
 above a declared nonzero writer version. The native journey checks that ceiling
 against the actual writer. Read-only typed XML still preserves newer provenance
 for inspection. Zero-version legacy DTO plans remain inspectable but are not
@@ -1503,8 +1512,10 @@ live ownership while retaining its original membership for undo, so the same
 batch can transfer survivors into an existing or newly created group. Tests cover
 rollback, retries, undo/redo, persistence and reversing that transfer to recreate
 the original groups. Complete group/hierarchy qualification remains open.
-The fork's `20260907` schematic and symbol-library format persists UUIDs for
-symbol-definition graphics, text, and library-owned pins. This is a local format extension, not an
+The fork introduced schematic and symbol-library UUID persistence in `20260907` for
+symbol-definition graphics, text, and library-owned pins. Schematic format
+`20260912` additionally persists explicit chain exclusions and pin/path anchors;
+the symbol-library version remains `20260907`. These are local format extensions, not an
 upstream upgrade. Older files without those IDs remain readable; older KiCad
 readers may reject newly saved files. Group persistence checks compare complete
 screen snapshots, including symbol graphics, without dropping identities.

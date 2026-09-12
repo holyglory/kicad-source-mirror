@@ -13,6 +13,7 @@
 #include <mmh3_hash.h>
 #include <api/api_utils.h>
 #include <api/api_sch_symbol_definition.h>
+#include <api/api_sch_utils.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr_lib_cache.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr_parser.h>
@@ -25,6 +26,12 @@
 #include <vector>
 #include <limits>
 #include <utility>
+#include <schematic_utils/schematic_file_util.h>
+#include <settings/settings_manager.h>
+#include <locale_io.h>
+#include <reporter.h>
+#include <connection_graph.h>
+#include <sstream>
 
 namespace
 {
@@ -71,6 +78,102 @@ struct TEMP_LIBRARY
 }
 
 BOOST_AUTO_TEST_SUITE( SymbolApiSemantics )
+
+BOOST_AUTO_TEST_CASE( ImplicitAndNamedBodyStylesRetainNativeCacheIdentity )
+{
+    for( int mode = 0; mode < 3; ++mode )
+    {
+        LIB_SYMBOL library( "BodyStyles" );
+        library.SetLibId( LIB_ID( "Automation", "BodyStyles" ) );
+        if( mode == 1 ) library.SetHasDeMorganBodyStyles( true );
+        if( mode == 2 ) library.SetBodyStyleNames( { "Compact", "Detailed" } );
+        SchematicSymbol definition;
+        PackSymbolDefinition( definition, library );
+        auto restored = UnpackSymbolDefinition( definition );
+        BOOST_REQUIRE( restored );
+        BOOST_CHECK( restored->GetBodyStyleNames() == library.GetBodyStyleNames() );
+        BOOST_CHECK_EQUAL( restored->HasDeMorganBodyStyles(), library.HasDeMorganBodyStyles() );
+        BOOST_CHECK_EQUAL( restored->GetBodyStyleCount(), library.GetBodyStyleCount() );
+        BOOST_CHECK( library == *restored );
+        SchematicSymbol repacked; PackSymbolDefinition( repacked, *restored );
+        BOOST_CHECK_EQUAL( definition.SerializeAsString(), repacked.SerializeAsString() );
+    }
+}
+
+BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpdate )
+{
+    LOCALE_IO locale;
+    SETTINGS_MANAGER settings;
+    std::unique_ptr<SCHEMATIC> schematic;
+    KI_TEST::LoadSchematic( settings, "net_chains_four_nets", schematic );
+    for( int pass = 0; pass < 2; ++pass )
+    {
+        if( pass != 0 )
+        {
+            const KIID rootInstance = schematic->GetTopLevelSheet( 0 )->m_Uuid;
+            STRING_FORMATTER formatter;
+            SCH_IO_KICAD_SEXPR writer;
+            writer.FormatSchematicToFormatter( &formatter, schematic->GetTopLevelSheet( 0 ), schematic.get() );
+            std::istringstream input( formatter.GetString() );
+            auto reopened = KI_TEST::ReadSchematicFromStream( input, &schematic->Project() );
+            BOOST_REQUIRE( reopened );
+            // The stream fixture has no project manifest to supply its root
+            // instance identity. Reuse the explicitly saved instance, not the
+            // separately persisted screen UUID or a generated replacement.
+            const_cast<KIID&>( reopened->GetTopLevelSheet( 0 )->m_Uuid ) = rootInstance;
+            reopened->RefreshHierarchy();
+            schematic = std::move( reopened );
+        }
+        for( const SCH_SHEET_PATH& path : schematic->Hierarchy() )
+        {
+          std::vector<SCH_SYMBOL*> symbols;
+          for( SCH_ITEM* item : path.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
+              symbols.push_back( static_cast<SCH_SYMBOL*>( item ) );
+          for( SCH_SYMBOL* symbol : symbols )
+          {
+            google::protobuf::Any packed;
+            SchematicSymbolInstance message;
+            BOOST_REQUIRE( PackSymbol( &message, symbol, path ) );
+            const LIB_ID originalDefinitionId = symbol->GetLibSymbolRef()->GetLibId();
+            const wxString originalCacheKey = symbol->GetSchSymbolLibraryName();
+            auto describeCache = [&]( const char* phase )
+            {
+                auto cached = path.LastScreen()->GetLibSymbols().find( originalCacheKey );
+                if( cached == path.LastScreen()->GetLibSymbols().end() ) return;
+                WX_STRING_REPORTER report;
+                if( cached->second->Compare( *symbol->GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UUID, &report ) )
+                    BOOST_TEST_MESSAGE( std::string( phase ) + " cache/placement mismatch "
+                        + symbol->GetRef( &path ).ToStdString() + ": " + report.GetMessages().ToStdString() );
+            };
+            describeCache( "Before update" );
+            message.set_passthrough( SPM_BLOCK );
+            packed.PackFrom( message );
+            SCH_SYMBOL decoded;
+            BOOST_REQUIRE( decoded.Deserialize( packed ) );
+            BOOST_CHECK( symbol->GetLibSymbolRef()->GetBodyStyleNames() == decoded.GetLibSymbolRef()->GetBodyStyleNames() );
+            WX_STRING_REPORTER differences;
+            symbol->GetLibSymbolRef()->Compare( *decoded.GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UUID, &differences );
+            const int comparison = symbol->GetLibSymbolRef()->Compare( *decoded.GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UUID );
+            BOOST_CHECK_MESSAGE( comparison == 0, symbol->GetRef( &path ).ToStdString()
+                    + ": " + differences.GetMessages().ToStdString() );
+            // Follow the real update path through the screen cache, not only
+            // the decoder. Old graph pin addresses must not outlive their owner.
+            auto* graph = schematic->ConnectionGraph();
+            graph->RemoveItem( symbol );
+            for( SCH_PIN* pin : symbol->GetPins() ) graph->RemoveItem( pin );
+            symbol->SwapItemData( &decoded );
+            ApplySymbolInstance( symbol, message, path, schematic.get() );
+            describeCache( "After swap" );
+            path.LastScreen()->Update( symbol );
+            BOOST_CHECK_MESSAGE( symbol->GetLibSymbolRef()->GetLibId() == originalDefinitionId,
+                                 "Placement-only update changed the embedded definition ID" );
+            BOOST_CHECK_MESSAGE( symbol->GetSchSymbolLibraryName() == originalCacheKey,
+                                 "Placement-only update allocated an unrelated cache alias" );
+          }
+        }
+        schematic->ConnectionGraph()->Recalculate( schematic->Hierarchy(), true );
+    }
+}
 
 BOOST_AUTO_TEST_CASE( PowerCategoryAndLibraryDefaultsSurviveNativeApiRoundTrip )
 {

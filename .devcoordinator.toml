@@ -1503,7 +1503,7 @@ tier = "development"
 role = "preflight"
 requires = ["managed-build"]
 invalidates = ["native-build", "native-session"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~SchematicHierarchyMergeTests|FullyQualifiedName~SchematicFieldTextModeTests|FullyQualifiedName~SchematicItemDeltaTests|FullyQualifiedName~SchematicLibraryIdentityTests|FullyQualifiedName~SchematicFormattingTests|FullyQualifiedName~SchematicHierarchyDeltaTests|FullyQualifiedName~SchematicItemMergeTests|FullyQualifiedName~SchematicSyncStoreTests|FullyQualifiedName~SchematicGroupGraphTests|FullyQualifiedName~SchematicDrawingRatiosTests|FullyQualifiedName~SchematicNetChainClassesTests", "--logger", "trx", "--results-directory", "automation/artifacts/field-fidelity-results"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~SchematicHierarchyMergeTests|FullyQualifiedName~SchematicFieldTextModeTests|FullyQualifiedName~SchematicItemDeltaTests|FullyQualifiedName~SchematicLibraryIdentityTests|FullyQualifiedName~SchematicFormattingTests|FullyQualifiedName~SchematicHierarchyDeltaTests|FullyQualifiedName~SchematicItemMergeTests|FullyQualifiedName~SchematicSyncStoreTests|FullyQualifiedName~SchematicGroupGraphTests|FullyQualifiedName~SchematicDrawingRatiosTests|FullyQualifiedName~SchematicNetChainClassesTests|FullyQualifiedName~SchematicNetChainExclusionTests|FullyQualifiedName~GuidanceQuantityTests|FullyQualifiedName~ComponentGuidanceTests", "--logger", "trx", "--results-directory", "automation/artifacts/field-fidelity-results"]
 
 [[test.native-foundation.check]]
 name = "recovery-model"
@@ -1584,6 +1584,23 @@ requires = ["native-build"]
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeTableVariant", "--logger", "trx", "--results-directory", "automation/artifacts/native-table-variant-results"]
 retained_artifacts = [{ name = "native-table-evidence", path = "automation/artifacts/native-table-variants/native-session-current", max_bytes = 33554432 }]
 
+[test.net-chain-exclusion-model]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.net-chain-exclusion-model.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.net-chain-exclusion-model.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~SchematicNetChainExclusionTests|FullyQualifiedName~SchematicItemDeltaTests|FullyQualifiedName~SchematicHierarchyDeltaTests|FullyQualifiedName~SchematicItemMergeTests|FullyQualifiedName~SchematicDataXmlTests|FullyQualifiedName~NativeClientTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/net-chain-exclusion-model"]
+retained_artifacts = [{ name = "exclusion-model-results", path = "automation/artifacts/net-chain-exclusion-model", max_bytes = 16777216 }]
+
 [test.component-quantity-model]
 timeout_seconds = 900
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
@@ -1653,6 +1670,12 @@ name = "native-terminal-contracts"
 tier = "development"
 requires = ["native-build"]
 command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_net_chain_terminals$", "--output-on-failure", "--no-tests=error"]
+
+[[test.native-net-chains.check]]
+name = "symbol-update-identity"
+tier = "development"
+requires = ["native-build"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_symbol_update_identity$", "--output-on-failure", "--no-tests=error"]
 
 [[test.native-net-chains.check]]
 name = "native-chains"

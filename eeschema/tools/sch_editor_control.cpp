@@ -1342,12 +1342,47 @@ int SCH_EDITOR_CONTROL::RemoveFromNetChain( const TOOL_EVENT& aEvent )
         }
     }
 
-    if( !bridges.empty() )
+    auto definitions = graph->GetNetChainDefinitions();
+    std::set<SCH_SYMBOL*> affected = bridges;
+    bool membershipChanged = false;
+    for( auto& [name, definition] : definitions )
+    {
+        if( !definition.committed ) continue;
+        bool changed = false;
+        for( const wxString& net : selectedNets )
+        {
+            if( definition.memberNets.erase( net ) )
+            {
+                definition.excludedNets.insert( net );
+                // Capture all placed-pin owners, including repeated-sheet
+                // paths. A later label rename cannot remove this restriction.
+                for( const SCH_SHEET_PATH& path : schematic.Hierarchy() )
+                {
+                    if( !path.LastScreen() ) continue;
+                    for( SCH_ITEM* item : path.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
+                        for( SCH_PIN* pin : static_cast<SCH_SYMBOL*>( item )->GetPins( &path ) )
+                            if( auto* connection = pin->Connection( &path ); connection && connection->Name() == net )
+                                definition.excludedPins.emplace( path.Path(), pin->m_Uuid );
+                }
+                changed = true;
+            }
+        }
+        if( changed )
+        {
+            membershipChanged = true;
+            if( auto* chain = graph->GetNetChainByName( name ) )
+                affected.insert( chain->GetSymbols().begin(), chain->GetSymbols().end() );
+        }
+    }
+    if( membershipChanged )
     {
         SCH_COMMIT commit( editFrame );
-        if( !commit.StageNetChainEdit( bridges ) ) return 0;
+        if( !commit.StageNetChainEdit( affected ) ) return 0;
         for( SCH_SYMBOL* symbol : bridges )
             symbol->SetPassthroughMode( SCH_SYMBOL::PASSTHROUGH_MODE::BLOCK );
+        // Keep original endpoint and class intent in an uncommitted declaration
+        // if the retained path no longer spans it. Never guess new terminals.
+        commit.SetNetChainDefinitions( definitions );
         commit.Push( _( "Remove from Net Chain" ) );
         editFrame->UpdateNetHighlightStatus();
         editFrame->GetCanvas()->Refresh();
@@ -1916,7 +1951,8 @@ int SCH_EDITOR_CONTROL::CreateNetChainBetweenPins( const TOOL_EVENT& aEvent )
     SCH_EDIT_FRAME* editFrame = static_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
     CONNECTION_GRAPH* graph = editFrame->Schematic().ConnectionGraph();
 
-    SCH_NETCHAIN* potential = graph->FindPotentialNetChainBetweenPins( pinA, pinB );
+    SCH_NETCHAIN* potential = graph->FindPotentialNetChainBetweenPins( pinA, editFrame->GetCurrentSheet(),
+                                                                     pinB, editFrame->GetCurrentSheet() );
     if( !potential )
     {
         DisplayError( editFrame, _( "No potential net chain connects the selected pins." ) );

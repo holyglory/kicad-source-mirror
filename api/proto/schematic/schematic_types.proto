@@ -80,6 +80,23 @@ message SchematicNetChainDefinition
   // Observation only: membership in the native committed-chain collection,
   // not a connectivity-verification result. False retains a pending declaration.
   bool committed = 7;
+  // Schema 4. Presence distinguishes an explicitly empty restriction from an
+  // older client that cannot represent removal intent.
+  SchematicNetChainExclusions exclusions = 8;
+}
+
+message SchematicNetChainExclusions
+{
+  repeated string net_names = 1;
+  // Exact placed pins on the removed electrical owner. Names above are its
+  // recorded labels, not identities. Missing anchors leave intent unresolved.
+  repeated SchematicNetChainPinAnchor pins = 2;
+}
+
+message SchematicNetChainPinAnchor
+{
+  kiapi.common.types.SheetPath path = 1;
+  kiapi.common.types.KIID pin = 2;
 }
 
 // Typed non-item state. This is not yet the complete document snapshot.

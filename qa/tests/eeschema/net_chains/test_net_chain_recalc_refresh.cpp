@@ -19,6 +19,7 @@
 
 #include <boost/test/unit_test.hpp>
 #include <charconv>
+#include <sstream>
 
 #include <qa_utils/wx_utils/unit_test_utils.h>
 #include <schematic_utils/schematic_file_util.h>
@@ -30,6 +31,8 @@
 #include <sch_screen.h>
 #include <sch_symbol.h>
 #include <sch_pin.h>
+#include <sch_label.h>
+#include <sch_line.h>
 #include <settings/settings_manager.h>
 #include <locale_io.h>
 #include <richio.h>
@@ -146,6 +149,202 @@ BOOST_FIXTURE_TEST_CASE( NetChain_RestoreKeepsDeclaredTerminalOrder,
         BOOST_CHECK( restored->GetTerminalPinA() == pinA );
         BOOST_CHECK( restored->GetTerminalPinB() == pinB );
         graph->Recalculate( sheets, true );
+    }
+}
+
+
+BOOST_FIXTURE_TEST_CASE( NetChain_ExcludedMembersCannotReturnThroughRestore,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO locale;
+    KI_TEST::LoadSchematic( m_settingsManager, wxString( "net_chains_four_nets" ), m_schematic );
+    CONNECTION_GRAPH* graph = m_schematic->ConnectionGraph();
+    auto sheets = m_schematic->BuildSheetListSortedByPageNumbers();
+    graph->Recalculate( sheets, true );
+    BOOST_REQUIRE( !graph->GetPotentialNetChains().empty() );
+    BOOST_REQUIRE( graph->CreateNetChainFromPotential( graph->GetPotentialNetChains().front().get(), "RESTRICTED" ) );
+    const auto baseline = graph->GetNetChainDefinitions();
+    const auto original = baseline.at( "RESTRICTED" );
+    BOOST_REQUIRE_EQUAL( original.memberNets.size(), 4u );
+    for( const wxString& net : original.memberNets )
+    {
+        auto desired = baseline;
+        desired["RESTRICTED"].memberNets.erase( net );
+        desired["RESTRICTED"].excludedNets.insert( net );
+        graph->SetNetChainDefinitions( desired );
+        for( int pass = 0; pass < 2; ++pass )
+        {
+            BOOST_CHECK( !graph->GetNetChainForNet( net ) );
+            const auto observed = graph->GetNetChainDefinitions().at( "RESTRICTED" );
+            BOOST_CHECK( !observed.committed );
+            BOOST_CHECK( observed.terminals == original.terminals );
+            BOOST_CHECK( observed.memberNets == desired.at( "RESTRICTED" ).memberNets );
+            BOOST_CHECK( observed.excludedNets == desired.at( "RESTRICTED" ).excludedNets );
+            graph->Recalculate( sheets, true );
+        }
+        graph->SetNetChainDefinitions( baseline );
+        BOOST_CHECK( graph->GetNetChainDefinitions() == baseline );
+    }
+
+    // Exact pin ownership survives a real label change. Name-only matching
+    // would allow this renamed removed net back into the inferred path.
+    SCH_PIN* selected = nullptr;
+    SCH_SHEET_PATH selectedPath;
+    const KIID selectedId = graph->GetNetChainByName( "RESTRICTED" )->GetTerminalPinA();
+    for( const auto& path : sheets )
+        for( SCH_ITEM* item : path.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
+            for( SCH_PIN* pin : static_cast<SCH_SYMBOL*>( item )->GetPins( &path ) )
+                if( pin->m_Uuid == selectedId ) { selected = pin; selectedPath = path; }
+    BOOST_REQUIRE( selected );
+    const wxString oldName = selected->Connection( &selectedPath )->Name();
+    auto anchored = baseline;
+    anchored["RESTRICTED"].memberNets.erase( oldName );
+    anchored["RESTRICTED"].excludedNets.insert( oldName );
+    anchored["RESTRICTED"].excludedPins.emplace( selectedPath.Path(), selectedId );
+    graph->SetNetChainDefinitions( anchored );
+    BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
+    selectedPath.LastScreen()->Append( new SCH_LABEL( selected->GetPosition(), "RENAMED_REMOVED_NET" ) );
+    graph->Recalculate( sheets, true );
+    BOOST_CHECK( selected->Connection( &selectedPath )->Name() != oldName );
+    BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
+    BOOST_CHECK( graph->GetNetChainDefinitions().at( "RESTRICTED" ).excludedPins == anchored.at( "RESTRICTED" ).excludedPins );
+
+    // Round-trip the real native writer/parser, including the anchor path.
+    // The stream helper must carry the same root-owned restriction maps as
+    // the editor loader, not silently drop a newly supported field.
+    STRING_FORMATTER serialized;
+    SCH_IO_KICAD_SEXPR writer;
+    writer.FormatSchematicToFormatter( &serialized, m_schematic->GetTopLevelSheet( 0 ), m_schematic.get() );
+    std::istringstream input( serialized.GetString() );
+    auto reloaded = KI_TEST::ReadSchematicFromStream( input, &m_schematic->Project() );
+    BOOST_REQUIRE( reloaded );
+    auto* reloadedGraph = reloaded->ConnectionGraph();
+    reloadedGraph->Recalculate( reloaded->BuildSheetListSortedByPageNumbers(), true );
+    BOOST_CHECK( !reloadedGraph->GetNetChainByName( "RESTRICTED" ) );
+    BOOST_CHECK( reloadedGraph->GetNetChainDefinitions().at( "RESTRICTED" ).excludedPins
+                 == anchored.at( "RESTRICTED" ).excludedPins );
+
+    // Split the removed electrical owner, then merge its anchored side into
+    // the opposite endpoint. Neither operation may revive removed membership.
+    SCH_LINE* attachedWire = nullptr;
+    for( SCH_ITEM* item : selectedPath.LastScreen()->Items().OfType( SCH_LINE_T ) )
+    {
+        auto* line = static_cast<SCH_LINE*>( item );
+        if( line->GetLayer() == LAYER_WIRE && ( line->GetStartPoint() == selected->GetPosition()
+                || line->GetEndPoint() == selected->GetPosition() ) )
+        { attachedWire = line; break; }
+    }
+    BOOST_REQUIRE( attachedWire );
+    const VECTOR2I gap( 0, schIUScale.MilsToIU( 100 ) );
+    if( attachedWire->GetStartPoint() == selected->GetPosition() )
+        attachedWire->SetStartPoint( attachedWire->GetStartPoint() + gap );
+    else
+        attachedWire->SetEndPoint( attachedWire->GetEndPoint() + gap );
+    selectedPath.LastScreen()->Update( attachedWire, false );
+    graph->Recalculate( sheets, true );
+    BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
+    SCH_PIN* other = nullptr;
+    for( SCH_ITEM* item : selectedPath.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
+    {
+        auto* symbol = static_cast<SCH_SYMBOL*>( item );
+        for( SCH_PIN* pin : symbol->GetPins( &selectedPath ) )
+            if( symbol->GetRef( &selectedPath ) == original.terminals.second.ref
+                && pin->GetNumber() == original.terminals.second.pin ) other = pin;
+    }
+    BOOST_REQUIRE( other && other != selected );
+    auto* merged = new SCH_LINE( selected->GetPosition(), LAYER_WIRE );
+    merged->SetEndPoint( other->GetPosition() ); selectedPath.LastScreen()->Append( merged );
+    graph->Recalculate( sheets, true );
+    BOOST_CHECK( selected->Connection( &selectedPath )->Name() == other->Connection( &selectedPath )->Name() );
+    BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
+    BOOST_CHECK( graph->GetNetChainDefinitions().at( "RESTRICTED" ).excludedPins == anchored.at( "RESTRICTED" ).excludedPins );
+
+    // An unmatched path is unresolved, not an invitation to find a similarly
+    // named pin elsewhere. Intent remains present through subsequent rebuilds.
+    auto missing = anchored;
+    KIID_PATH missingPath; missingPath.push_back( KIID() );
+    missing["RESTRICTED"].excludedPins.clear();
+    missing["RESTRICTED"].excludedPins.emplace( missingPath, selectedId );
+    graph->SetNetChainDefinitions( missing );
+    BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
+    BOOST_CHECK( graph->GetNetChainDefinitions().at( "RESTRICTED" ).terminals == original.terminals );
+}
+
+
+BOOST_FIXTURE_TEST_CASE( NetChain_ExcludedPinPathIsolatesRepeatedScreens,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO locale;
+    KI_TEST::LoadSchematic( m_settingsManager, "net_chains_four_nets", m_schematic );
+    SCH_SHEET* original = m_schematic->GetTopLevelSheet( 0 );
+    SCH_SCREEN* shared = original->GetScreen();
+    auto* parent = new SCH_SHEET( m_schematic.get() );
+    parent->SetScreen( new SCH_SCREEN( m_schematic.get() ) );
+    parent->SetName( "Parent" ); parent->SetFileName( "parent.kicad_sch" );
+    m_schematic->AddTopLevelSheet( parent );
+    BOOST_REQUIRE( m_schematic->RemoveTopLevelSheet( original ) );
+    original->SetName( "First" ); parent->GetScreen()->Append( original );
+    auto* repeat = new SCH_SHEET( m_schematic.get() );
+    repeat->SetName( "Second" ); repeat->SetFileName( original->GetFileName() );
+    repeat->SetScreen( shared ); parent->GetScreen()->Append( repeat );
+    m_schematic->RefreshHierarchy();
+    std::vector<SCH_SHEET_PATH> instances;
+    for( const auto& path : m_schematic->Hierarchy() )
+        if( path.LastScreen() == shared ) instances.push_back( path );
+    BOOST_REQUIRE_EQUAL( instances.size(), 2u );
+    std::set<SCH_SYMBOL*> symbols;
+    for( SCH_ITEM* item : shared->Items().OfType( SCH_SYMBOL_T ) )
+        symbols.insert( static_cast<SCH_SYMBOL*>( item ) );
+    SCH_SYMBOL* firstEndpoint = nullptr;
+    SCH_SYMBOL* secondEndpoint = nullptr;
+    int number = 1;
+    for( SCH_SYMBOL* symbol : symbols )
+    {
+        for( int instance = 0; instance < 2; ++instance )
+        {
+            wxString ref = wxString::Format( "U%d", number + instance * 100 );
+            symbol->SetRef( &instances[instance], ref );
+        }
+        if( symbol->GetPins( &instances[0] ).size() == 1 )
+        {
+            if( !firstEndpoint ) firstEndpoint = symbol;
+            else secondEndpoint = symbol;
+        }
+        ++number;
+    }
+    BOOST_REQUIRE( firstEndpoint && secondEndpoint );
+    auto* graph = m_schematic->ConnectionGraph();
+    graph->SetNetChainDefinitions( {} );
+    graph->Recalculate( m_schematic->Hierarchy(), true );
+    std::vector<std::set<wxString>> nets( 2 );
+    for( int index = 0; index < 2; ++index )
+    {
+        for( SCH_SYMBOL* symbol : symbols )
+            for( SCH_PIN* pin : symbol->GetPins( &instances[index] ) )
+                nets[index].insert( pin->Connection( &instances[index] )->Name() );
+        BOOST_REQUIRE_EQUAL( nets[index].size(), 4u );
+        auto* from = firstEndpoint->GetPins( &instances[index] ).front();
+        auto* to = secondEndpoint->GetPins( &instances[index] ).front();
+        BOOST_REQUIRE( graph->CreateManualNetChain( index == 0 ? "FirstChain" : "SecondChain", symbols, nets[index],
+            from->m_Uuid, to->m_Uuid, firstEndpoint->GetRef( &instances[index] ), from->GetNumber(),
+            secondEndpoint->GetRef( &instances[index] ), to->GetNumber() ) );
+    }
+    BOOST_CHECK( nets[0] != nets[1] );
+    const auto baseline = graph->GetNetChainDefinitions();
+    auto desired = baseline;
+    SCH_PIN* samePhysicalPin = firstEndpoint->GetPins( &instances[0] ).front();
+    wxString removed = samePhysicalPin->Connection( &instances[0] )->Name();
+    desired["FirstChain"].memberNets.erase( removed );
+    desired["FirstChain"].excludedNets.insert( removed );
+    desired["FirstChain"].excludedPins.emplace( instances[0].Path(), samePhysicalPin->m_Uuid );
+    graph->SetNetChainDefinitions( desired );
+    for( int pass = 0; pass < 2; ++pass )
+    {
+        BOOST_CHECK( !graph->GetNetChainByName( "FirstChain" ) );
+        BOOST_REQUIRE( graph->GetNetChainByName( "SecondChain" ) );
+        BOOST_CHECK( graph->GetNetChainDefinitions().at( "SecondChain" ) == baseline.at( "SecondChain" ) );
+        BOOST_CHECK( graph->GetNetChainDefinitions().at( "FirstChain" ).excludedPins == desired.at( "FirstChain" ).excludedPins );
+        graph->Recalculate( m_schematic->Hierarchy(), true );
     }
 }
 

@@ -376,5 +376,10 @@ setup_qa_env( qa_erc_override_edits )
 
 add_test( NAME qa_net_chain_terminals
     COMMAND $<TARGET_FILE:qa_symbol_graphic_identity>
-        --run_test=NetChain_SetTerminalPersistsExactSelectedPin,NetChain_RefreshPreservesTerminalPinOverride,NetChain_RenamePreservesUnresolvedDeclaration,NetChain_RestoreKeepsDeclaredTerminalOrder,NetChain_RemoveRenameRoundTrip,NetChain_OpacityWriterPreservesDoublePrecision,NetChain_UnassignedClassesPersistAndCompare --log_level=test_suite )
+        --run_test=NetChain_SetTerminalPersistsExactSelectedPin,NetChain_RefreshPreservesTerminalPinOverride,NetChain_RenamePreservesUnresolvedDeclaration,NetChain_RestoreKeepsDeclaredTerminalOrder,NetChain_RemoveRenameRoundTrip,NetChain_OpacityWriterPreservesDoublePrecision,NetChain_UnassignedClassesPersistAndCompare,NetChain_ExcludedMembersCannotReturnThroughRestore,NetChain_ExcludedPinPathIsolatesRepeatedScreens --log_level=test_suite )
 setup_qa_env( qa_net_chain_terminals )
+
+add_test( NAME qa_symbol_update_identity
+    COMMAND $<TARGET_FILE:qa_symbol_graphic_identity>
+        --run_test=SymbolApiSemantics/LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpdate,ImplicitAndNamedBodyStylesRetainNativeCacheIdentity --log_level=test_suite )
+setup_qa_env( qa_symbol_update_identity )

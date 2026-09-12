@@ -19,6 +19,7 @@
 
 #include <boost/test/unit_test.hpp>
 #include <charconv>
+#include <sstream>
 
 #include <qa_utils/wx_utils/unit_test_utils.h>
 #include <schematic_utils/schematic_file_util.h>
@@ -206,6 +207,21 @@ BOOST_FIXTURE_TEST_CASE( NetChain_ExcludedMembersCannotReturnThroughRestore,
     BOOST_CHECK( selected->Connection( &selectedPath )->Name() != oldName );
     BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
     BOOST_CHECK( graph->GetNetChainDefinitions().at( "RESTRICTED" ).excludedPins == anchored.at( "RESTRICTED" ).excludedPins );
+
+    // Round-trip the real native writer/parser, including the anchor path.
+    // The stream helper must carry the same root-owned restriction maps as
+    // the editor loader, not silently drop a newly supported field.
+    STRING_FORMATTER serialized;
+    SCH_IO_KICAD_SEXPR writer;
+    writer.FormatSchematicToFormatter( &serialized, m_schematic->GetTopLevelSheet( 0 ), m_schematic.get() );
+    std::istringstream input( serialized.GetString() );
+    auto reloaded = KI_TEST::ReadSchematicFromStream( input, &m_schematic->Project() );
+    BOOST_REQUIRE( reloaded );
+    auto* reloadedGraph = reloaded->ConnectionGraph();
+    reloadedGraph->Recalculate( reloaded->BuildSheetListSortedByPageNumbers(), true );
+    BOOST_CHECK( !reloadedGraph->GetNetChainByName( "RESTRICTED" ) );
+    BOOST_CHECK( reloadedGraph->GetNetChainDefinitions().at( "RESTRICTED" ).excludedPins
+                 == anchored.at( "RESTRICTED" ).excludedPins );
 
     // An unmatched path is unresolved, not an invitation to find a similarly
     // named pin elsewhere. Intent remains present through subsequent rebuilds.

@@ -154,6 +154,11 @@ wxString GRID_CELL_COLOR_SELECTOR::GetValue() const
 
 void GRID_CELL_COLOR_SELECTOR::BeginEdit( int row, int col, wxGrid* grid )
 {
+    // wxGrid can activate an editor again while its CallAfter is pending
+    // (for example a click followed by F2). One gesture sequence opens one
+    // picker, not a second modal dialog after the first was cancelled.
+    if( m_dialogPending ) return;
+    m_dialogPending = true;
     m_valueText = grid->GetTable()->GetValue( row, col );
     m_value = COLOR4D::UNSPECIFIED;
     if( !m_valueText.IsEmpty() )
@@ -163,10 +168,12 @@ void GRID_CELL_COLOR_SELECTOR::BeginEdit( int row, int col, wxGrid* grid )
             [this, row, col]()
             {
                 DIALOG_COLOR_PICKER dialog( m_parent, m_value, m_allowOpacity );
+                int response = dialog.ShowModal();
+                m_dialogPending = false;
 
                 // Cancel and an unchanged accepted value must not round-trip
                 // the original text through wxColour's eight-bit alpha.
-                if( dialog.ShowModal() != wxID_OK || dialog.GetColor() == m_value )
+                if( response != wxID_OK || dialog.GetColor() == m_value )
                     return;
                 m_value = dialog.GetColor();
                 m_valueText = m_value == COLOR4D::UNSPECIFIED ? wxString() : m_value.ToCSSString();

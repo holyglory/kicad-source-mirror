@@ -313,9 +313,9 @@ public sealed partial class NativeSessionTests
             else if (operation == "clear")
                 NativeKeyboard.SchematicShortcut(display, processId, "click", picker, controlKey: false,
                     focusCanvas: true, clickFromLeft: 450, clickFromBottom: 25);
-            if (operation == "cancel") Key("Escape", picker);
-            else NativeKeyboard.SchematicShortcut(display, processId, "click", picker, controlKey: false,
-                focusCanvas: true, clickFromRight: 60, clickFromBottom: 25);
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-color-" + operation + "-edited.png"), token);
+            NativeKeyboard.SchematicShortcut(display, processId, "click", picker, controlKey: false,
+                focusCanvas: true, clickFromRight: operation == "cancel" ? 150 : 60, clickFromBottom: 25);
             await Window(picker, false);
             await FinishSetup(accept);
             var actual = await Read(token);

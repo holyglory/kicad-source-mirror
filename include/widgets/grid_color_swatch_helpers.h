@@ -82,6 +82,7 @@ protected:
     KIGFX::COLOR4D m_value;
     wxString      m_valueText;
     bool          m_allowOpacity;
+    bool          m_dialogPending = false;
 
     wxDECLARE_NO_COPY_CLASS( GRID_CELL_COLOR_SELECTOR );
 };

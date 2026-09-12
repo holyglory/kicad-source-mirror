@@ -47,6 +47,7 @@
 #include <sch_setup_draft.h>
 #include <sch_commit.h>
 #include <sch_screen.h>
+#include <sch_symbol.h>
 #include <sch_symbol_cache_state.h>
 #include <richio.h>
 
@@ -210,6 +211,13 @@ bool DIALOG_SCHEMATIC_SETUP::TransferDataFromWindow()
     {
         std::unique_ptr<EMBEDDED_FILES> files;
         std::map<SCH_SCREEN*, SCH_SYMBOL_CACHE_STATE> caches;
+        struct SYMBOL_FILES
+        {
+            SCH_SCREEN* screen;
+            SCH_SYMBOL* symbol;
+            std::unique_ptr<LIB_SYMBOL> definition;
+        };
+        std::vector<SYMBOL_FILES> symbolFiles;
         if( m_embeddedFilesPanel )
         {
             files = std::make_unique<EMBEDDED_FILES>( *m_embeddedFilesPanel->GetLocalFiles(), true );
@@ -228,7 +236,30 @@ bool DIALOG_SCHEMATIC_SETUP::TransferDataFromWindow()
                             symbol->GetEmbeddedFiles()->RemoveFile( name, true );
                             changed = true;
                         }
-                if( changed ) caches.emplace( screen, std::move( candidate ) );
+                if( changed )
+                {
+                    // Placed symbols own private library definitions as well
+                    // as the screen cache. Update both exact owners in the same
+                    // transaction, never only the cache's copy of a file link.
+                    for( SCH_ITEM* item : screen->Items() )
+                    {
+                        auto* symbol = dynamic_cast<SCH_SYMBOL*>( item );
+                        if( !symbol || !symbol->GetLibSymbolRef() ) continue;
+                        auto definition = std::make_unique<LIB_SYMBOL>( *symbol->GetLibSymbolRef() );
+                        bool removedLink = false;
+                        for( const wxString& name : removed )
+                            if( definition->GetEmbeddedFiles()->HasFile( name ) )
+                            {
+                                definition->GetEmbeddedFiles()->RemoveFile( name, true );
+                                removedLink = true;
+                            }
+                        if( !removedLink ) continue;
+                        if( symbol->IsLocked() )
+                            throw std::runtime_error( "A locked symbol still references an embedded file selected for removal" );
+                        symbolFiles.push_back( { screen, symbol, std::move( definition ) } );
+                    }
+                    caches.emplace( screen, std::move( candidate ) );
+                }
             }
             STRING_FORMATTER before, after;
             auto* live = m_frame->Schematic().GetEmbeddedFiles();
@@ -244,6 +275,13 @@ bool DIALOG_SCHEMATIC_SETUP::TransferDataFromWindow()
         commit.SetSetupSettings( m_draft->Baseline(), m_draft->ProjectSettings().CaptureCurrentState() );
         if( m_netChainsPanel && !m_netChainsPanel->ApplyEdits( &commit ) )
             throw std::runtime_error( "Net-chain changes could not be applied" );
+        for( const auto& [screen, candidate] : caches ) commit.CaptureLibraryCache( *screen );
+        for( auto& item : symbolFiles )
+        {
+            commit.Modify( item.symbol, item.screen );
+            item.symbol->SetLibSymbol( item.definition.release() );
+            item.screen->Update( item.symbol );
+        }
         for( auto& [screen, candidate] : caches ) commit.ReplaceLibraryCache( *screen, candidate );
         if( files ) commit.ReplaceEmbeddedFiles( *files );
         wxString failure;

@@ -4,6 +4,37 @@ Development branch: `main` (the original `feature/codex-kicad-automation` branch
 `f638a860a05b3e48d1074314a656ad9b8f597466`. This is an incomplete implementation
 of the approved six-milestone program, not a release.
 
+## Try provisional Schematic Setup edits in a source build
+
+The feature branch contains the native Setup change from
+`54e61d57ae0aa051ccd86aab2138f8de9d1cd5b5`. This section describes that source
+increment, not the older Mac/Windows downloads or a qualified cross-platform release.
+
+Open a disposable project in its Schematic Editor, then choose **File → Schematic
+Setup**. Change the overbar offset under **Formatting**, switch to another page,
+and press **Cancel**. Reopen Setup: the original value must remain. Repeat with
+one **Pin Conflicts Map** cell. Its pending color change must also disappear on
+Cancel. Pressing **OK** instead accepts the edit; the editor's Undo and Redo
+controls must restore and reapply it together with its native revision.
+
+To check error recovery, change a pin-conflict cell, switch to Formatting, enter
+`0` for the connection grid and press OK. The validation error must leave Setup
+open. Correct the grid to its previous value: OK must retain the pending pin-rule
+edit, while Cancel must discard it. No XML editing is needed for this journey.
+
+For a configured Linux source checkout, the compiled two-editor verification is:
+
+```sh
+devcoordinator2 test start . --test native-setup-dialog --tier development
+```
+
+The test owns disposable projects and a virtual display. The formatting and
+pin-map page-switch/Cancel/OK/Undo/Redo paths, plus later-page validation recovery,
+have real Linux evidence. Complete import, nested embedded-file and dependent-page
+coverage are still being qualified; native Mac Setup evidence and full automatic
+XML synchronization remain open. The authoritative completion state is in
+DevCoordinator, not this usage guide.
+
 ## Linux preview — September 11, 2026
 
 [Linux application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-preview-20260911T163551Z-dd74f7aca989-debian13-x64.tar.gz)

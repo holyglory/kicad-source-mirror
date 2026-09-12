@@ -28,6 +28,10 @@ public sealed partial class NativeSessionTests
             .Replace("(project \"signals_four_nets\"", "(project \"" + Path.GetFileNameWithoutExtension(rootFile) + "\"", StringComparison.Ordinal);
         await File.WriteAllTextAsync(rootFile, native, token);
         await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
+        // Normalize the older QA file through the current native writer before
+        // taking the baseline, including its reported loaded format version.
+        await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+        await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
         var header = new ItemHeader { Document = root };
         void Key(string key, string window = "Schematic Editor", bool control = false, bool alt = false) =>
             NativeKeyboard.SchematicShortcut(display, processId, key, window, control, focusCanvas: false, altKey: alt);
@@ -154,6 +158,7 @@ public sealed partial class NativeSessionTests
             StringAssert.Contains(await File.ReadAllTextAsync(rootFile, token), "(net_chain \"" + name + "\"");
             var undone = await History("z", created); await Same(before.Data, undone.Data, name + "-undo");
             var redone = await History("y", undone); await Same(created.Data, redone.Data, name + "-redo");
+            if (!shortcut) await VerifyRemoval();
             // Save/reload verifies the committed declaration rebuilds the real
             // chain; then remove it through the existing revision-safe delta.
             await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
@@ -164,6 +169,67 @@ public sealed partial class NativeSessionTests
             remove.Operations.Add(new SchematicItemOperation { ReplaceNetChains = new() });
             await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(remove, token);
             await Same(before.Data, (await Read()).Data, name + "-restored");
+        }
+
+        async Task VerifyRemoval()
+        {
+            foreach (int pinCount in new[] { 1, 2 })
+            {
+                var before = await Read();
+                string stage = "chain-remove-" + pinCount;
+                async Task OpenRemoval(bool accept)
+                {
+                    await client.InvokeAsync<ClearSelection, Empty>(new() { Header = header }, token);
+                    var select = new AddToSelection { Header = header };
+                    select.Items.Add(pins.Take(pinCount).Select(p => new KIID { Value = p }));
+                    var selected = await client.InvokeAsync<AddToSelection, SelectionResponse>(select, token);
+                    CollectionAssert.AreEquivalent(pins.Take(pinCount).ToArray(), selected.Items
+                        .Where(i => i.Is(SchematicPin.Descriptor)).Select(i => i.Unpack<SchematicPin>().Id.Value).ToArray());
+                    NativeKeyboard.SchematicShortcut(display, processId, "right-click", controlKey: false,
+                        focusCanvas: true, clickFromLeft: 640, clickFromTop: 450);
+                    Key("End"); for (int i = 0; i < 4; i++) Key("Up"); Key("Right");
+                    await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, stage + "-menu.png"), token);
+                    if (accept) { Key("Home"); Key("Down"); Key("Return"); }
+                    else { Key("Escape"); Key("Escape"); Key("Escape"); }
+                }
+                await OpenRemoval(false); await Same(before, await Read(), stage + "-cancel");
+                await OpenRemoval(true);
+                var removed = await Read();
+                Assert.IsTrue(removed.Revision.Sequence > before.Revision.Sequence);
+                var originalSymbols = before.Data.Instances.Single().Items.Where(i => i.Is(SchematicSymbolInstance.Descriptor))
+                    .Select(i => i.Unpack<SchematicSymbolInstance>()).ToDictionary(s => s.Id.Value);
+                int changed = 0;
+                foreach (var item in removed.Data.Instances.Single().Items.Where(i => i.Is(SchematicSymbolInstance.Descriptor)))
+                {
+                    var symbol = item.Unpack<SchematicSymbolInstance>();
+                    var original = originalSymbols[symbol.Id.Value];
+                    if (symbol.Passthrough != original.Passthrough)
+                    {
+                        Assert.AreEqual((SchematicPassthroughMode)2, symbol.Passthrough);
+                        StringAssert.StartsWith(symbol.ReferenceField.Text.Text_, "R");
+                        changed++;
+                        symbol.Passthrough = original.Passthrough;
+                    }
+                    await Same(original, symbol, stage + "-unaffected-symbol");
+                }
+                Assert.AreEqual(pinCount, changed, "Only the bridge next to each explicitly selected endpoint may change.");
+                CollectionAssert.AreEqual(Partition(electrical), Partition(await Electrical()));
+                var journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
+                    { Document = root, DocumentEpoch = before.Revision.Epoch, AfterSequence = before.Revision.Sequence }, token);
+                Assert.AreEqual(1, journal.Changes.Count);
+                Assert.AreEqual("Remove from Net Chain", journal.Changes.Single().Description);
+                await OpenRemoval(true); await Same(removed, await Read(), stage + "-noop");
+                var stale = new ApplySchematicItemBatch { Document = root, DocumentEpoch = before.Revision.Epoch,
+                    ExpectedRevision = before.Revision, OperationId = Guid.NewGuid().ToString("D") };
+                stale.Operations.Add(new SchematicItemOperation { ReplaceNetChains = new() });
+                await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(stale, token));
+                await Same(removed, await Read(), stage + "-stale");
+                await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+                Assert.AreEqual(pinCount, (await File.ReadAllTextAsync(rootFile, token)).Split("(passthrough block)", StringSplitOptions.None).Length - 1);
+                var undone = await History("z", removed); await Same(before.Data, undone.Data, stage + "-undo");
+                var redone = await History("y", undone); await Same(removed.Data, redone.Data, stage + "-redo");
+                undone = await History("z", redone); await Same(before.Data, undone.Data, stage + "-restored");
+            }
         }
     }
 }

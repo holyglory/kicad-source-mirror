@@ -79,6 +79,36 @@ BOOST_FIXTURE_TEST_CASE( NetChain_RenamePreservesUnresolvedDeclaration,
 }
 
 
+BOOST_FIXTURE_TEST_CASE( NetChain_RestoreKeepsDeclaredTerminalOrder,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO dummy;
+    KI_TEST::LoadSchematic( m_settingsManager, wxString( "net_chains_four_nets" ), m_schematic );
+    CONNECTION_GRAPH* graph = m_schematic->ConnectionGraph();
+    SCH_SHEET_LIST sheets = m_schematic->BuildSheetListSortedByPageNumbers();
+    graph->Recalculate( sheets, true );
+    BOOST_REQUIRE( !graph->GetPotentialNetChains().empty() );
+    SCH_NETCHAIN* chain = graph->CreateNetChainFromPotential(
+            graph->GetPotentialNetChains().front().get(), "ORDERED" );
+    BOOST_REQUIRE( chain );
+    const KIID pinA = chain->GetTerminalPinB();
+    const KIID pinB = chain->GetTerminalPinA();
+    auto definitions = graph->GetNetChainDefinitions();
+    auto& expected = definitions.at( "ORDERED" );
+    std::swap( expected.terminals.first, expected.terminals.second );
+    graph->SetNetChainDefinitions( definitions );
+    for( int pass = 0; pass < 2; ++pass )
+    {
+        SCH_NETCHAIN* restored = graph->GetNetChainByName( "ORDERED" );
+        BOOST_REQUIRE( restored );
+        BOOST_CHECK( graph->GetNetChainDefinitions().at( "ORDERED" ) == expected );
+        BOOST_CHECK( restored->GetTerminalPinA() == pinA );
+        BOOST_CHECK( restored->GetTerminalPinB() == pinB );
+        graph->Recalculate( sheets, true );
+    }
+}
+
+
 BOOST_FIXTURE_TEST_CASE( NetChain_RefreshCommittedChainAcrossUnconditionalRecalc,
                          NETCHAIN_RECALC_REFRESH_FIXTURE )
 {

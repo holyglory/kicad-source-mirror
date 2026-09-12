@@ -3625,6 +3625,7 @@ void CONNECTION_GRAPH::RebuildNetChains()
 
         // Build ref+pin → net lookup from current schematic
         std::map<std::pair<wxString, wxString>, wxString> refPinToNet;
+        std::map<std::pair<wxString, wxString>, KIID> refPinToPin;
 
         for( const SCH_SHEET_PATH& sp : m_sheetList )
         {
@@ -3648,6 +3649,7 @@ void CONNECTION_GRAPH::RebuildNetChains()
                         // both-endpoint matching.
                         refPinToNet[{ ref, pin->GetNumber() }] =
                                 netChainKeyFor( sg->GetNetName(), sg->m_code );
+                        refPinToPin[{ ref, pin->GetNumber() }] = pin->m_Uuid;
                     }
                 }
             }
@@ -3675,6 +3677,15 @@ void CONNECTION_GRAPH::RebuildNetChains()
             if( !match )
                 continue;
 
+            // A potential's endpoint order is derived from screen iteration,
+            // not from the persisted From/To declaration. Save/reload can
+            // change that order; keep the explicitly declared endpoints.
+            const CHAIN_TERMINAL_REFS declared = termRefs;
+            auto pinA = refPinToPin.find( { declared.first.ref, declared.first.pin } );
+            auto pinB = refPinToPin.find( { declared.second.ref, declared.second.pin } );
+            if( pinA != refPinToPin.end() && pinB != refPinToPin.end() )
+                m_netChainTerminalOverrides.try_emplace( chainName, pinA->second, pinB->second );
+
             if( alreadyCommitted.count( chainName ) )
             {
                 auto it = committedByName.find( chainName );
@@ -3688,7 +3699,13 @@ void CONNECTION_GRAPH::RebuildNetChains()
                 continue;
             }
 
-            CreateNetChainFromPotential( match, chainName );
+            SCH_NETCHAIN* restored = CreateNetChainFromPotential( match, chainName );
+            if( !restored ) continue;
+            if( auto pins = m_netChainTerminalOverrides.find( chainName ); pins != m_netChainTerminalOverrides.end() )
+                restored->SetTerminalPins( pins->second.first, pins->second.second );
+            restored->SetTerminalRefs( declared.first.ref, declared.first.pin,
+                                       declared.second.ref, declared.second.pin );
+            m_netChainTerminalRefOverrides[chainName] = declared;
             alreadyCommitted.insert( chainName );
             refreshedThisPass.insert( chainName );
         }

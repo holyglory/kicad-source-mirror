@@ -1289,26 +1289,31 @@ int SCH_EDITOR_CONTROL::RemoveFromNetChain( const TOOL_EVENT& aEvent )
     KIGFX::VIEW_CONTROLS* controls  = getViewControls();
     VECTOR2D              cursorPos = controls->GetCursorPosition( !aEvent.DisableGridSnapping() );
 
-    SCH_ITEM* target = nullptr;
-
-    // Prefer current selection; otherwise, use item under cursor
-    if( selTool && selTool->GetSelection().GetSize() == 1 )
-        target = static_cast<SCH_ITEM*>( selTool->GetSelection().Front() );
-    else if( selTool )
-        target = static_cast<SCH_ITEM*>( selTool->GetNode( cursorPos ) );
-
-    if( !target )
-        return 0;
-
-    SCH_CONNECTION* conn = target->Connection();
-    if( !conn )
-        return 0;
-
     SCHEMATIC& schematic = editFrame->Schematic();
     SCH_SCREEN* screen = editFrame->GetCurrentSheet().LastScreen();
+    CONNECTION_GRAPH* graph = schematic.ConnectionGraph();
+    if( !screen || !graph ) return 0;
+
+    std::set<wxString> selectedNets;
+    auto addTarget = [&]( SCH_ITEM* target )
+    {
+        SCH_CONNECTION* connection = target ? target->Connection( &editFrame->GetCurrentSheet() ) : nullptr;
+        if( connection && graph->GetNetChainForNet( connection->Name() ) )
+            selectedNets.insert( connection->Name() );
+    };
+    // The menu accepts multiple selected pins. Never fall back to an unrelated
+    // cursor item when an explicit selection was supplied.
+    if( selTool && !selTool->GetSelection().Empty() )
+    {
+        for( EDA_ITEM* item : selTool->GetSelection() )
+            addTarget( dynamic_cast<SCH_ITEM*>( item ) );
+    }
+    else if( selTool )
+        addTarget( static_cast<SCH_ITEM*>( selTool->GetNode( cursorPos ) ) );
+    if( selectedNets.empty() ) return 0;
 
     // Find any 2-pin symbols that bridge this connection's net into another net and disable propagation
-    int disabled = 0;
+    std::set<SCH_SYMBOL*> bridges;
 
     for( SCH_ITEM* item : screen->Items().OfType( SCH_SYMBOL_T ) )
     {
@@ -1329,28 +1334,23 @@ int SCH_EDITOR_CONTROL::RemoveFromNetChain( const TOOL_EVENT& aEvent )
 
         // If either side matches the selected net and the other side is a different net,
         // this symbol is bridging the selected net into its chain.
-        if( ( ca->Name() == conn->Name() && cb->Name() != conn->Name() )
-            || ( cb->Name() == conn->Name() && ca->Name() != conn->Name() ) )
+        if( ca->Name() != cb->Name()
+            && ( selectedNets.contains( ca->Name() ) || selectedNets.contains( cb->Name() ) ) )
         {
             if( symbol->GetPassthroughMode() != SCH_SYMBOL::PASSTHROUGH_MODE::BLOCK )
-            {
-                symbol->SetPassthroughMode( SCH_SYMBOL::PASSTHROUGH_MODE::BLOCK );
-                disabled++;
-            }
+                bridges.insert( symbol );
         }
     }
 
-    if( disabled > 0 )
+    if( !bridges.empty() )
     {
-        // Rebuild connectivity/chains so the change takes effect
-        CONNECTION_GRAPH* graph = schematic.ConnectionGraph();
-        if( graph )
-        {
-            wxLogTrace( "KICAD_SCH_HIGHLIGHT", "RemoveFromNetChain: disabled=%d, rebuilding chains", disabled );
-            SCH_SHEET_LIST sheets = schematic.Hierarchy();
-            graph->Recalculate( sheets, /*aUnconditional=*/true );
-            m_frame->GetCanvas()->Refresh();
-        }
+        SCH_COMMIT commit( editFrame );
+        if( !commit.StageNetChainEdit( bridges ) ) return 0;
+        for( SCH_SYMBOL* symbol : bridges )
+            symbol->SetPassthroughMode( SCH_SYMBOL::PASSTHROUGH_MODE::BLOCK );
+        commit.Push( _( "Remove from Net Chain" ) );
+        editFrame->UpdateNetHighlightStatus();
+        editFrame->GetCanvas()->Refresh();
     }
 
     return 0;

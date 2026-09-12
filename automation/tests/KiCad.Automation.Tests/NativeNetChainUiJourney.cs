@@ -219,7 +219,7 @@ public sealed partial class NativeSessionTests
                 await Task.Delay(50, limit.Token);
             }
         }
-        foreach (bool accept in new[] { false, true, true })
+        async Task OpenSetupPage()
         {
             Key("f", alt: true); Key("End");
             for (int i = 0; i < 4; i++) Key("Up");
@@ -231,10 +231,52 @@ public sealed partial class NativeSessionTests
                 focusCanvas: true, clickFromLeft: 80, clickFromTop: 264);
             await StableSetupGeometry();
             await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-setup-page.png"), token);
+        }
+        async Task FinishSetup(bool accept)
+        {
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
                 focusCanvas: true, clickFromRight: accept ? 60 : 150, clickFromBottom: 25);
             await Window("Schematic Setup", false);
+        }
+        foreach (bool accept in new[] { false, true, true })
+        {
+            await OpenSetupPage(); await FinishSetup(accept);
             await Same(setupBaseline, await Read(token), accept ? "chain-setup-noop" : "chain-setup-cancel");
+            await Saved(false);
+        }
+        foreach (bool accept in new[] { false, true })
+        {
+            await OpenSetupPage();
+            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                focusCanvas: true, clickFromLeft: 350, clickFromTop: 107);
+            Key("F2", "Schematic Setup"); Key("a", "Schematic Setup", control: true);
+            foreach (char c in "setupchain") Key(c.ToString(), "Schematic Setup");
+            Key("Tab", "Schematic Setup");
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-setup-renamed.png"), token);
+            await FinishSetup(accept);
+            var actual = await Read(token);
+            if (!accept) { await Same(setupBaseline, actual, "chain-setup-cancel-edit"); continue; }
+            Assert.IsTrue(actual.Revision.Sequence > setupBaseline.Revision.Sequence);
+            foreach (var screen in actual.Data.Instances)
+            {
+                Assert.IsTrue(screen.Metadata.NetChains.Any(c => c.Name == "setupchain"));
+                Assert.IsFalse(screen.Metadata.NetChains.Any(c => c.Name == oldName));
+            }
+            journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
+                { Document = root, DocumentEpoch = setupBaseline.Revision.Epoch, AfterSequence = setupBaseline.Revision.Sequence }, token);
+            Assert.AreEqual(1, journal.Changes.Count);
+            Assert.AreEqual("Edit Net Chains", journal.Changes.Single().Description);
+            await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+            using (var project = JsonDocument.Parse(await File.ReadAllTextAsync(Path.ChangeExtension(rootFile, ".kicad_pro"), token)))
+            {
+                var classes = project.RootElement.GetProperty("net_settings").GetProperty("net_chain_classes");
+                Assert.AreEqual("fastbus", classes.GetProperty("setupchain").GetString());
+                Assert.IsFalse(classes.TryGetProperty(oldName, out _));
+                Assert.AreEqual("preserved", classes.GetProperty("UNAFFECTED_CHAIN").GetString());
+            }
+            var reverted = await History("z", actual); await Same(setupBaseline.Data, reverted.Data, "chain-setup-undo");
+            var reapplied = await History("y", reverted); await Same(actual.Data, reapplied.Data, "chain-setup-redo");
+            reverted = await History("z", reapplied); await Same(setupBaseline.Data, reverted.Data, "chain-setup-restored");
             await Saved(false);
         }
     }

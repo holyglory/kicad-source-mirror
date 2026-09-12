@@ -325,7 +325,7 @@ bool PANEL_SETUP_NET_CHAINS::Validate()
 
         if( colorStr.IsEmpty() )
             row.newColor = KIGFX::COLOR4D::UNSPECIFIED;
-        else
+        else if( row.newColor == KIGFX::COLOR4D::UNSPECIFIED || colorStr != row.newColor.ToCSSString() )
             row.newColor = KIGFX::COLOR4D( colorStr );
     }
 

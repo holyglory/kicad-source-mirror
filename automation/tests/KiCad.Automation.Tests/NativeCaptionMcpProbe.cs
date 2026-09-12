@@ -33,7 +33,9 @@ internal sealed class NativeCaptionMcpProbe(string state, string evidence, Cance
     public async Task AttachDesignAsync(string id, string name, NativeClient native, DocumentSpecifier document)
     {
         Success(await mcp!.Tool("kicad_instance_attach", new { endpoint = native.Endpoint, expectedInstanceId = id }));
-        var before = await native.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(new() { Document = document }, token);
+        // The preservation marker needs a revision, not the newest full snapshot
+        // schema. The baseline package may legitimately predate that schema.
+        var before = await native.InvokeAsync<ReadSchematicSaveState, SchematicSaveState>(new() { Document = document }, token);
         string markerId = Guid.NewGuid().ToString("D"), markerText = "Public update " + name + " note " + Guid.NewGuid().ToString("N");
         var batch = new ApplySchematicItemBatch { Document = document, ExpectedRevision = before.Revision,
             DocumentEpoch = before.Revision.Epoch, OperationId = Guid.NewGuid().ToString("D"), Description = "Public update preservation fixture" };

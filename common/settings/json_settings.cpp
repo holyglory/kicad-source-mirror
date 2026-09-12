@@ -19,8 +19,11 @@
  */
 
 #include <algorithm>
+#include <exception>
 #include <fstream>
 #include <iomanip>
+#include <memory>
+#include <stdexcept>
 #include <utility>
 #include <sstream>
 
@@ -462,6 +465,111 @@ std::map<std::string, nlohmann::json> JSON_SETTINGS::GetFileHistories()
     }
 
     return histories;
+}
+
+
+void JSON_SETTINGS::CopyCurrentStateTo( JSON_SETTINGS& aDetachedTarget ) const
+{
+    if( &aDetachedTarget == this ) return;
+    if( m_schemaVersion != aDetachedTarget.m_schemaVersion )
+        throw std::runtime_error( "Cannot copy settings across different native schemas" );
+    const nlohmann::json captured = CaptureCurrentState();
+    auto load = [&]( auto&& self, JSON_SETTINGS& target, const nlohmann::json& state ) -> void
+    {
+        static_cast<nlohmann::json&>( *target.m_internals ) = state;
+        for( PARAM_BASE* parameter : target.m_params )
+            parameter->Load( target, target.m_resetParamsIfMissing );
+        for( NESTED_SETTINGS* child : target.m_nested_settings )
+        {
+            const auto path = target.m_internals->PointerFromString( child->GetPath() );
+            if( !state.contains( path ) )
+                throw std::runtime_error( "Captured settings do not contain the target nested owner" );
+            self( self, *child, state.at( path ) );
+        }
+    };
+    load( load, aDetachedTarget, captured );
+    if( aDetachedTarget.CaptureCurrentState() != captured )
+        throw std::runtime_error( "Detached settings copy would lose or change persisted values" );
+}
+
+void JSON_SETTINGS::ApplyCurrentStateDelta( const nlohmann::json& aBefore,
+                                            const nlohmann::json& aAfter )
+{
+    if( aBefore == aAfter ) return;
+    const nlohmann::json live = CaptureCurrentState();
+    nlohmann::json claimed = aBefore;
+    nlohmann::json expected = live;
+
+    struct CHANGE
+    {
+        PARAM_BASE* parameter;
+        std::unique_ptr<JSON_SETTINGS> before;
+        std::unique_ptr<JSON_SETTINGS> after;
+    };
+    std::vector<CHANGE> changes;
+    auto prepare = [&]( auto&& self, JSON_SETTINGS& owner,
+                        const nlohmann::json::json_pointer& prefix ) -> void
+    {
+        const auto schema = prefix / owner.m_internals->PointerFromString( "meta.version" );
+        if( !aBefore.contains( schema ) || !aAfter.contains( schema )
+                || aBefore.at( schema ) != owner.m_schemaVersion || aAfter.at( schema ) != owner.m_schemaVersion )
+            throw std::runtime_error( "A settings delta cannot change the native schema: " + schema.to_string() );
+        // Match CaptureCurrentState ownership: nested values first, then parent
+        // parameters that can own paths inside those nested records.
+        for( NESTED_SETTINGS* child : owner.m_nested_settings )
+            self( self, *child, prefix / owner.m_internals->PointerFromString( child->GetPath() ) );
+
+        for( PARAM_BASE* parameter : owner.m_params )
+        {
+            const auto local = owner.m_internals->PointerFromString( parameter->GetJsonPath() );
+            const auto path = prefix / local;
+            if( !aBefore.contains( path ) && !aAfter.contains( path ) ) continue;
+            if( !aBefore.contains( path ) || !aAfter.contains( path ) )
+                throw std::runtime_error( "A settings delta cannot remove a registered parameter: " + path.to_string() );
+            if( aBefore.at( path ) == aAfter.at( path ) ) continue;
+            if( !live.contains( path ) || live.at( path ) != aBefore.at( path ) )
+                throw std::runtime_error( "Settings changed since the draft was captured: " + path.to_string() );
+
+            auto input = [&]( const nlohmann::json& value )
+            {
+                auto scratch = std::make_unique<JSON_SETTINGS>( wxEmptyString, SETTINGS_LOC::NONE,
+                                                               owner.m_schemaVersion, false, false, false );
+                static_cast<nlohmann::json&>( *scratch->m_internals ) = live.at( prefix );
+                static_cast<nlohmann::json&>( *scratch->m_internals )[local] = value;
+                return scratch;
+            };
+            changes.push_back( { parameter, input( live.at( path ) ), input( aAfter.at( path ) ) } );
+            claimed[path] = aAfter.at( path );
+            expected[path] = aAfter.at( path );
+        }
+    };
+    prepare( prepare, *this, nlohmann::json::json_pointer{} );
+    if( claimed != aAfter )
+        throw std::runtime_error( "Settings delta changes schema or values outside registered native ownership" );
+
+    size_t applied = 0;
+    try
+    {
+        for( const CHANGE& change : changes )
+        {
+            ++applied; // Include a setter which writes before throwing.
+            change.parameter->Load( *change.after, false );
+        }
+        if( CaptureCurrentState() != expected )
+            throw std::runtime_error( "Native settings setters did not preserve the requested values" );
+    }
+    catch( ... )
+    {
+        const auto failure = std::current_exception();
+        while( applied )
+        {
+            const CHANGE& change = changes[--applied];
+            change.parameter->Load( *change.before, false );
+        }
+        if( CaptureCurrentState() != live )
+            throw std::runtime_error( "Native settings rollback did not restore the original values" );
+        std::rethrow_exception( failure );
+    }
 }
 
 

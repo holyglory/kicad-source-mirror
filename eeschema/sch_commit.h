@@ -27,6 +27,7 @@
 #include <optional>
 #include <array>
 #include <set>
+#include <nlohmann/json_fwd.hpp>
 #include <connection_graph.h>
 
 class EMBEDDED_FILES;
@@ -87,6 +88,7 @@ public:
     void SetTitleBlock( SCH_SCREEN* aScreen, const TITLE_BLOCK& aTitle );
     void SetBusAliases( const std::vector<std::shared_ptr<BUS_ALIAS>>& aAliases );
     void SetTextVariables( const std::map<wxString, wxString>& aVariables );
+    void SetSetupSettings( const nlohmann::json& aBefore, const nlohmann::json& aAfter );
     void SetVariantDescription( const wxString& aName, const wxString& aDescription );
     void StageVariantRegistry();
     void SetDrawingRatios( const std::array<double, 5>& aRatios );

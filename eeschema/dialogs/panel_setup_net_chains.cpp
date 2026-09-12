@@ -50,9 +50,11 @@ static const wxString c_statusCommitted = _( "Committed" );
 static const wxString c_statusPotential = _( "Potential" );
 
 
-PANEL_SETUP_NET_CHAINS::PANEL_SETUP_NET_CHAINS( wxWindow* aParent, SCH_EDIT_FRAME* aFrame ) :
+PANEL_SETUP_NET_CHAINS::PANEL_SETUP_NET_CHAINS( wxWindow* aParent, SCH_EDIT_FRAME* aFrame,
+                                              std::shared_ptr<NET_SETTINGS> aDraftSettings ) :
         PANEL_SETUP_NET_CHAINS_BASE( aParent ),
-        m_frame( aFrame )
+        m_frame( aFrame ),
+        m_draftSettings( std::move( aDraftSettings ) )
 {
     wxGridCellAttr* attr = new wxGridCellAttr;
     attr->SetRenderer( new GRID_CELL_COLOR_RENDERER( PAGED_DIALOG::GetDialog( this ) ) );
@@ -124,7 +126,8 @@ void PANEL_SETUP_NET_CHAINS::loadFromModel()
     if( !graph )
         return;
 
-    std::shared_ptr<NET_SETTINGS> ns = m_frame->Prj().GetProjectFile().NetSettings();
+    std::shared_ptr<NET_SETTINGS> ns = m_draftSettings ? m_draftSettings
+                                                     : m_frame->Prj().GetProjectFile().NetSettings();
     std::map<wxString, wxString>  chainToClass;
 
     if( ns )
@@ -195,7 +198,8 @@ void PANEL_SETUP_NET_CHAINS::refreshNetClassDropdownChoices()
 
     if( m_frame )
     {
-        std::shared_ptr<NET_SETTINGS> ns = m_frame->Prj().GetProjectFile().NetSettings();
+        std::shared_ptr<NET_SETTINGS> ns = m_draftSettings ? m_draftSettings
+                                                         : m_frame->Prj().GetProjectFile().NetSettings();
 
         if( ns )
         {
@@ -406,7 +410,7 @@ bool PANEL_SETUP_NET_CHAINS::TransferDataFromWindow()
 }
 
 
-bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
+bool PANEL_SETUP_NET_CHAINS::ApplyEdits( SCH_COMMIT* aParentCommit )
 {
     if( !m_frame || m_pendingCommit )
         return false;
@@ -421,11 +425,22 @@ bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
     const auto before = graph->GetNetChainDefinitions();
     const auto beforeClasses = ns ? ns->GetNetChainClasses() : std::map<wxString, wxString>{};
     const auto beforeClassDefinitions = ns ? ns->GetNetChainClassDefinitions() : std::set<wxString>{};
+    std::set<wxString> desiredClasses;
+    for( const CLASS_ROW& row : m_classRows )
+        if( !row.deletePending ) desiredClasses.insert( row.newName );
+    bool changed = desiredClasses != beforeClassDefinitions;
+    for( const CHAIN_ROW& row : m_chainRows )
+        changed |= row.deletePending || row.origName != row.newName
+                || ( row.livePtr && ( row.newColor != row.livePtr->GetColor()
+                                      || row.newNetClass != row.livePtr->GetNetClass() ) )
+                || ( ns && row.newChainClass != ns->GetNetChainClass( row.origName ) );
+    if( !changed ) return true;
     std::set<SCH_SYMBOL*> members;
     for( const CHAIN_ROW& row : m_chainRows )
         if( row.livePtr ) members.insert( row.livePtr->GetSymbols().begin(), row.livePtr->GetSymbols().end() );
-    m_pendingCommit = std::make_unique<SCH_COMMIT>( m_frame );
-    if( !m_pendingCommit->StageNetChainEdit( members ) )
+    if( !aParentCommit ) m_pendingCommit = std::make_unique<SCH_COMMIT>( m_frame );
+    SCH_COMMIT* commit = aParentCommit ? aParentCommit : m_pendingCommit.get();
+    if( !commit->StageNetChainEdit( members ) )
     {
         m_pendingCommit.reset();
         return false;
@@ -457,7 +472,7 @@ bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
             }
             else
             {
-                RollbackEdits();
+                if( !aParentCommit ) RollbackEdits();
                 return false;
             }
         }
@@ -567,7 +582,7 @@ void PANEL_SETUP_NET_CHAINS::CommitEdits()
     if( !m_pendingCommit ) return;
     // Pushing rebuilds the graph. Do not retain borrowed chain pointers while
     // native model-change callbacks run. The parent is accepting the dialog.
-    for( CHAIN_ROW& row : m_chainRows ) row.livePtr = nullptr;
+    ReleaseModelPointers();
     auto commit = std::move( m_pendingCommit );
     commit->Push( _( "Edit Net Chains" ) );
 }
@@ -576,9 +591,21 @@ void PANEL_SETUP_NET_CHAINS::CommitEdits()
 void PANEL_SETUP_NET_CHAINS::RollbackEdits()
 {
     if( !m_pendingCommit ) return;
-    for( CHAIN_ROW& row : m_chainRows ) row.livePtr = nullptr;
+    ReleaseModelPointers();
     auto commit = std::move( m_pendingCommit );
     commit->Revert();
+    RebindModelPointers();
+}
+
+
+void PANEL_SETUP_NET_CHAINS::ReleaseModelPointers()
+{
+    for( CHAIN_ROW& row : m_chainRows ) row.livePtr = nullptr;
+}
+
+
+void PANEL_SETUP_NET_CHAINS::RebindModelPointers()
+{
     // Validation failure leaves the form open. Preserve desired row values
     // and rebind only their exact pre-edit owners for the next attempt.
     if( auto* graph = m_frame->Schematic().ConnectionGraph() )

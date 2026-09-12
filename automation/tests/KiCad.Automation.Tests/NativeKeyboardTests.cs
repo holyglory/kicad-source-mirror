@@ -6,6 +6,19 @@ namespace KiCad.Automation.Tests;
 public sealed class NativeKeyboardTests
 {
     [TestMethod]
+    public void ExplicitPointerCommandsDoNotDependOnTheKeyboardFocusPreclick()
+    {
+        foreach (string key in new[] { "click", "right-click", "motion" })
+            foreach (bool focus in new[] { false, true })
+                Assert.IsTrue(NativeKeyboard.RequestsPointerInput(key, focus));
+        Assert.IsFalse(NativeKeyboard.RequestsPointerInput("Return", false));
+        Assert.IsFalse(NativeKeyboard.RequestsPointerInput("z", false));
+        Assert.IsTrue(NativeKeyboard.RequestsPointerInput("z", true));
+        Assert.IsFalse(NativeKeyboard.RequestsPointerInput("", false));
+        Assert.IsFalse(NativeKeyboard.RequestsPointerInput("", true));
+    }
+
+    [TestMethod]
     public void RequestedLetterCaseAndPunctuationChooseTheActualKeymapLevel()
     {
         Assert.AreEqual((nuint)'A', NativeKeyboard.LiteralKeysym("A"));

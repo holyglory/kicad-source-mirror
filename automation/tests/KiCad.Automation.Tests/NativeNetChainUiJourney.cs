@@ -279,7 +279,7 @@ public sealed partial class NativeSessionTests
             journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
                 { Document = root, DocumentEpoch = setupBaseline.Revision.Epoch, AfterSequence = setupBaseline.Revision.Sequence }, token);
             Assert.AreEqual(1, journal.Changes.Count);
-            Assert.AreEqual("Edit Net Chains", journal.Changes.Single().Description);
+            Assert.AreEqual("Edit Schematic Setup", journal.Changes.Single().Description);
             await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
             using (var project = JsonDocument.Parse(await File.ReadAllTextAsync(Path.ChangeExtension(rootFile, ".kicad_pro"), token)))
             {
@@ -332,7 +332,7 @@ public sealed partial class NativeSessionTests
             journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
                 { Document = root, DocumentEpoch = previous.Revision.Epoch, AfterSequence = previous.Revision.Sequence }, token);
             Assert.AreEqual(1, journal.Changes.Count);
-            Assert.AreEqual("Edit Net Chains", journal.Changes.Single().Description);
+            Assert.AreEqual("Edit Schematic Setup", journal.Changes.Single().Description);
             await Saved(false);
             var undoneColor = await History("z", actual); await Same(previous.Data, undoneColor.Data, "chain-color-undo");
             var redoneColor = await History("y", undoneColor); await Same(expected, redoneColor.Data, "chain-color-redo");

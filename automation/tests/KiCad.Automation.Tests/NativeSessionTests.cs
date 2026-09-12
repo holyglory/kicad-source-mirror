@@ -24,7 +24,10 @@ public sealed partial class NativeSessionTests
     [TestMethod, TestCategory("NativeNetChains")]
     public Task NetChainMetadataPreservesNativeHistory() => RunNativeSessions(NativeJourney.NetChains);
 
-    private enum NativeJourney { Foundation, TableVariants, NetChains }
+    [TestMethod, TestCategory("NativeSetupDraft")]
+    public Task SetupDraftPreservesCancelledPageChangesAndNativeHistory() => RunNativeSessions(NativeJourney.Setup);
+
+    private enum NativeJourney { Foundation, TableVariants, NetChains, Setup }
 
     private async Task RunNativeSessions(NativeJourney journey)
     {
@@ -34,7 +37,8 @@ public sealed partial class NativeSessionTests
         Assert.IsTrue(File.Exists(executable), "The linked native manager must be built first.");
         string artifacts = Path.Combine(root, "automation", "artifacts");
         string evidence = NativeEvidenceDirectory.Begin(journey == NativeJourney.Foundation ? artifacts
-            : Path.Combine(artifacts, journey == NativeJourney.TableVariants ? "native-table-variants" : "native-net-chains"));
+            : Path.Combine(artifacts, journey switch { NativeJourney.TableVariants => "native-table-variants",
+                NativeJourney.Setup => "native-setup-draft", _ => "native-net-chains" }));
         string temporary = Directory.CreateTempSubdirectory("kicad-native-").FullName;
         // Full composed verification includes all editor/chain/color journeys
         // in both instances (first instance measured at 166s). Keep individual
@@ -241,7 +245,14 @@ public sealed partial class NativeSessionTests
                     int focusProcessId = processes.Single(p => p.StartInfo.ArgumentList.Contains(target.Project)).Id;
                     await client.InvokeAsync<SaveDocument, Empty>(new() { Document = opened.Document }, deadline.Token);
                     Console.WriteLine($"Focused {journey} {target.Id} reached its target at {elapsed.Elapsed.TotalSeconds:F1}s.");
-                    if (journey == NativeJourney.TableVariants)
+                    if (journey == NativeJourney.Setup)
+                    {
+                        await VerifyManualSetup(client, opened.Document, focusProcessId, ":" + displayNumber,
+                            evidence, target.Id, deadline.Token);
+                        await VerifySetupPinMap(client, opened.Document, focusProcessId, ":" + displayNumber,
+                            evidence, target.Id, deadline.Token);
+                    }
+                    else if (journey == NativeJourney.TableVariants)
                         await VerifyTableVariantEdits(client, opened.Document, schematic, focusProcessId,
                             ":" + displayNumber, evidence, deadline.Token);
                     else
@@ -489,6 +500,8 @@ public sealed partial class NativeSessionTests
                 await VerifyManualPageSettings(client, opened.Document, nativeProcessId, ":" + displayNumber,
                     evidence, target.Id, textId, hierarchyFixture, deadline.Token);
                 await VerifyManualSetup(client, opened.Document, nativeProcessId, ":" + displayNumber,
+                    evidence, target.Id, deadline.Token);
+                await VerifySetupPinMap(client, opened.Document, nativeProcessId, ":" + displayNumber,
                     evidence, target.Id, deadline.Token);
                 await VerifyNativeEvents(client, registry.Client(launched.Single(p => p.Id != target.Id).Id),
                     opened.Document, textId, nativeProcessId, ":" + displayNumber, evidence, target.Id, deadline.Token);

@@ -228,6 +228,22 @@ void SCH_COMMIT::SetTextVariables( const std::map<wxString, wxString>& aVariable
     m_connectivitySettingsChanged = true;
 }
 
+void SCH_COMMIT::SetSetupSettings( const nlohmann::json& aBefore, const nlohmann::json& aAfter )
+{
+    if( aBefore == aAfter ) return;
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    if( !frame || m_isLibEditor )
+        throw std::runtime_error( "Setup changes require a schematic editor" );
+    if( !m_pageSettingsUndo )
+    {
+        m_pageSettingsUndo = std::make_unique<SCH_PAGE_SETTINGS_UNDO_ITEM>( frame );
+        m_pageSettingsUndo->SetFlags( UR_TRANSIENT );
+    }
+    m_pageSettingsUndo->ApplySetupDelta( frame, aBefore, aAfter );
+    m_connectivitySettingsChanged = true;
+}
+
+
 void SCH_COMMIT::StageVariantRegistry()
 {
     auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );

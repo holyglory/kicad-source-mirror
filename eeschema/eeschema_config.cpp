@@ -141,6 +141,7 @@ void SCH_EDIT_FRAME::ShowSchematicSetupDialog( const wxString& aInitialPage )
         }
     };
     const auto beforeSettings = captureSettings();
+    const uint64_t beforeRevision = Schematic().ChangeJournal().Sequence();
 
     DIALOG_SCHEMATIC_SETUP dlg( this );
 
@@ -213,7 +214,7 @@ void SCH_EDIT_FRAME::ShowSchematicSetupDialog( const wxString& aInitialPage )
         RefreshOperatingPointDisplay();
         GetCanvas()->Refresh();
 
-        if( settingsChanged )
+        if( settingsChanged && Schematic().ChangeJournal().Sequence() == beforeRevision )
             Schematic().RecordCommittedChange( DOCUMENT_CHANGE_JOURNAL::KIND::COMMIT,
                                                 "Edit Schematic Setup" );
     }

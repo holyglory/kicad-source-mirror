@@ -21,6 +21,7 @@
 #define PANEL_SETUP_NET_CHAINS_H
 
 #include <map>
+#include <memory>
 #include <set>
 #include <vector>
 #include <wx/string.h>
@@ -30,6 +31,7 @@
 
 class SCH_EDIT_FRAME;
 class SCH_NETCHAIN;
+class SCH_COMMIT;
 
 
 /**
@@ -57,6 +59,8 @@ public:
     bool Validate() override;
 
     bool ApplyEdits();
+    void CommitEdits();
+    void RollbackEdits();
 
 protected:
     void OnDeleteChainClicked( wxCommandEvent& aEvent ) override;
@@ -114,6 +118,7 @@ private:
     void updateMembersDetail( int aRow );
 
     SCH_EDIT_FRAME* m_frame;
+    std::unique_ptr<SCH_COMMIT> m_pendingCommit;
 
     std::vector<CHAIN_ROW> m_chainRows;
     std::vector<int>       m_gridToChainIdx;

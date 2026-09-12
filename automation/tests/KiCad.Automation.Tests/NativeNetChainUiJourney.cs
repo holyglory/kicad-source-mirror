@@ -19,8 +19,8 @@ public sealed partial class NativeSessionTests
         const string title = "Name Net Chain", oldName = "AUTOMATION_PATH", newName = "renamedpath";
         var header = new ItemHeader { Document = root };
         bool capturedMenuStack = false;
-        void Key(string key, string window = "Schematic Editor", bool control = false) =>
-            NativeKeyboard.SchematicShortcut(display, processId, key, window, control, focusCanvas: false);
+        void Key(string key, string window = "Schematic Editor", bool control = false, bool alt = false) =>
+            NativeKeyboard.SchematicShortcut(display, processId, key, window, control, focusCanvas: false, altKey: alt);
         async Task Window(string window, bool visible)
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -163,5 +163,26 @@ public sealed partial class NativeSessionTests
         var redone = await History("y", undone); await Same(changed.Data, redone.Data, "chain-redo"); await Saved(true);
         undone = await History("z", redone); await Same(before.Data, undone.Data, "chain-restored"); await Saved(false);
         await client.InvokeAsync<ClearSelection, Empty>(new() { Header = header }, token);
+
+        // Schematic Setup remains a real native dialog. Exercise the lazy
+        // net-chain page without manufacturing edits on Cancel or unchanged OK.
+        var setupBaseline = await Read(token);
+        foreach (bool accept in new[] { false, true, true })
+        {
+            Key("f", alt: true); Key("End");
+            for (int i = 0; i < 4; i++) Key("Up");
+            Key("Return"); await Window("Schematic Setup", true);
+            NativeKeyboard.SchematicShortcut(display, processId, "Home", "Schematic Setup", controlKey: false,
+                focusCanvas: true, clickFromLeft: 80, clickFromTop: 40);
+            // Expanded category roots redirect to their first child. From
+            // Formatting, nine visible downward steps reach Net Chains.
+            for (int i = 0; i < 9; i++) Key("Down", "Schematic Setup");
+            await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-setup-page.png"), token);
+            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                focusCanvas: true, clickFromRight: accept ? 60 : 150, clickFromBottom: 25);
+            await Window("Schematic Setup", false);
+            await Same(setupBaseline, await Read(token), accept ? "chain-setup-noop" : "chain-setup-cancel");
+            await Saved(false);
+        }
     }
 }

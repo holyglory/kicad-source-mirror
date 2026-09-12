@@ -139,7 +139,8 @@ DIALOG_SCHEMATIC_SETUP::DIALOG_SCHEMATIC_SETUP( SCH_EDIT_FRAME* aFrame ) :
     m_treebook->AddLazySubPage(
             [this]( wxWindow* aParent ) -> wxWindow*
             {
-                return new PANEL_SETUP_NET_CHAINS( aParent, m_frame );
+                m_netChainsPanel = new PANEL_SETUP_NET_CHAINS( aParent, m_frame );
+                return m_netChainsPanel;
             }, _( "Net Chains" ) );
 
     m_textVarsPage = m_treebook->GetPageCount();
@@ -175,6 +176,26 @@ DIALOG_SCHEMATIC_SETUP::DIALOG_SCHEMATIC_SETUP( SCH_EDIT_FRAME* aFrame ) :
     wxBookCtrlEvent evt( wxEVT_TREEBOOK_PAGE_CHANGED, wxID_ANY, 0 );
 
     wxQueueEvent( m_treebook, evt.Clone() );
+}
+
+
+bool DIALOG_SCHEMATIC_SETUP::TransferDataFromWindow()
+{
+    try
+    {
+        const bool accepted = PAGED_DIALOG::TransferDataFromWindow();
+        if( m_netChainsPanel )
+        {
+            if( accepted ) m_netChainsPanel->CommitEdits();
+            else m_netChainsPanel->RollbackEdits();
+        }
+        return accepted;
+    }
+    catch( ... )
+    {
+        if( m_netChainsPanel ) m_netChainsPanel->RollbackEdits();
+        throw;
+    }
 }
 
 

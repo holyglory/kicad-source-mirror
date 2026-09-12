@@ -36,6 +36,7 @@
 #include <project.h>
 #include <project/project_file.h>
 #include <project/net_settings.h>
+#include <sch_commit.h>
 
 #include <widgets/grid_color_swatch_helpers.h>
 #include <widgets/std_bitmap_button.h>
@@ -106,6 +107,7 @@ PANEL_SETUP_NET_CHAINS::PANEL_SETUP_NET_CHAINS( wxWindow* aParent, SCH_EDIT_FRAM
 
 PANEL_SETUP_NET_CHAINS::~PANEL_SETUP_NET_CHAINS()
 {
+    RollbackEdits();
 }
 
 
@@ -403,7 +405,7 @@ bool PANEL_SETUP_NET_CHAINS::TransferDataFromWindow()
 
 bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
 {
-    if( !m_frame )
+    if( !m_frame || m_pendingCommit )
         return false;
 
     CONNECTION_GRAPH* graph = m_frame->Schematic().ConnectionGraph();
@@ -412,6 +414,18 @@ bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
         return false;
 
     std::shared_ptr<NET_SETTINGS> ns = m_frame->Prj().GetProjectFile().NetSettings();
+
+    const auto before = graph->GetNetChainDefinitions();
+    const auto beforeClasses = ns ? ns->GetNetChainClasses() : std::map<wxString, wxString>{};
+    std::set<SCH_SYMBOL*> members;
+    for( const CHAIN_ROW& row : m_chainRows )
+        if( row.livePtr ) members.insert( row.livePtr->GetSymbols().begin(), row.livePtr->GetSymbols().end() );
+    m_pendingCommit = std::make_unique<SCH_COMMIT>( m_frame );
+    if( !m_pendingCommit->StageNetChainEdit( members ) )
+    {
+        m_pendingCommit.reset();
+        return false;
+    }
 
     // Apply renames on chains whose name changed.
     for( CHAIN_ROW& row : m_chainRows )
@@ -521,9 +535,36 @@ bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
         }
     }
 
-    m_frame->OnModify();
+    const auto afterClasses = ns ? ns->GetNetChainClasses() : std::map<wxString, wxString>{};
+    if( before == graph->GetNetChainDefinitions() && beforeClasses == afterClasses )
+        m_pendingCommit.reset();
 
     return true;
+}
+
+
+void PANEL_SETUP_NET_CHAINS::CommitEdits()
+{
+    if( !m_pendingCommit ) return;
+    // Pushing rebuilds the graph. Do not retain borrowed chain pointers while
+    // native model-change callbacks run. The parent is accepting the dialog.
+    for( CHAIN_ROW& row : m_chainRows ) row.livePtr = nullptr;
+    auto commit = std::move( m_pendingCommit );
+    commit->Push( _( "Edit Net Chains" ) );
+}
+
+
+void PANEL_SETUP_NET_CHAINS::RollbackEdits()
+{
+    if( !m_pendingCommit ) return;
+    for( CHAIN_ROW& row : m_chainRows ) row.livePtr = nullptr;
+    auto commit = std::move( m_pendingCommit );
+    commit->Revert();
+    // Validation failure leaves the form open. Preserve desired row values
+    // and rebind only their exact pre-edit owners for the next attempt.
+    if( auto* graph = m_frame->Schematic().ConnectionGraph() )
+        for( CHAIN_ROW& row : m_chainRows )
+            row.livePtr = graph->GetNetChainByName( row.origName );
 }
 
 

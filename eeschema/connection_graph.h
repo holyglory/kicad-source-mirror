@@ -484,6 +484,7 @@ public:
     {
         wxString ref;
         wxString pin;
+        bool operator==( const CHAIN_TERMINAL_REF& ) const = default;
     };
     using CHAIN_TERMINAL_REFS = std::pair<CHAIN_TERMINAL_REF, CHAIN_TERMINAL_REF>;
 
@@ -970,6 +971,7 @@ public:
         COLOR4D color = COLOR4D::UNSPECIFIED;
         std::set<wxString> memberNets;
         bool committed = false;
+        bool operator==( const NET_CHAIN_DEFINITION& ) const = default;
     };
 
     // Shared by persistence and structured observation. Retain pending intent;

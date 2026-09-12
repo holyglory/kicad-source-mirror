@@ -251,6 +251,8 @@ public sealed partial class NativeSessionTests
                             evidence, target.Id, deadline.Token);
                         await VerifySetupPinMap(client, opened.Document, focusProcessId, ":" + displayNumber,
                             evidence, target.Id, deadline.Token);
+                        await VerifySetupImport(client, opened.Document, focusProcessId, ":" + displayNumber,
+                            evidence, target.Id, deadline.Token);
                     }
                     else if (journey == NativeJourney.TableVariants)
                         await VerifyTableVariantEdits(client, opened.Document, schematic, focusProcessId,
@@ -502,6 +504,8 @@ public sealed partial class NativeSessionTests
                 await VerifyManualSetup(client, opened.Document, nativeProcessId, ":" + displayNumber,
                     evidence, target.Id, deadline.Token);
                 await VerifySetupPinMap(client, opened.Document, nativeProcessId, ":" + displayNumber,
+                    evidence, target.Id, deadline.Token);
+                await VerifySetupImport(client, opened.Document, nativeProcessId, ":" + displayNumber,
                     evidence, target.Id, deadline.Token);
                 await VerifyNativeEvents(client, registry.Client(launched.Single(p => p.Id != target.Id).Id),
                     opened.Document, textId, nativeProcessId, ":" + displayNumber, evidence, target.Id, deadline.Token);

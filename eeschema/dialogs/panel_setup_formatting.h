@@ -42,6 +42,7 @@ protected:
     void onCheckBoxIref( wxCommandEvent& event ) override;
 
 private:
+    bool loadSettings( const SCHEMATIC_SETTINGS& aSettings );
     SCHEMATIC_SETTINGS* m_settings;
 
     UNIT_BINDER        m_textSize;

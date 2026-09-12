@@ -135,8 +135,25 @@ public sealed partial class NativeSessionTests
         CollectionAssert.AreEqual(Partition(electrical), Partition(await Electrical()));
         var restoredSymbols = await UpdateAllSymbols(false);
         await Same(symbolBaseline.Data, restoredSymbols.Data, "symbol-complete-restoration");
+        NativeKeyboard.SchematicShortcut(display, processId, "click", controlKey: false,
+            focusCanvas: true, clickFromLeft: 1210, clickFromTop: 550);
         var undoSymbols = await History("z", restoredSymbols); await Same(expectedBlocked, undoSymbols.Data, "symbol-complete-undo");
-        var redoSymbols = await History("y", undoSymbols); await Same(symbolBaseline.Data, redoSymbols.Data, "symbol-complete-redo");
+        // Use the actual toolbar Redo here after full symbol replacement:
+        // rebuilt property widgets may still own the local Ctrl+Y accelerator.
+        NativeKeyboard.SchematicShortcut(display, processId, "click", controlKey: false,
+            focusCanvas: true, clickFromLeft: 280, clickFromTop: 43);
+        SchematicHierarchyDataSnapshot redoSymbols;
+        using (var redoLimit = CancellationTokenSource.CreateLinkedTokenSource(token))
+        {
+            redoLimit.CancelAfter(TimeSpan.FromSeconds(5));
+            do
+            {
+                redoLimit.Token.ThrowIfCancellationRequested();
+                redoSymbols = await Read();
+                if (redoSymbols.Revision.Equals(undoSymbols.Revision)) await Task.Delay(50, redoLimit.Token);
+            } while (redoSymbols.Revision.Equals(undoSymbols.Revision));
+        }
+        await Same(symbolBaseline.Data, redoSymbols.Data, "symbol-complete-redo");
         await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
         await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
         await Same(symbolBaseline.Data, (await Read()).Data, "symbol-complete-reloaded");

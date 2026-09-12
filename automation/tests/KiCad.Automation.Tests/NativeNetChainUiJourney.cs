@@ -644,6 +644,28 @@ public sealed partial class NativeSessionTests
             Assert.AreEqual("Create Net Chain", events.Changes.Single().Description);
             await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
             StringAssert.Contains(await File.ReadAllTextAsync(rootFile, token), "(net_chain \"createdpath\"");
+            // A manual one-net chain has no bridging resistor to disable.
+            // The actual Remove control must still persist the explicit
+            // removal and retain its original now-unresolved endpoint intent.
+            await OpenChainMenu(); Key("End"); Key("Up"); Key("Up"); Key("Up"); Key("Return");
+            var manuallyRemoved = await Read(token);
+            Assert.IsTrue(manuallyRemoved.Revision.Sequence > created.Revision.Sequence);
+            foreach (var screen in manuallyRemoved.Data.Instances)
+            {
+                var removed = screen.Metadata.NetChains.Single(c => c.Name == "createdpath");
+                var original = created.Data.Instances[0].Metadata.NetChains.Single(c => c.Name == "createdpath");
+                Assert.IsFalse(removed.Committed);
+                Assert.AreEqual(0, removed.MemberNets.Count);
+                CollectionAssert.AreEquivalent(original.MemberNets.ToArray(), removed.Exclusions.NetNames.ToArray());
+                Assert.AreEqual(2, removed.Exclusions.Pins.Count);
+                Assert.AreEqual(original.From, removed.From); Assert.AreEqual(original.To, removed.To);
+            }
+            await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+            StringAssert.Contains(await File.ReadAllTextAsync(rootFile, token), "(excluded_pin");
+            var manualUndo = await History("z", manuallyRemoved); await Same(created.Data, manualUndo.Data, "chain-manual-remove-undo");
+            var manualRedo = await History("y", manualUndo); await Same(manuallyRemoved.Data, manualRedo.Data, "chain-manual-remove-redo");
+            manualUndo = await History("z", manualRedo); await Same(created.Data, manualUndo.Data, "chain-manual-remove-restored");
+            created = await Read(token);
             var undoneCreation = await History("z", created); await Same(empty.Data, undoneCreation.Data, "chain-create-undo");
             var redoneCreation = await History("y", undoneCreation); await Same(created.Data, redoneCreation.Data, "chain-create-redo");
             undoneCreation = await History("z", redoneCreation); await Same(empty.Data, undoneCreation.Data, "chain-create-restored");

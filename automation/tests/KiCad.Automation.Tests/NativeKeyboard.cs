@@ -43,7 +43,7 @@ internal static class NativeKeyboard
         string titleMatch = "Schematic Editor", bool controlKey = true, bool focusCanvas = true,
         int? clickFromRight = null, int? clickFromBottom = null, Action<string>? describe = null,
         int? clickFromLeft = null, int? clickFromTop = null, bool altKey = false,
-        Action<nuint>? observeWindow = null)
+        Action<nuint>? observeWindow = null, Action<(int X, int Y, int Width, int Height)>? observeGeometry = null)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException();
         using var errors = new WindowErrorScope();
@@ -108,6 +108,12 @@ internal static class NativeKeyboard
                     + string.Join("; ", observed));
 
             observeWindow?.Invoke(targets.Single());
+            if (observeGeometry is not null)
+            {
+                if (XGetWindowAttributes(display, targets[0], out var geometry) == 0)
+                    throw new InvalidOperationException("Cannot inspect fixture window geometry.");
+                observeGeometry((geometry.X, geometry.Y, geometry.Width, geometry.Height));
+            }
             if (key.Length == 0) return; // Read-only fixture window-presence query.
 
             XRaiseWindow(display, targets[0]);

@@ -203,16 +203,33 @@ public sealed partial class NativeSessionTests
         // Schematic Setup remains a real native dialog. Exercise the lazy
         // net-chain page without manufacturing edits on Cancel or unchanged OK.
         var setupBaseline = await Read(token);
+        async Task StableSetupGeometry()
+        {
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
+            limit.CancelAfter(TimeSpan.FromSeconds(5));
+            (int X, int Y, int Width, int Height)? previous = null;
+            var quiet = Stopwatch.StartNew();
+            while (true)
+            {
+                (int X, int Y, int Width, int Height) current = default;
+                NativeKeyboard.SchematicShortcut(display, processId, "", "Schematic Setup",
+                    observeGeometry: value => current = value);
+                if (previous != current) { previous = current; quiet.Restart(); }
+                else if (quiet.Elapsed >= TimeSpan.FromMilliseconds(200)) return;
+                await Task.Delay(50, limit.Token);
+            }
+        }
         foreach (bool accept in new[] { false, true, true })
         {
             Key("f", alt: true); Key("End");
             for (int i = 0; i < 4; i++) Key("Up");
             Key("Return"); await Window("Schematic Setup", true);
-            NativeKeyboard.SchematicShortcut(display, processId, "Home", "Schematic Setup", controlKey: false,
-                focusCanvas: true, clickFromLeft: 80, clickFromTop: 40);
-            // The rendered tree's keyboard selection includes category rows.
-            // Eleven downward steps from Home reach Net Chains, not Net Classes.
-            for (int i = 0; i < 11; i++) Key("Down", "Schematic Setup");
+            await StableSetupGeometry();
+            // Measured native tree row. Lazy page resolution can resize the
+            // dialog; wait for stable geometry before targeting its buttons.
+            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                focusCanvas: true, clickFromLeft: 80, clickFromTop: 264);
+            await StableSetupGeometry();
             await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-setup-page.png"), token);
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
                 focusCanvas: true, clickFromRight: accept ? 60 : 150, clickFromBottom: 25);

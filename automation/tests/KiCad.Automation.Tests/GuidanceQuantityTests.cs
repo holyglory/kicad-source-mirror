@@ -120,4 +120,32 @@ public sealed class GuidanceQuantityTests
         using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
         Assert.ThrowsExactly<OperationCanceledException>(() => new KnowledgeTools().Resolve("not xml", "not xml", "not xml", cancellation.Token));
     }
+
+    [TestMethod]
+    public void FullEngineeringDesignRetainsLibraryAndLocalNumericalGuidance()
+    {
+        var (design, library) = EngineeringDesignXmlTests.Fixture();
+        library = library with { Classes = library.Classes.Select(c => c with
+        {
+            Guidance = c.Guidance.Select(s => s.Key == "decoupling"
+                ? s with { Quantity = new(ParameterKind.Nominal, "count", Nominal: 30m) } : s).ToArray()
+        }).ToArray() };
+        var local = Statement(new(ParameterKind.OperatingLimit, "°C", Maximum: 85m), "case-temperature")
+            with { Strength = GuidanceStrength.Preference, Text = "Synthetic design-specific thermal target" };
+        design = design with { ComponentBindings = design.ComponentBindings.Select(b => b with
+            { Guidance = [.. b.Guidance, local] }).ToArray() };
+        string xml = EngineeringDesignXml.Write(design, [library]);
+        string libraryXml = ComponentKnowledgeXml.WriteLibrary(library);
+        var reloadedLibrary = ComponentKnowledgeXml.ReadLibrary(libraryXml);
+        var reloaded = EngineeringDesignXml.Read(xml, [reloadedLibrary]);
+        var result = reloaded.Validate([reloadedLibrary]).Single().Value;
+        Assert.AreEqual(30m, result.Effective.Single(r => r.Statement.Key == "decoupling").Statement.Quantity!.Nominal);
+        var actual = result.Effective.Single(r => r.Statement.Id == local.Id);
+        Assert.IsTrue(actual.IsInstance);
+        Assert.AreEqual(local.Quantity, actual.Statement.Quantity);
+        Assert.AreEqual(local.Applicability, actual.Statement.Applicability);
+        Assert.AreEqual(local.Sources[0], actual.Statement.Sources[0]);
+        Assert.AreEqual(xml, EngineeringDesignXml.Write(reloaded, [reloadedLibrary]));
+        Assert.AreEqual(libraryXml, ComponentKnowledgeXml.WriteLibrary(reloadedLibrary));
+    }
 }

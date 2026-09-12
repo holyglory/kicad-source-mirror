@@ -95,7 +95,7 @@ BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpda
             SCH_SYMBOL decoded;
             BOOST_REQUIRE( decoded.Deserialize( packed ) );
             WX_STRING_REPORTER differences;
-            const int comparison = symbol->GetLibSymbolRef()->Compare( *decoded.GetLibSymbolRef(), ~COMPARE_FLAGS::UNIT, &differences );
+            const int comparison = symbol->GetLibSymbolRef()->Compare( *decoded.GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UNIT, &differences );
             BOOST_CHECK_MESSAGE( comparison == 0, symbol->GetRef( &path ).ToStdString()
                     + ": " + differences.GetMessages().ToStdString() );
         }

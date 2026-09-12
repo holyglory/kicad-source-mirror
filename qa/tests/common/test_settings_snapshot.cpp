@@ -45,6 +45,27 @@ public:
 
 BOOST_AUTO_TEST_SUITE( SettingsSnapshot )
 
+BOOST_AUTO_TEST_CASE( DetachedCopyPreservesSourceStoresAndOwnsNestedValues )
+{
+    SNAPSHOT_ROOT source; SNAPSHOT_CHILD child( &source, "design" );
+    SNAPSHOT_CHILD grandchild( &child, "formatting" );
+    source.value = 23; child.value = 45; grandchild.value = 67;
+    source.Set<int>( "unknown.extension", 19 );
+    const auto stored = static_cast<const nlohmann::json&>( *source.Internals() );
+    const auto nestedStored = static_cast<const nlohmann::json&>( *child.Internals() );
+    const auto before = source.CaptureCurrentState();
+    SNAPSHOT_ROOT target; SNAPSHOT_CHILD targetChild( &target, "design" );
+    SNAPSHOT_CHILD targetGrandchild( &targetChild, "formatting" );
+    source.CopyCurrentStateTo( target );
+    BOOST_CHECK( target.CaptureCurrentState() == before );
+    target.value = 101; targetChild.value = 103; targetGrandchild.value = 107;
+    BOOST_CHECK( source.CaptureCurrentState() == before );
+    BOOST_CHECK( static_cast<const nlohmann::json&>( *source.Internals() ) == stored );
+    BOOST_CHECK( static_cast<const nlohmann::json&>( *child.Internals() ) == nestedStored );
+    source.fail = true;
+    BOOST_CHECK_THROW( source.CopyCurrentStateTo( target ), std::runtime_error );
+}
+
 BOOST_AUTO_TEST_CASE( CapturesLiveNestedValuesWithoutWritingAnyStoreOrDirtyFlag )
 {
     SNAPSHOT_ROOT root;

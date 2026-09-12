@@ -465,6 +465,30 @@ std::map<std::string, nlohmann::json> JSON_SETTINGS::GetFileHistories()
 }
 
 
+void JSON_SETTINGS::CopyCurrentStateTo( JSON_SETTINGS& aDetachedTarget ) const
+{
+    if( &aDetachedTarget == this ) return;
+    if( m_schemaVersion != aDetachedTarget.m_schemaVersion )
+        throw std::runtime_error( "Cannot copy settings across different native schemas" );
+    const nlohmann::json captured = CaptureCurrentState();
+    auto load = [&]( auto&& self, JSON_SETTINGS& target, const nlohmann::json& state ) -> void
+    {
+        static_cast<nlohmann::json&>( *target.m_internals ) = state;
+        for( PARAM_BASE* parameter : target.m_params )
+            parameter->Load( target, target.m_resetParamsIfMissing );
+        for( NESTED_SETTINGS* child : target.m_nested_settings )
+        {
+            const auto path = target.m_internals->PointerFromString( child->GetPath() );
+            if( !state.contains( path ) )
+                throw std::runtime_error( "Captured settings do not contain the target nested owner" );
+            self( self, *child, state.at( path ) );
+        }
+    };
+    load( load, aDetachedTarget, captured );
+    if( aDetachedTarget.CaptureCurrentState() != captured )
+        throw std::runtime_error( "Detached settings copy would lose or change persisted values" );
+}
+
 bool JSON_SETTINGS::SaveToFile( const wxString& aDirectory, bool aForce )
 {
     if( !m_writeFile )

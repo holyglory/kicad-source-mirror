@@ -140,6 +140,13 @@ public:
      */
     nlohmann::json CaptureCurrentState() const;
 
+    /** Copy live registered and nested values into a detached settings object.
+     * The caller owns the target and must discard it if decoding fails. This
+     * performs no file I/O, never stores source parameters, and rejects loss
+     * by comparing the resulting live state with the captured source.
+     */
+    void CopyCurrentStateTo( JSON_SETTINGS& aDetachedTarget ) const;
+
     /**
      * Loads the backing file from disk and then calls Load()
      * @param aDirectory is the path to the file

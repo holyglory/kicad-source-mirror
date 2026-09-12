@@ -1584,6 +1584,28 @@ requires = ["native-build"]
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeTableVariant", "--logger", "trx", "--results-directory", "automation/artifacts/native-table-variant-results"]
 retained_artifacts = [{ name = "native-table-evidence", path = "automation/artifacts/native-table-variants/native-session-current", max_bytes = 33554432 }]
 
+[test.native-setup-draft]
+timeout_seconds = 3600
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.native-setup-draft.check]]
+name = "configure"
+tier = "development"
+role = "preflight"
+invalidates = ["build", "contracts"]
+command = ["cmake", "-S", ".", "-B", "automation/artifacts/native", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug", "-DKICAD_USE_CMAKE_FINDPROTOBUF=ON", "-DKICAD_BUILD_QA_TESTS=ON"]
+
+[[test.native-setup-draft.check]]
+name = "build"
+tier = "development"
+command = ["cmake", "--build", "automation/artifacts/native", "--target", "qa_symbol_graphic_identity"]
+
+[[test.native-setup-draft.check]]
+name = "contracts"
+tier = "development"
+requires = ["build"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_schematic_setup_draft$", "--output-on-failure", "--no-tests=error"]
+
 [test.net-chain-exclusion-model]
 timeout_seconds = 900
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

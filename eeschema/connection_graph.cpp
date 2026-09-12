@@ -3499,30 +3499,24 @@ void CONNECTION_GRAPH::RebuildNetChains()
             committedNames.insert( chain->GetName() );
     }
 
-    for( SCH_ITEM* item : m_items )
+    for( const SCH_SHEET_PATH& labelPath : m_sheetList )
     {
-        if( item->Type() != SCH_LABEL_T )
-            continue;
-
-        SCH_TEXT* label = static_cast<SCH_TEXT*>( item );
-        wxString  net;
-
-        if( CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( item ) )
-            net = sg->GetNetName();
-
-        // Defensive: guard against pathological names
-        if( !net.IsEmpty() && net.Length() < 2048 && netToNetChain.count( net ) )
+        if( !labelPath.LastScreen() ) continue;
+        for( SCH_ITEM* item : labelPath.LastScreen()->Items().OfType( SCH_LABEL_T ) )
         {
-            wxString name = label->GetText();
-            if( name.Length() > 512 )
-                name.Truncate( 512 );
-            if( name.StartsWith( wxS( "/" ) ) )
-                name = name.Mid( 1 );
+            SCH_TEXT* label = static_cast<SCH_TEXT*>( item );
+            wxString  net;
+            if( CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( item, labelPath ) )
+                net = sg->GetNetName();
 
-            // Skip if a committed chain already owns this name; let the terminal-ref /
-            // saved-net-name restore logic below resolve the committed chain on its own.
-            if( !committedNames.count( name ) )
-                netToNetChain[net]->SetName( name );
+            if( !net.IsEmpty() && net.Length() < 2048 && netToNetChain.count( net ) )
+            {
+                wxString name = label->GetText();
+                if( name.Length() > 512 ) name.Truncate( 512 );
+                if( name.StartsWith( wxS( "/" ) ) ) name = name.Mid( 1 );
+                // A label must not steal a committed declaration's name.
+                if( !committedNames.count( name ) ) netToNetChain[net]->SetName( name );
+            }
         }
     }
 

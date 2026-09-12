@@ -559,6 +559,7 @@ public:
     CONNECTION_SUBGRAPH* FindFirstSubgraphByName( const wxString& aNetName );
 
     CONNECTION_SUBGRAPH* GetSubgraphForItem( SCH_ITEM* aItem ) const;
+    CONNECTION_SUBGRAPH* GetSubgraphForItem( SCH_ITEM* aItem, const SCH_SHEET_PATH& aPath ) const;
 
     const std::vector<CONNECTION_SUBGRAPH*>& GetAllSubgraphs( const wxString& aNetName ) const;
 
@@ -943,7 +944,8 @@ public:
     const std::vector<std::unique_ptr<SCH_NETCHAIN>>& GetPotentialNetChains() const { return m_potentialNetChains; }
 
     /** Locate a potential net chain that contains both pins (by subgraph net membership). */
-    SCH_NETCHAIN* FindPotentialNetChainBetweenPins( SCH_PIN* aPinA, SCH_PIN* aPinB );
+    SCH_NETCHAIN* FindPotentialNetChainBetweenPins( SCH_PIN* aPinA, const SCH_SHEET_PATH& aPathA,
+                                                  SCH_PIN* aPinB, const SCH_SHEET_PATH& aPathB );
 
     /** Promote a potential net chain to an actual user net chain with the provided name. */
     SCH_NETCHAIN* CreateNetChainFromPotential( SCH_NETCHAIN* aPotential, const wxString& aName );

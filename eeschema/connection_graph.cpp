@@ -3008,12 +3008,12 @@ CONNECTION_GRAPH::BRIDGE_GRAPH CONNECTION_GRAPH::buildBridgeAdjacency()
 {
     BRIDGE_GRAPH result;
 
-    auto getSubgraphNet = [&]( SCH_PIN* aPin ) -> wxString
+    auto getSubgraphNet = [&]( SCH_PIN* aPin, const SCH_SHEET_PATH& aPath ) -> wxString
     {
         if( !aPin )
             return wxString();
 
-        CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( aPin );
+        CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( aPin, aPath );
 
         return sg ? netChainKeyFor( sg->GetNetName(), sg->m_code ) : wxString();
     };
@@ -3126,8 +3126,8 @@ CONNECTION_GRAPH::BRIDGE_GRAPH CONNECTION_GRAPH::buildBridgeAdjacency()
             if( !allow )
                 continue;
 
-            wxString netA = getSubgraphNet( pins[0] );
-            wxString netB = getSubgraphNet( pins[1] );
+            wxString netA = getSubgraphNet( pins[0], sheetPath );
+            wxString netB = getSubgraphNet( pins[1], sheetPath );
 
             if( netA.IsEmpty() || netB.IsEmpty() || netA == netB )
                 continue;
@@ -3157,7 +3157,7 @@ CONNECTION_GRAPH::BRIDGE_GRAPH CONNECTION_GRAPH::buildBridgeAdjacency()
 
             for( SCH_PIN* p : pins )
             {
-                if( CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( p ) )
+                if( CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( p, sheetPath ) )
                 {
                     netToCode[netChainKeyFor( sg->GetNetName(), sg->m_code )] = sg->m_code;
 
@@ -3336,12 +3336,12 @@ void CONNECTION_GRAPH::RebuildNetChains()
     // each screen, giving global coverage while preserving expected grouping semantics.
     wxLogTrace( traceSchNetChain, "RebuildNetChains: pass 1 (per-sheet 2-pin symbols)" );
 
-    auto getSubgraphNet = [&]( SCH_PIN* aPin ) -> wxString
+    auto getSubgraphNet = [&]( SCH_PIN* aPin, const SCH_SHEET_PATH& aPath ) -> wxString
     {
         if( !aPin )
             return wxString();
 
-        CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( aPin );
+        CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( aPin, aPath );
 
         return sg ? netChainKeyFor( sg->GetNetName(), sg->m_code ) : wxString();
     };
@@ -3557,7 +3557,7 @@ void CONNECTION_GRAPH::RebuildNetChains()
                 SCH_SYMBOL* sym = static_cast<SCH_SYMBOL*>( item );
                 for( SCH_PIN* p : sym->GetPins( &sheetPath ) )
                 {
-                    wxString net = getSubgraphNet( p );
+                    wxString net = getSubgraphNet( p, sheetPath );
                     if( sig->GetNets().count( net ) )
                         pins.push_back( { p, sym, &sheetPath } );
                 }
@@ -3653,7 +3653,7 @@ void CONNECTION_GRAPH::RebuildNetChains()
                 {
                     if( auto* connection = pin->Connection( &sp ) )
                         exactPinToNet[{ sp.Path(), pin->m_Uuid }] = connection->Name();
-                    if( CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( pin ) )
+                    if( CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( pin, sp ) )
                     {
                         // Match potential-chain key construction so unnamed subgraphs use the
                         // synthetic prefix instead of being skipped — without this, a chain
@@ -3785,7 +3785,7 @@ void CONNECTION_GRAPH::RebuildNetChains()
 
                     for( SCH_PIN* pin : sym->GetPins( &sp ) )
                     {
-                        CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( pin );
+                        CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( pin, sp );
 
                         if( !sg )
                             continue;
@@ -3917,7 +3917,8 @@ SCH_NETCHAIN* CONNECTION_GRAPH::resolvePotentialChainByTerminals(
 }
 
 
-SCH_NETCHAIN* CONNECTION_GRAPH::FindPotentialNetChainBetweenPins( SCH_PIN* aPinA, SCH_PIN* aPinB )
+SCH_NETCHAIN* CONNECTION_GRAPH::FindPotentialNetChainBetweenPins( SCH_PIN* aPinA, const SCH_SHEET_PATH& aPathA,
+                                                                SCH_PIN* aPinB, const SCH_SHEET_PATH& aPathB )
 {
     if( !aPinA || !aPinB )
         return nullptr;
@@ -3925,10 +3926,10 @@ SCH_NETCHAIN* CONNECTION_GRAPH::FindPotentialNetChainBetweenPins( SCH_PIN* aPinA
     wxString netA;
     wxString netB;
 
-    if( CONNECTION_SUBGRAPH* sgA = GetSubgraphForItem( aPinA ) )
+    if( CONNECTION_SUBGRAPH* sgA = GetSubgraphForItem( aPinA, aPathA ) )
         netA = netChainKeyFor( sgA->GetNetName(), sgA->m_code );
 
-    if( CONNECTION_SUBGRAPH* sgB = GetSubgraphForItem( aPinB ) )
+    if( CONNECTION_SUBGRAPH* sgB = GetSubgraphForItem( aPinB, aPathB ) )
         netB = netChainKeyFor( sgB->GetNetName(), sgB->m_code );
 
     if( netA.IsEmpty() || netB.IsEmpty() )
@@ -5147,6 +5148,19 @@ CONNECTION_SUBGRAPH* CONNECTION_GRAPH::FindFirstSubgraphByName( const wxString& 
     return it->second[0];
 }
 
+
+CONNECTION_SUBGRAPH* CONNECTION_GRAPH::GetSubgraphForItem( SCH_ITEM* aItem, const SCH_SHEET_PATH& aPath ) const
+{
+    auto found = m_item_to_subgraph_map.find( aItem );
+    if( found == m_item_to_subgraph_map.end() ) return nullptr;
+    for( CONNECTION_SUBGRAPH* candidate : found->second )
+    {
+        if( !candidate || candidate->GetSheet() != aPath ) continue;
+        while( candidate->m_absorbed ) candidate = candidate->m_absorbed_by;
+        return candidate;
+    }
+    return nullptr;
+}
 
 CONNECTION_SUBGRAPH* CONNECTION_GRAPH::GetSubgraphForItem( SCH_ITEM* aItem ) const
 {

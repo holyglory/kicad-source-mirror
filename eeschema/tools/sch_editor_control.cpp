@@ -1951,7 +1951,8 @@ int SCH_EDITOR_CONTROL::CreateNetChainBetweenPins( const TOOL_EVENT& aEvent )
     SCH_EDIT_FRAME* editFrame = static_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
     CONNECTION_GRAPH* graph = editFrame->Schematic().ConnectionGraph();
 
-    SCH_NETCHAIN* potential = graph->FindPotentialNetChainBetweenPins( pinA, pinB );
+    SCH_NETCHAIN* potential = graph->FindPotentialNetChainBetweenPins( pinA, editFrame->GetCurrentSheet(),
+                                                                     pinB, editFrame->GetCurrentSheet() );
     if( !potential )
     {
         DisplayError( editFrame, _( "No potential net chain connects the selected pins." ) );

@@ -114,7 +114,7 @@ BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpda
                 auto cached = path.LastScreen()->GetLibSymbols().find( originalCacheKey );
                 if( cached == path.LastScreen()->GetLibSymbols().end() ) return;
                 WX_STRING_REPORTER report;
-                if( cached->second->Compare( *symbol->GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UNIT, &report ) )
+                if( cached->second->Compare( *symbol->GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UUID, &report ) )
                     BOOST_TEST_MESSAGE( std::string( phase ) + " cache/placement mismatch "
                         + symbol->GetRef( &path ).ToStdString() + ": " + report.GetMessages().ToStdString() );
             };
@@ -124,7 +124,7 @@ BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpda
             SCH_SYMBOL decoded;
             BOOST_REQUIRE( decoded.Deserialize( packed ) );
             WX_STRING_REPORTER differences;
-            const int comparison = symbol->GetLibSymbolRef()->Compare( *decoded.GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UNIT, &differences );
+            const int comparison = symbol->GetLibSymbolRef()->Compare( *decoded.GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UUID, &differences );
             BOOST_CHECK_MESSAGE( comparison == 0, symbol->GetRef( &path ).ToStdString()
                     + ": " + differences.GetMessages().ToStdString() );
             // Follow the real update path through the screen cache, not only

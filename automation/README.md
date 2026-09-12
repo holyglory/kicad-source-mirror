@@ -1021,9 +1021,28 @@ this journey. Its focused pass is not whole-project or native-Mac qualification.
 The removal action now records the exact selected bridge propagation changes in
 Undo history, including multi-pin selections. Its promised committed-membership
 removal still needs repair (`peb6785f04af5b15c`); do not treat the bridge-setting test
-as proof of that outcome. Unassigned class persistence (`p84344eb08fab3ef8`) and
-all-page Schematic Setup cancellation (`pef184f5d6044415b`) also remain open in
-the Coordinator ledger. These source changes are not yet part of the public downloads.
+as proof of that outcome. All-page Schematic Setup cancellation
+(`pef184f5d6044415b`) also remains open in the Coordinator ledger.
+These source changes are not yet part of the public downloads.
+
+The development build's **Schematic Setup → Net Chains → Net Chain Classes**
+page now keeps a class created with **Add** even before a chain uses it.
+The class registry is stored separately from its assignments in the project;
+older assignment-only projects retain their existing class names. Focused Linux
+journeys cover empty/duplicate-name rejection, individual-dialog and whole-setup
+Cancel, unused and assigned class rename/delete, exact Undo/Redo, and native
+save/reopen without losing unrelated assignments.
+
+Typed schematic metadata includes `net_chain_classes` with `definitions` and
+`assignments`. The XML planner emits one validated project-wide operation across
+repeated sheets. Independent edits merge; deleting a class while another edit
+assigns a chain to it produces a conflict, not a guessed reassignment. Literal
+Unicode names survive XML and presentation-order changes create no native edit.
+Snapshot schema 3 includes this state. Requests for schemas 0/1/2 receive an
+explicit coverage gap and no unknown class fields; absent state never means an
+instruction to clear the registry. These are KiCad net-chain groups, not the
+separate inheritable component-guidance classes. Broader integration and platform
+qualification remain distinct from this focused Linux evidence.
 
 The net-chain coverage gap remains until complete identity and electrical-change
 restoration are qualified; this is not proof of full schematic reconstruction.

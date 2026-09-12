@@ -1794,6 +1794,36 @@ requires = ["build"]
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~SignedLinuxPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/signed-preview-publication"]
 retained_artifacts = [{ name = "signed-preview-publication", path = "automation/artifacts/signed-preview-publication", max_bytes = 16777216 }]
 
+[test.preview-sixteen-stage]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.preview-sixteen-stage.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts", "sign", "stage"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.preview-sixteen-stage.check]]
+name = "contracts"
+tier = "development"
+role = "preflight"
+invalidates = ["sign", "stage"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~HostedPreviewStagingTests|FullyQualifiedName~SignedLinuxPreviewStagingTests", "--logger", "trx", "--results-directory", "automation/artifacts/preview-sixteen-contracts"]
+retained_artifacts = [{ name = "preview-sixteen-contracts", path = "automation/artifacts/preview-sixteen-contracts", max_bytes = 16777216 }]
+
+[[test.preview-sixteen-stage.check]]
+name = "sign"
+tier = "development"
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "release-sign", "--release", "automation/distribution/releases/preview-000016.json", "--artifacts", "/mnt/build-storage/codex/kicad/public-candidates/20260912T080142Z-ecce2a1eb78f", "--private", "/mnt/build-storage/codex/kicad/signing/preview-publisher.pkcs8", "--output", "/mnt/build-storage/codex/kicad/public-candidates/20260912T080142Z-ecce2a1eb78f/preview-000016.signed.json", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/windows-d65-signed-000004/updates/preview.json"]
+
+[[test.preview-sixteen-stage.check]]
+name = "stage"
+tier = "development"
+requires = ["sign"]
+command = ["dotnet", "automation/tools/KiCad.Automation.Validation/bin/Debug/net10.0/kicad-validate.dll", "stage-signed-linux", "--candidate", "/mnt/build-storage/codex/kicad/public-candidates/20260912T080142Z-ecce2a1eb78f", "--commit", "ecce2a1eb78f55bfd62b2be8d055404330895c2f", "--previous", "/mnt/build-storage/codex/kicad/public-candidates/windows-d65-signed-000004", "--output", "/mnt/build-storage/codex/kicad/public-candidates/signed-preview-000016", "--feed", "/mnt/build-storage/codex/kicad/public-candidates/20260912T080142Z-ecce2a1eb78f/preview-000016.signed.json", "--publisher", "automation/distribution/preview-publisher.spki"]
+
 [test.preview-fifteen-stage]
 timeout_seconds = 900
 env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }

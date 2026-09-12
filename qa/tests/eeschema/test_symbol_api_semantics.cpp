@@ -89,12 +89,18 @@ BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpda
     {
         if( pass != 0 )
         {
+            const KIID rootInstance = schematic->GetTopLevelSheet( 0 )->m_Uuid;
             STRING_FORMATTER formatter;
             SCH_IO_KICAD_SEXPR writer;
             writer.FormatSchematicToFormatter( &formatter, schematic->GetTopLevelSheet( 0 ), schematic.get() );
             std::istringstream input( formatter.GetString() );
             auto reopened = KI_TEST::ReadSchematicFromStream( input, &schematic->Project() );
             BOOST_REQUIRE( reopened );
+            // The stream fixture has no project manifest to supply its root
+            // instance identity. Reuse the explicitly saved instance, not the
+            // separately persisted screen UUID or a generated replacement.
+            const_cast<KIID&>( reopened->GetTopLevelSheet( 0 )->m_Uuid ) = rootInstance;
+            reopened->RefreshHierarchy();
             schematic = std::move( reopened );
         }
         for( const SCH_SHEET_PATH& path : schematic->Hierarchy() )
@@ -123,8 +129,10 @@ BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpda
             packed.PackFrom( message );
             SCH_SYMBOL decoded;
             BOOST_REQUIRE( decoded.Deserialize( packed ) );
+            BOOST_CHECK( symbol->GetLibSymbolRef()->GetBodyStyleNames() == decoded.GetLibSymbolRef()->GetBodyStyleNames() );
             WX_STRING_REPORTER differences;
-            const int comparison = symbol->GetLibSymbolRef()->Compare( *decoded.GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UUID, &differences );
+            symbol->GetLibSymbolRef()->Compare( *decoded.GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UUID, &differences );
+            const int comparison = symbol->GetLibSymbolRef()->Compare( *decoded.GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UUID );
             BOOST_CHECK_MESSAGE( comparison == 0, symbol->GetRef( &path ).ToStdString()
                     + ": " + differences.GetMessages().ToStdString() );
             // Follow the real update path through the screen cache, not only

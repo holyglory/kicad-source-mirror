@@ -235,6 +235,84 @@ BOOST_FIXTURE_TEST_CASE( NetChain_ExcludedMembersCannotReturnThroughRestore,
 }
 
 
+BOOST_FIXTURE_TEST_CASE( NetChain_ExcludedPinPathIsolatesRepeatedScreens,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO locale;
+    KI_TEST::LoadSchematic( m_settingsManager, "net_chains_four_nets", m_schematic );
+    SCH_SHEET* original = m_schematic->GetTopLevelSheet( 0 );
+    SCH_SCREEN* shared = original->GetScreen();
+    auto* parent = new SCH_SHEET( m_schematic.get() );
+    parent->SetScreen( new SCH_SCREEN( m_schematic.get() ) );
+    parent->SetName( "Parent" ); parent->SetFileName( "parent.kicad_sch" );
+    m_schematic->AddTopLevelSheet( parent );
+    BOOST_REQUIRE( m_schematic->RemoveTopLevelSheet( original ) );
+    original->SetName( "First" ); parent->GetScreen()->Append( original );
+    auto* repeat = new SCH_SHEET( m_schematic.get() );
+    repeat->SetName( "Second" ); repeat->SetFileName( original->GetFileName() );
+    repeat->SetScreen( shared ); parent->GetScreen()->Append( repeat );
+    m_schematic->RefreshHierarchy();
+    std::vector<SCH_SHEET_PATH> instances;
+    for( const auto& path : m_schematic->Hierarchy() )
+        if( path.LastScreen() == shared ) instances.push_back( path );
+    BOOST_REQUIRE_EQUAL( instances.size(), 2u );
+    std::set<SCH_SYMBOL*> symbols;
+    for( SCH_ITEM* item : shared->Items().OfType( SCH_SYMBOL_T ) )
+        symbols.insert( static_cast<SCH_SYMBOL*>( item ) );
+    SCH_SYMBOL* firstEndpoint = nullptr;
+    SCH_SYMBOL* secondEndpoint = nullptr;
+    int number = 1;
+    for( SCH_SYMBOL* symbol : symbols )
+    {
+        for( int instance = 0; instance < 2; ++instance )
+        {
+            wxString ref = wxString::Format( "U%d", number + instance * 100 );
+            symbol->SetRef( &instances[instance], ref );
+        }
+        if( symbol->GetPins( &instances[0] ).size() == 1 )
+        {
+            if( !firstEndpoint ) firstEndpoint = symbol;
+            else secondEndpoint = symbol;
+        }
+        ++number;
+    }
+    BOOST_REQUIRE( firstEndpoint && secondEndpoint );
+    auto* graph = m_schematic->ConnectionGraph();
+    graph->SetNetChainDefinitions( {} );
+    graph->Recalculate( m_schematic->Hierarchy(), true );
+    std::vector<std::set<wxString>> nets( 2 );
+    for( int index = 0; index < 2; ++index )
+    {
+        for( SCH_SYMBOL* symbol : symbols )
+            for( SCH_PIN* pin : symbol->GetPins( &instances[index] ) )
+                nets[index].insert( pin->Connection( &instances[index] )->Name() );
+        BOOST_REQUIRE_EQUAL( nets[index].size(), 4u );
+        auto* from = firstEndpoint->GetPins( &instances[index] ).front();
+        auto* to = secondEndpoint->GetPins( &instances[index] ).front();
+        BOOST_REQUIRE( graph->CreateManualNetChain( index == 0 ? "FirstChain" : "SecondChain", symbols, nets[index],
+            from->m_Uuid, to->m_Uuid, firstEndpoint->GetRef( &instances[index] ), from->GetNumber(),
+            secondEndpoint->GetRef( &instances[index] ), to->GetNumber() ) );
+    }
+    BOOST_CHECK( nets[0] != nets[1] );
+    const auto baseline = graph->GetNetChainDefinitions();
+    auto desired = baseline;
+    SCH_PIN* samePhysicalPin = firstEndpoint->GetPins( &instances[0] ).front();
+    wxString removed = samePhysicalPin->Connection( &instances[0] )->Name();
+    desired["FirstChain"].memberNets.erase( removed );
+    desired["FirstChain"].excludedNets.insert( removed );
+    desired["FirstChain"].excludedPins.emplace( instances[0].Path(), samePhysicalPin->m_Uuid );
+    graph->SetNetChainDefinitions( desired );
+    for( int pass = 0; pass < 2; ++pass )
+    {
+        BOOST_CHECK( !graph->GetNetChainByName( "FirstChain" ) );
+        BOOST_REQUIRE( graph->GetNetChainByName( "SecondChain" ) );
+        BOOST_CHECK( graph->GetNetChainDefinitions().at( "SecondChain" ) == baseline.at( "SecondChain" ) );
+        BOOST_CHECK( graph->GetNetChainDefinitions().at( "FirstChain" ).excludedPins == desired.at( "FirstChain" ).excludedPins );
+        graph->Recalculate( m_schematic->Hierarchy(), true );
+    }
+}
+
+
 BOOST_FIXTURE_TEST_CASE( NetChain_OpacityWriterPreservesDoublePrecision,
                         NETCHAIN_RECALC_REFRESH_FIXTURE )
 {

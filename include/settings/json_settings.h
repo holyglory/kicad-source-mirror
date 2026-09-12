@@ -147,6 +147,14 @@ public:
      */
     void CopyCurrentStateTo( JSON_SETTINGS& aDetachedTarget ) const;
 
+    /** Apply only registered parameter changes between two captured states.
+     * Reject overlapping live edits and changes outside registered ownership
+     * before invoking setters. Keep native owners, stores and file I/O intact.
+     * A rejected setter is rolled back and exact live values are checked.
+     * The caller still owns native undo, notifications and revision admission.
+     */
+    void ApplyCurrentStateDelta( const nlohmann::json& aBefore, const nlohmann::json& aAfter );
+
     /**
      * Loads the backing file from disk and then calls Load()
      * @param aDirectory is the path to the file

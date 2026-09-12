@@ -273,7 +273,10 @@ void PANEL_SETUP_PINMAP::ImportSettingsFrom( PIN_ERROR aPinMap[][ELECTRICAL_PINT
     for( int ii = 0; ii < PINMAP_TYPE_COUNT; ii++ )
     {
         for( int jj = 0; jj <= ii; jj++ )
+        {
+            m_settings->SetPinMapValue( ii, jj, aPinMap[ii][jj] );
+            m_settings->SetPinMapValue( jj, ii, aPinMap[ii][jj] );
             setDRCMatrixButtonState( m_buttonList[ii][jj], aPinMap[ii][jj] );
+        }
     }
 }
-

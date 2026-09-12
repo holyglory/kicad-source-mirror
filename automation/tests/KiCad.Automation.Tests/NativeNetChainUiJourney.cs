@@ -203,7 +203,7 @@ public sealed partial class NativeSessionTests
         // Schematic Setup remains a real native dialog. Exercise the lazy
         // net-chain page without manufacturing edits on Cancel or unchanged OK.
         var setupBaseline = await Read(token);
-        async Task StableSetupGeometry()
+        async Task StableSetupGeometry(string window = "Schematic Setup")
         {
             using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
             limit.CancelAfter(TimeSpan.FromSeconds(5));
@@ -212,7 +212,7 @@ public sealed partial class NativeSessionTests
             while (true)
             {
                 (int X, int Y, int Width, int Height) current = default;
-                NativeKeyboard.SchematicShortcut(display, processId, "", "Schematic Setup",
+                NativeKeyboard.SchematicShortcut(display, processId, "", window,
                     observeGeometry: value => current = value);
                 if (previous != current) { previous = current; quiet.Restart(); }
                 else if (quiet.Elapsed >= TimeSpan.FromMilliseconds(200)) return;
@@ -318,9 +318,85 @@ public sealed partial class NativeSessionTests
                 if (operation == "class") Assert.AreEqual("changedclass", classes.GetProperty(oldName).GetString());
                 else Assert.IsFalse(classes.TryGetProperty(oldName, out _));
             }
+            if (operation == "delete")
+            {
+                await VerifyCreation(actual);
+                actual = await Read(token); // creation and its Undo advance the journal
+            }
             var reverted = await History("z", actual); await Same(previous.Data, reverted.Data, "chain-setup-undo-" + operation); await Saved(false);
             var reapplied = await History("y", reverted); await Same(actual.Data, reapplied.Data, "chain-setup-redo-" + operation);
             reverted = await History("z", reapplied); await Same(previous.Data, reverted.Data, "chain-setup-restore-" + operation); await Saved(false);
+        }
+
+        async Task VerifyCreation(SchematicHierarchyDataSnapshot empty)
+        {
+            const string create = "Create Net Chain";
+            async Task<nuint> OpenCreate()
+            {
+                await client.InvokeAsync<ClearSelection, Empty>(new() { Header = header }, token);
+                var select = new AddToSelection { Header = header };
+                var symbols = empty.Data.Instances.Single(s => s.Metadata.Document.Equals(root)).Items
+                    .Where(i => i.Is(SchematicSymbolInstance.Descriptor)).Select(i => i.Unpack<SchematicSymbolInstance>())
+                    .OrderBy(s => s.ReferenceField.Text.Text_, StringComparer.Ordinal).ToArray();
+                Assert.AreEqual(2, symbols.Length);
+                select.Items.Add(symbols.Select(s => s.Id.Clone()));
+                await client.InvokeAsync<AddToSelection, SelectionResponse>(select, token);
+                Key("t", alt: true); Key("End"); Key("Up"); Key("Up"); Key("Return");
+                // The isolated two-probe fixture has no passthrough component;
+                // accept the native dialog's explicit manual-link choice.
+                await Window("Find Path", true);
+                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-create-manual-choice.png"), token);
+                Key("Return", "Find Path"); await Window("Find Path", false);
+                await Window(create, true); await StableSetupGeometry(create);
+                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-create-dialog.png"), token);
+                nuint owner = 0;
+                NativeKeyboard.SchematicShortcut(display, processId, "", create, observeWindow: id => owner = id);
+                return owner;
+            }
+            void Name(string value)
+            {
+                NativeKeyboard.SchematicShortcut(display, processId, "click", create, controlKey: false,
+                    focusCanvas: true, clickFromLeft: 150, clickFromBottom: 70);
+                Key("a", create, control: true); Key("BackSpace", create);
+                foreach (char c in value) Key(c.ToString(), create);
+            }
+            void Create() => NativeKeyboard.SchematicShortcut(display, processId, "click", create, controlKey: false,
+                focusCanvas: true, clickFromRight: 60, clickFromBottom: 25);
+            async Task Close()
+            {
+                NativeKeyboard.SchematicShortcut(display, processId, "click", create, controlKey: false,
+                    focusCanvas: true, clickFromRight: 150, clickFromBottom: 25);
+                await Window(create, false);
+            }
+            await OpenCreate(); Name("cancelledchain"); await Close();
+            await Same(empty, await Read(token), "chain-create-cancel");
+            nuint parent = await OpenCreate(); Name("UNRESOLVED_PATH"); Create();
+            using (var limit = CancellationTokenSource.CreateLinkedTokenSource(token))
+            {
+                limit.CancelAfter(TimeSpan.FromSeconds(5));
+                while (!NativeKeyboard.HasWindow(display, processId, create, excludeWindow: parent))
+                    await Task.Delay(50, limit.Token);
+                NativeKeyboard.SchematicShortcut(display, processId, "Return", create, controlKey: false,
+                    focusCanvas: false, excludeWindow: parent);
+                while (NativeKeyboard.HasWindow(display, processId, create, excludeWindow: parent))
+                    await Task.Delay(50, limit.Token);
+            }
+            await Close(); await Same(empty, await Read(token), "chain-create-collision");
+            await OpenCreate(); Name("createdpath"); Create(); await Close();
+            var created = await Read(token);
+            Assert.IsTrue(created.Revision.Sequence > empty.Revision.Sequence);
+            foreach (var screen in created.Data.Instances)
+                Assert.IsTrue(screen.Metadata.NetChains.Single(c => c.Name == "createdpath").Committed);
+            var events = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
+                { Document = root, DocumentEpoch = empty.Revision.Epoch, AfterSequence = empty.Revision.Sequence }, token);
+            Assert.AreEqual(1, events.Changes.Count);
+            Assert.AreEqual("Create Net Chain", events.Changes.Single().Description);
+            await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+            StringAssert.Contains(await File.ReadAllTextAsync(rootFile, token), "(net_chain \"createdpath\"");
+            var undoneCreation = await History("z", created); await Same(empty.Data, undoneCreation.Data, "chain-create-undo");
+            var redoneCreation = await History("y", undoneCreation); await Same(created.Data, redoneCreation.Data, "chain-create-redo");
+            undoneCreation = await History("z", redoneCreation); await Same(empty.Data, undoneCreation.Data, "chain-create-restored");
+            await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
         }
     }
 }

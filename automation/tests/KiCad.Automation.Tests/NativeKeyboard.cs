@@ -26,11 +26,12 @@ internal static class NativeKeyboard
         if (process.ExitCode != 0) throw new InvalidOperationException("Fixture screenshot failed: " + await error);
     }
 
-    public static bool HasWindow(string fixtureDisplay, int processId, string titleMatch, Action<string>? describe = null)
+    public static bool HasWindow(string fixtureDisplay, int processId, string titleMatch, Action<string>? describe = null,
+        nuint? excludeWindow = null)
     {
         try
         {
-            SchematicShortcut(fixtureDisplay, processId, "", titleMatch, false, false, describe: describe);
+            SchematicShortcut(fixtureDisplay, processId, "", titleMatch, false, false, describe: describe, excludeWindow: excludeWindow);
             return true;
         }
         catch (InvalidOperationException error) when (error.Message.StartsWith($"Expected one '{titleMatch}'", StringComparison.Ordinal))
@@ -43,7 +44,8 @@ internal static class NativeKeyboard
         string titleMatch = "Schematic Editor", bool controlKey = true, bool focusCanvas = true,
         int? clickFromRight = null, int? clickFromBottom = null, Action<string>? describe = null,
         int? clickFromLeft = null, int? clickFromTop = null, bool altKey = false,
-        Action<nuint>? observeWindow = null, Action<(int X, int Y, int Width, int Height)>? observeGeometry = null)
+        Action<nuint>? observeWindow = null, Action<(int X, int Y, int Width, int Height)>? observeGeometry = null,
+        nuint? excludeWindow = null)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException();
         using var errors = new WindowErrorScope();
@@ -91,7 +93,7 @@ internal static class NativeKeyboard
                         describe?.Invoke($"Fixture window {window}: {name}, map={attributes.MapState}, "
                             + $"geometry={attributes.X},{attributes.Y},{attributes.Width},{attributes.Height}");
                         if (attributes.MapState != 2) continue; // X11 IsViewable.
-                        if (name.Contains(titleMatch, StringComparison.Ordinal)) targets.Add(window);
+                        if (window != excludeWindow && name.Contains(titleMatch, StringComparison.Ordinal)) targets.Add(window);
                     }
                     finally
                     {

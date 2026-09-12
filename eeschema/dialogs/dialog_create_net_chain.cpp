@@ -178,7 +178,7 @@ bool DIALOG_CREATE_NET_CHAIN::validateAndCreate()
         return false;
     }
 
-    if( graph->GetNetChainByName( name ) )
+    if( graph->GetNetChainByName( name ) || graph->GetNetChainDefinitions().contains( name ) )
     {
         wxMessageBox( wxString::Format( _( "A net chain named '%s' already exists." ), name ), _( "Create Net Chain" ),
                       wxOK | wxICON_ERROR, this );

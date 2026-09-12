@@ -410,6 +410,7 @@ public sealed partial class NativeSessionTests
 
         async Task VerifyClassRegistry()
         {
+            await VerifySnapshotSchemaVersions(client, root, token);
             var registryBaseline = await Read(token);
             foreach (var sheet in registryBaseline.Data.Instances)
             {
@@ -476,6 +477,52 @@ public sealed partial class NativeSessionTests
                 await Same(previous.Data, (await Read(token)).Data, "chain-class-restored");
                 await Saved(false);
             }
+            var batchBaseline = await Read(token);
+            var originalState = batchBaseline.Data.Instances[0].Metadata.NetChainClasses;
+            ApplySchematicItemBatch ReplaceClasses(SchematicNetChainClassState state)
+            {
+                var batch = new ApplySchematicItemBatch { Document = root, DocumentEpoch = batchBaseline.Revision.Epoch,
+                    ExpectedRevision = batchBaseline.Revision, OperationId = Guid.NewGuid().ToString("D") };
+                batch.Operations.Add(new SchematicItemOperation { ReplaceNetChainClasses = state });
+                return batch;
+            }
+            foreach (Action<SchematicNetChainClassState> corrupt in new Action<SchematicNetChainClassState>[]
+            {
+                s => s.Definitions.Add(s.Definitions[0]), s => s.Definitions.Add(""), s => s.Definitions.Add("bad\0class"),
+                s => s.Assignments["CHAIN"] = "Missing", s => s.Assignments[""] = s.Definitions[0],
+                s => s.Assignments["bad\0chain"] = s.Definitions[0]
+            })
+            {
+                var invalid = originalState.Clone(); corrupt(invalid);
+                await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(ReplaceClasses(invalid), token));
+                await Same(batchBaseline, await Read(token), "chain-class-malformed");
+            }
+            var future = SchematicNetChainClassState.Parser.ParseFrom(originalState.ToByteArray()
+                .Concat(new byte[] { 0xf8, 0x07, 0x01 }).ToArray());
+            await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(ReplaceClasses(future), token));
+            await Same(batchBaseline, await Read(token), "chain-class-future");
+            var desired = originalState.Clone(); desired.Definitions.Add("newclass"); desired.Assignments.Add("UnresolvedChain", "newclass");
+            var edit = ReplaceClasses(desired);
+            var rollback = edit.Clone(); rollback.OperationId = Guid.NewGuid().ToString("D"); rollback.Operations.Add(new SchematicItemOperation());
+            await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(rollback, token));
+            await Same(batchBaseline, await Read(token), "chain-class-rollback");
+            var result = await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(edit, token);
+            Assert.IsTrue(result.NetChainClassesChanged);
+            var actualEdit = await Read(token);
+            foreach (var sheet in actualEdit.Data.Instances)
+                Assert.AreEqual("newclass", sheet.Metadata.NetChainClasses.Assignments["UnresolvedChain"]);
+            Assert.AreEqual(result, await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(edit, token));
+            await Same(actualEdit, await Read(token), "chain-class-retry");
+            var noop = edit.Clone(); noop.OperationId = Guid.NewGuid().ToString("D"); noop.ExpectedRevision = actualEdit.Revision;
+            Assert.IsFalse((await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(noop, token)).NetChainClassesChanged);
+            await Same(actualEdit, await Read(token), "chain-class-noop");
+            var stale = ReplaceClasses(originalState.Clone());
+            await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(stale, token));
+            await Same(actualEdit, await Read(token), "chain-class-stale");
+            var apiUndo = await History("z", actualEdit); await Same(batchBaseline.Data, apiUndo.Data, "chain-class-api-undo");
+            var apiRedo = await History("y", apiUndo); await Same(actualEdit.Data, apiRedo.Data, "chain-class-api-redo");
+            apiUndo = await History("z", apiRedo); await Same(batchBaseline.Data, apiUndo.Data, "chain-class-api-restored");
+            await Saved(false);
         }
 
         async Task VerifyCreation(SchematicHierarchyDataSnapshot empty)

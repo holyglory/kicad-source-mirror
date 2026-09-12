@@ -13,6 +13,7 @@
 #include <mmh3_hash.h>
 #include <api/api_utils.h>
 #include <api/api_sch_symbol_definition.h>
+#include <api/api_sch_utils.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr_lib_cache.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr_parser.h>
@@ -87,9 +88,9 @@ BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpda
         for( SCH_ITEM* item : path.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
         {
             auto* symbol = static_cast<SCH_SYMBOL*>( item );
-            auto packed = Pack( *symbol );
+            google::protobuf::Any packed;
             SchematicSymbolInstance message;
-            BOOST_REQUIRE( packed.UnpackTo( &message ) );
+            BOOST_REQUIRE( PackSymbol( &message, symbol, path ) );
             message.set_passthrough( SPM_BLOCK );
             packed.PackFrom( message );
             SCH_SYMBOL decoded;

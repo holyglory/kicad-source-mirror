@@ -3996,9 +3996,9 @@ bool CONNECTION_GRAPH::RenameCommittedNetChain( const wxString& aOld, const wxSt
     if( !existing )
         return false;
 
-    // Reject collisions: if some other committed chain already owns aNew, don't
-    // silently merge them.
-    if( findByName( aNew ) )
+    // A declaration whose endpoints cannot currently be resolved still owns
+    // its name. Rekeying into it would overwrite its electrical requirements.
+    if( GetNetChainDefinitions().contains( aNew ) )
         return false;
 
     existing->SetName( aNew );

@@ -375,5 +375,5 @@ setup_qa_env( qa_erc_override_edits )
 
 add_test( NAME qa_net_chain_terminals
     COMMAND $<TARGET_FILE:qa_symbol_graphic_identity>
-        --run_test=NetChain_SetTerminalPersistsExactSelectedPin,NetChain_RefreshPreservesTerminalPinOverride --log_level=test_suite )
+        --run_test=NetChain_SetTerminalPersistsExactSelectedPin,NetChain_RefreshPreservesTerminalPinOverride,NetChain_RenamePreservesUnresolvedDeclaration --log_level=test_suite )
 setup_qa_env( qa_net_chain_terminals )

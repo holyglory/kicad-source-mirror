@@ -247,6 +247,20 @@ public sealed partial class NativeSessionTests
         foreach (bool accept in new[] { false, true })
         {
             await OpenSetupPage();
+            if (accept)
+            {
+                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                    focusCanvas: true, clickFromLeft: 350, clickFromTop: 107);
+                Key("F2", "Schematic Setup"); Key("a", "Schematic Setup", control: true);
+                foreach (char c in "UNRESOLVED_PATH") Key(c.ToString(), "Schematic Setup");
+                Key("Tab", "Schematic Setup");
+                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                    focusCanvas: true, clickFromRight: 60, clickFromBottom: 25);
+                await Window("Net Chains", true); Key("Return", "Net Chains"); await Window("Net Chains", false);
+                Assert.IsTrue(NativeKeyboard.HasWindow(display, processId, "Schematic Setup"),
+                    "A reserved name must leave the editable form open without overwriting the unresolved declaration.");
+                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-setup-rejected-name.png"), token);
+            }
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
                 focusCanvas: true, clickFromLeft: 350, clickFromTop: 107);
             Key("F2", "Schematic Setup"); Key("a", "Schematic Setup", control: true);
@@ -279,17 +293,17 @@ public sealed partial class NativeSessionTests
             reverted = await History("z", reapplied); await Same(setupBaseline.Data, reverted.Data, "chain-setup-restored");
             await Saved(false);
         }
-        foreach (string operation in new[] { "class", "delete" })
+        foreach (string operation in new[] { "class", "netclass", "delete" })
         foreach (bool accept in new[] { false, true })
         {
             var previous = await Read(token);
             await OpenSetupPage();
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
-                focusCanvas: true, clickFromLeft: operation == "class" ? 720 : 350, clickFromTop: 107);
-            if (operation == "class")
+                focusCanvas: true, clickFromLeft: operation == "class" ? 720 : operation == "netclass" ? 850 : 350, clickFromTop: 107);
+            if (operation is "class" or "netclass")
             {
                 Key("F2", "Schematic Setup"); Key("a", "Schematic Setup", control: true);
-                foreach (char c in "changedclass") Key(c.ToString(), "Schematic Setup");
+                foreach (char c in operation == "class" ? "changedclass" : "RoutingOverride") Key(c.ToString(), "Schematic Setup");
                 Key("Tab", "Schematic Setup");
             }
             else
@@ -309,13 +323,19 @@ public sealed partial class NativeSessionTests
             Assert.AreEqual(1, journal.Changes.Count);
             Assert.AreEqual("Edit Net Chains", journal.Changes.Single().Description);
             foreach (var screen in actual.Data.Instances)
+            {
                 Assert.AreEqual(operation != "delete", screen.Metadata.NetChains.Any(c => c.Name == oldName));
+                if (operation == "netclass")
+                    Assert.AreEqual("RoutingOverride", screen.Metadata.NetChains.Single(c => c.Name == oldName).NetClass);
+                Assert.AreEqual("UnknownClass", screen.Metadata.NetChains.Single(c => c.Name == "UNRESOLVED_PATH").NetClass);
+            }
             await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
             using (var project = JsonDocument.Parse(await File.ReadAllTextAsync(Path.ChangeExtension(rootFile, ".kicad_pro"), token)))
             {
                 var classes = project.RootElement.GetProperty("net_settings").GetProperty("net_chain_classes");
                 Assert.AreEqual("preserved", classes.GetProperty("UNAFFECTED_CHAIN").GetString());
                 if (operation == "class") Assert.AreEqual("changedclass", classes.GetProperty(oldName).GetString());
+                else if (operation == "netclass") Assert.AreEqual("fastbus", classes.GetProperty(oldName).GetString());
                 else Assert.IsFalse(classes.TryGetProperty(oldName, out _));
             }
             if (operation == "delete")

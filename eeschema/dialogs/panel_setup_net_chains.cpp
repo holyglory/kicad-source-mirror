@@ -359,7 +359,10 @@ bool PANEL_SETUP_NET_CHAINS::Validate()
             return false;
         }
 
-        if( nameInChainGridAlready( row.newName, static_cast<int>( i ) ) )
+        const auto* graph = m_frame ? m_frame->Schematic().ConnectionGraph() : nullptr;
+        bool reserved = graph && row.origName != row.newName
+                && graph->GetNetChainDefinitions().contains( row.newName );
+        if( reserved || nameInChainGridAlready( row.newName, static_cast<int>( i ) ) )
         {
             wxMessageBox( wxString::Format( _( "Duplicate net chain name '%s' on row %zu." ), row.newName, i + 1 ),
                           _( "Net Chains" ), wxOK | wxICON_ERROR, this );
@@ -447,7 +450,13 @@ bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
                     }
                 }
 
-                row.origName = row.newName;
+                // Keep the original identity for rollback and retry. The live
+                // chain was renamed; the edit buffer must still name its owner.
+            }
+            else
+            {
+                RollbackEdits();
+                return false;
             }
         }
     }

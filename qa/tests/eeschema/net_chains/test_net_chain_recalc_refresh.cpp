@@ -53,6 +53,32 @@ struct NETCHAIN_RECALC_REFRESH_FIXTURE
 };
 
 
+BOOST_FIXTURE_TEST_CASE( NetChain_RenamePreservesUnresolvedDeclaration,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO dummy;
+    KI_TEST::LoadSchematic( m_settingsManager, wxString( "net_chains_four_nets" ), m_schematic );
+    CONNECTION_GRAPH* graph = m_schematic->ConnectionGraph();
+    SCH_SHEET_LIST sheets = m_schematic->BuildSheetListSortedByPageNumbers();
+    graph->Recalculate( sheets, true );
+    BOOST_REQUIRE( !graph->GetPotentialNetChains().empty() );
+    SCH_NETCHAIN* chain = graph->CreateNetChainFromPotential(
+            graph->GetPotentialNetChains().front().get(), "OWNED" );
+    BOOST_REQUIRE( chain );
+    auto overrides = graph->GetNetChainNetClassOverrides();
+    overrides["UNRESOLVED"] = "PreserveRequirement";
+    graph->SetNetChainNetClassOverrides( overrides );
+    const auto before = graph->GetNetChainDefinitions();
+    BOOST_CHECK( !graph->GetNetChainByName( "UNRESOLVED" ) );
+    BOOST_CHECK( !graph->RenameCommittedNetChain( "OWNED", "UNRESOLVED" ) );
+    BOOST_CHECK( graph->GetNetChainDefinitions() == before );
+    for( SCH_SYMBOL* symbol : chain->GetSymbols() )
+        BOOST_CHECK_EQUAL( symbol->GetNetChainName(), "OWNED" );
+    BOOST_REQUIRE( graph->RenameCommittedNetChain( "OWNED", "RENAMED" ) );
+    BOOST_CHECK( graph->GetNetChainDefinitions().at( "UNRESOLVED" ) == before.at( "UNRESOLVED" ) );
+}
+
+
 BOOST_FIXTURE_TEST_CASE( NetChain_RefreshCommittedChainAcrossUnconditionalRecalc,
                          NETCHAIN_RECALC_REFRESH_FIXTURE )
 {

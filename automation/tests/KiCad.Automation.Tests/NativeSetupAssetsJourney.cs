@@ -43,8 +43,43 @@ public sealed partial class NativeSessionTests
         await Apply(withLinks);
         await Same(withLinks, "prepared-links");
         await client.InvokeAsync<SaveDocument, Empty>(new() { Document = document }, token);
+        var lockedData = withLinks.Clone();
+        int lockIndex = lockedData.Items.IndexOf(lockedData.Items.Single(item => item.Is(SchematicSymbolInstance.Descriptor)
+            && item.Unpack<SchematicSymbolInstance>().Id.Value == first.Id.Value));
+        var lockedSymbol = lockedData.Items[lockIndex].Unpack<SchematicSymbolInstance>();
+        lockedSymbol.Locked = (LockedState)2;
+        lockedData.Items[lockIndex] = Any.Pack(lockedSymbol);
+        await Apply(lockedData);
+        await client.InvokeAsync<SaveDocument, Empty>(new() { Document = document }, token);
+        var locked = await Read();
+        var lockedSave = await client.InvokeAsync<ReadSchematicSaveState, SchematicSaveState>(new() { Document = document }, token);
+        await BeginRemoval("assets-locked");
+        for (int attempt = 0; attempt < 2; ++attempt)
+        {
+            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
+                clickFromRight: 60, clickFromBottom: 25);
+            await Window("Confirmation", true);
+            NativeKeyboard.SchematicShortcut(display, processId, "Return", "Confirmation", false, false);
+            await Window("Confirmation", false);
+            await Window("Error", true);
+            await Capture($"assets-locked-rejected-{attempt}");
+            NativeKeyboard.SchematicShortcut(display, processId, "Return", "Error", false, false);
+            await Window("Error", false);
+            Assert.IsTrue(NativeKeyboard.HasWindow(display, processId, "Schematic Setup"));
+            // A second nested-removal confirmation proves the form retained
+            // its desired removal after the rejected transaction.
+        }
+        NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
+            clickFromRight: 150, clickFromBottom: 25);
+        await Window("Schematic Setup", false);
+        Assert.IsTrue(locked.Equals(await Read()), "Locked rejection must preserve exact data and revision.");
+        Assert.AreEqual(lockedSave, await client.InvokeAsync<ReadSchematicSaveState, SchematicSaveState>(new() { Document = document }, token));
+        NativeKeyboard.SchematicShortcut(display, processId, "z");
+        await WaitFor(withLinks);
+        await client.InvokeAsync<SaveDocument, Empty>(new() { Document = document }, token);
         var baseline = await Read();
         var removed = withLinks.Clone();
+        removed.Metadata.DrawingRatios.OverbarHeightRatio = 1.17;
         removed.Metadata.EmbeddedFiles.Files.Clear();
         removed.CachedSymbols.Single(x => x.CacheKey == cacheKey).Definition.EmbeddedFiles.Files.Clear();
         for (int i = 0; i < removed.Items.Count; ++i)
@@ -57,17 +92,7 @@ public sealed partial class NativeSessionTests
         }
         foreach (bool accept in new[] { false, true })
         {
-            await NativeSetupUi.Open(client, document, display, processId, token);
-            await NativeSetupUi.SelectPage(display, processId, 328, token);
-            await Capture($"assets-{accept}-selected");
-            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
-                clickFromLeft: 350, clickFromTop: 35);
-            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
-                clickFromLeft: 330, clickFromBottom: 75);
-            await Capture($"assets-{accept}-removed");
-            await NativeSetupUi.SelectPage(display, processId, 34, token);
-            Assert.IsFalse(NativeKeyboard.HasWindow(display, processId, "Confirmation"),
-                "Page switching must not remove nested symbol files or ask to commit them.");
+            await BeginRemoval($"assets-{accept}");
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
                 clickFromRight: accept ? 60 : 150, clickFromBottom: 25);
             if (accept)
@@ -93,6 +118,24 @@ public sealed partial class NativeSessionTests
         await Same(original.Data, "assets-original-restored");
 
         Task Capture(string stage) => NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, instanceId + "-setup-" + stage + ".png"), token);
+        async Task BeginRemoval(string stage)
+        {
+            await NativeSetupUi.Open(client, document, display, processId, token);
+            await NativeSetupUi.SelectPage(display, processId, 328, token);
+            await Capture(stage + "-selected");
+            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
+                clickFromLeft: 350, clickFromTop: 35);
+            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
+                clickFromLeft: 330, clickFromBottom: 75);
+            await Capture(stage + "-removed");
+            await NativeSetupUi.SelectPage(display, processId, 34, token);
+            Assert.IsFalse(NativeKeyboard.HasWindow(display, processId, "Confirmation"),
+                "Page switching must not remove nested symbol files or ask to commit them.");
+            NativeKeyboard.SchematicShortcut(display, processId, "a", "Schematic Setup", true,
+                clickFromLeft: 500, clickFromTop: 97);
+            foreach (char c in "117")
+                NativeKeyboard.SchematicShortcut(display, processId, c.ToString(), "Schematic Setup", false, false);
+        }
         async Task Apply(SchematicScreenData desired)
         {
             var current = await Read();

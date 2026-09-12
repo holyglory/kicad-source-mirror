@@ -615,6 +615,23 @@ preserves these owners together; it is not a native schematic snapshot and does
 not generate or synchronize native files. Missing libraries and unknown fields
 are errors, not silently discarded inputs.
 
+Guidance statements may also carry an optional typed `quantity`: explicit unit,
+nominal/minimum/maximum decimal values, absolute or percent minus/plus tolerance,
+and a reason when the value is unknown. Classification is explicit:
+`Unclassified`, `Nominal`, `OperatingLimit`, `AbsoluteMaximum`, or `Measurement`.
+It is independent of requirement strength and verification. Applicability and
+document revision/page/table/part-variant evidence stay on the owning statement;
+library inheritance and explicit instance replacements preserve the old quantity.
+An absolute maximum is never converted into an operating recommendation.
+
+The resolver preserves contradictory ranges and reports `quantityIssues` with
+the exact statement IDs. A valid response means structurally valid input, not
+verified engineering claims or a conflict-free design. Unknown values remain
+unknown; values outside exact supported decimal precision are rejected rather
+than rounded. Existing text-only XML is unchanged. This is explicit model input
+and compiled MCP resolution, not automatic datasheet interpretation, arbitrary
+unit conversion, physical verification, or native guidance-authoring UI.
+
 `kicad_design_bindings_inspect` accepts the composed `design:1` document: the
 engineering section, typed native schematic hierarchy and explicit sheet/symbol
 bindings. It resolves by UUID and sheet path, including repeated screens and

@@ -1440,7 +1440,7 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 name = "dialog-observation"
 tier = "development"
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeErcDialog", "--logger", "trx", "--results-directory", "automation/artifacts/native-erc-dialog"]
-retained_artifacts = [{ name = "native-erc-dialog", path = "automation/artifacts/native-erc-dialog", max_bytes = 33554432 }]
+retained_artifacts = [{ name = "native-erc-dialog", path = "automation/artifacts/native-erc-evidence/native-session-current", max_bytes = 33554432 }]
 
 [test.native-erc-overrides]
 timeout_seconds = 3600
@@ -1503,7 +1503,7 @@ tier = "development"
 role = "preflight"
 requires = ["managed-build"]
 invalidates = ["native-build", "native-session"]
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~SchematicHierarchyMergeTests|FullyQualifiedName~SchematicFieldTextModeTests|FullyQualifiedName~SchematicItemDeltaTests|FullyQualifiedName~SchematicLibraryIdentityTests|FullyQualifiedName~SchematicFormattingTests|FullyQualifiedName~SchematicHierarchyDeltaTests|FullyQualifiedName~SchematicItemMergeTests|FullyQualifiedName~SchematicSyncStoreTests|FullyQualifiedName~SchematicGroupGraphTests|FullyQualifiedName~SchematicDrawingRatiosTests", "--logger", "trx", "--results-directory", "automation/artifacts/field-fidelity-results"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~SchematicHierarchyMergeTests|FullyQualifiedName~SchematicFieldTextModeTests|FullyQualifiedName~SchematicItemDeltaTests|FullyQualifiedName~SchematicLibraryIdentityTests|FullyQualifiedName~SchematicFormattingTests|FullyQualifiedName~SchematicHierarchyDeltaTests|FullyQualifiedName~SchematicItemMergeTests|FullyQualifiedName~SchematicSyncStoreTests|FullyQualifiedName~SchematicGroupGraphTests|FullyQualifiedName~SchematicDrawingRatiosTests|FullyQualifiedName~SchematicNetChainClassesTests", "--logger", "trx", "--results-directory", "automation/artifacts/field-fidelity-results"]
 
 [[test.native-foundation.check]]
 name = "recovery-model"
@@ -1545,7 +1545,7 @@ name = "native-erc-exclusion"
 tier = "development"
 requires = ["native-build"]
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeErcDialog", "--logger", "trx", "--results-directory", "automation/artifacts/native-erc-foundation"]
-retained_artifacts = [{ name = "native-erc-exclusion", path = "automation/artifacts/native-erc-foundation", max_bytes = 33554432 }]
+retained_artifacts = [{ name = "native-erc-exclusion", path = "automation/artifacts/native-erc-evidence/native-session-current", max_bytes = 33554432 }]
 
 [test.native-table-variants]
 timeout_seconds = 1800
@@ -1583,6 +1583,23 @@ tier = "development"
 requires = ["native-build"]
 command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "TestCategory=NativeTableVariant", "--logger", "trx", "--results-directory", "automation/artifacts/native-table-variant-results"]
 retained_artifacts = [{ name = "native-table-evidence", path = "automation/artifacts/native-table-variants/native-session-current", max_bytes = 33554432 }]
+
+[test.net-chain-class-model]
+timeout_seconds = 900
+env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
+
+[[test.net-chain-class-model.check]]
+name = "build"
+tier = "development"
+role = "preflight"
+invalidates = ["contracts"]
+command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
+
+[[test.net-chain-class-model.check]]
+name = "contracts"
+tier = "development"
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~SchematicNetChainClassesTests|FullyQualifiedName~NativeClientTests|FullyQualifiedName~SchematicItemDeltaTests|FullyQualifiedName~SchematicHierarchyDeltaTests|FullyQualifiedName~SchematicItemMergeTests|FullyQualifiedName~SchematicHierarchyMergeTests|FullyQualifiedName~SchematicDataXmlTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/net-chain-class-model"]
+retained_artifacts = [{ name = "class-model-results", path = "automation/artifacts/net-chain-class-model", max_bytes = 16777216 }]
 
 [test.native-net-chains]
 timeout_seconds = 1800

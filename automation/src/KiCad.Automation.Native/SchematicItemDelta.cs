@@ -250,9 +250,17 @@ public static class SchematicItemDelta
         remainder.DrawingRatios = current.DrawingRatios?.Clone();
         remainder.Formatting = current.Formatting?.Clone();
         remainder.ErcSettings = current.ErcSettings?.Clone();
+        remainder.NetChainClasses = current.NetChainClasses?.Clone();
         if (!current.Equals(remainder))
             throw Invalid("Unsupported settings or document identity changed; those changes cannot be discarded.");
         var operations = new List<SchematicItemOperation>();
+        if (current.NetChainClasses is not null || desired.NetChainClasses is not null)
+        {
+            var before = current.NetChainClasses ?? throw Invalid("The native peer did not capture the net-chain class registry.");
+            var after = desired.NetChainClasses ?? throw Invalid("The class registry cannot be removed or inferred from defaults.");
+            if (!SchematicNetChainClasses.Same(before, after))
+                operations.Add(new() { ReplaceNetChainClasses = SchematicNetChainClasses.Normalize(after) });
+        }
         if (current.ErcSettings is not null || desired.ErcSettings is not null)
         {
             var beforeErc = current.ErcSettings ?? throw Invalid("The native peer did not capture an ERC policy catalogue.");

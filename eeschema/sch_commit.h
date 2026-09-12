@@ -97,6 +97,8 @@ public:
     // net-chain action. Shared screens are captured once; foreign owners fail.
     bool StageNetChainEdit( const std::set<SCH_SYMBOL*>& aSymbols );
     void SetNetChainDefinitions( const std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION>& aDefinitions );
+    bool SetNetChainClasses( const std::set<wxString>& aDefinitions,
+                            const std::map<wxString, wxString>& aAssignments );
     void SetPageSettings( SCH_SCREEN* aScreen, const PAGE_INFO& aPage,
                           const wxString& aDrawingSheet, const wxString& aPreparedLayout );
     COMMIT& Stage( EDA_ITEM *aItem, CHANGE_TYPE aChangeType, BASE_SCREEN *aScreen = nullptr,

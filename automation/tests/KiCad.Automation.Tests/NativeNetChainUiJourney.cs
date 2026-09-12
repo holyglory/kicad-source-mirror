@@ -406,6 +406,179 @@ public sealed partial class NativeSessionTests
             reverted = await History("z", reapplied); await Same(previous.Data, reverted.Data, "chain-setup-restore-" + operation); await Saved(false);
         }
 
+        await VerifyClassRegistry();
+
+        async Task VerifyClassRegistry()
+        {
+            await VerifySnapshotSchemaVersions(client, root, token);
+            var registryBaseline = await Read(token);
+            foreach (var sheet in registryBaseline.Data.Instances)
+            {
+                Assert.IsNotNull(sheet.Metadata.NetChainClasses);
+                CollectionAssert.Contains(sheet.Metadata.NetChainClasses.Definitions.ToArray(), "emptygroup");
+                Assert.IsFalse(sheet.Metadata.NetChainClasses.Assignments.Values.Contains("emptygroup"));
+            }
+            foreach (string invalid in new[] { "", "fastbus" })
+            {
+                await OpenSetupPage();
+                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                    focusCanvas: true, clickFromLeft: 440, clickFromTop: 24);
+                await StableSetupGeometry();
+                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                    focusCanvas: true, clickFromLeft: 300, clickFromBottom: 65);
+                await Window("Add Class", true);
+                nuint entry = 0;
+                NativeKeyboard.SchematicShortcut(display, processId, "", "Add Class", observeWindow: value => entry = value);
+                Key("a", "Add Class", control: true); Key("BackSpace", "Add Class");
+                foreach (char c in invalid) Key(c.ToString(), "Add Class");
+                Key("Return", "Add Class");
+                using (var limit = CancellationTokenSource.CreateLinkedTokenSource(token))
+                {
+                    limit.CancelAfter(TimeSpan.FromSeconds(5));
+                    while (!NativeKeyboard.HasWindow(display, processId, "Add Class", excludeWindow: entry))
+                        await Task.Delay(50, limit.Token);
+                    NativeKeyboard.SchematicShortcut(display, processId, "Return", "Add Class", controlKey: false,
+                        focusCanvas: false, excludeWindow: entry);
+                }
+                await Window("Add Class", false); await FinishSetup(true);
+                await Same(registryBaseline, await Read(token), "chain-class-rejected");
+            }
+            foreach (var (action, assigned) in new[]
+                { ("add", false), ("rename", false), ("delete", false), ("rename", true), ("delete", true) })
+            foreach (bool accept in new[] { false, true })
+            {
+                string targetClass = assigned ? "fastbus" : "emptygroup";
+                string evidenceKey = "chain-class-" + action + (assigned ? "-assigned" : "-unused");
+                var previous = await Read(token);
+                string dialog = action == "add" ? "Add Class" : action == "rename" ? "Rename Class" : "Delete Class";
+                async Task OpenClassEditor()
+                {
+                    await OpenSetupPage();
+                    NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                        focusCanvas: true, clickFromLeft: 440, clickFromTop: 24);
+                    await StableSetupGeometry();
+                    if (action != "add")
+                    {
+                        NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                            focusCanvas: true, clickFromLeft: 400, clickFromTop: assigned ? 142 : 112);
+                    }
+                    NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                        focusCanvas: true, clickFromLeft: action == "add" ? 300 : action == "rename" ? 330 : 365,
+                        clickFromBottom: 65);
+                    await Window(dialog, true);
+                }
+                await OpenClassEditor();
+                if (!accept)
+                {
+                    Key("Escape", dialog); await Window(dialog, false); await FinishSetup(true);
+                    await Same(previous, await Read(token), evidenceKey + "-dialog-cancel");
+                    await OpenClassEditor();
+                }
+                if (action != "delete")
+                {
+                    Key("a", dialog, control: true);
+                    foreach (char c in action == "add" ? "newgroup" : "renamedgroup") Key(c.ToString(), dialog);
+                }
+                Key("Return", dialog); await Window(dialog, false);
+                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, evidenceKey + "-edited.png"), token);
+                await FinishSetup(accept);
+                var changed = await Read(token);
+                if (!accept) { await Same(previous, changed, "chain-class-cancel-" + action); continue; }
+                var expected = previous.Data.Clone();
+                foreach (var sheet in expected.Instances)
+                {
+                    var state = sheet.Metadata.NetChainClasses;
+                    if (action != "add") state.Definitions.Remove(targetClass);
+                    if (action != "delete") state.Definitions.Add(action == "add" ? "newgroup" : "renamedgroup");
+                    if (assigned)
+                    {
+                        foreach (string owner in state.Assignments.Where(pair => pair.Value == targetClass).Select(pair => pair.Key).ToArray())
+                        {
+                            if (action == "delete") state.Assignments.Remove(owner);
+                            else state.Assignments[owner] = "renamedgroup";
+                        }
+                    }
+                    var sorted = state.Definitions.Order(StringComparer.Ordinal).ToArray();
+                    state.Definitions.Clear(); state.Definitions.Add(sorted);
+                }
+                await Same(expected, changed.Data, evidenceKey);
+                var events = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
+                    { Document = root, DocumentEpoch = previous.Revision.Epoch, AfterSequence = previous.Revision.Sequence }, token);
+                Assert.AreEqual(1, events.Changes.Count); Assert.AreEqual("Edit Net Chains", events.Changes.Single().Description);
+                await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+                using (var project = JsonDocument.Parse(await File.ReadAllTextAsync(Path.ChangeExtension(rootFile, ".kicad_pro"), token)))
+                {
+                    CollectionAssert.AreEquivalent(expected.Instances[0].Metadata.NetChainClasses.Definitions.ToArray(),
+                        project.RootElement.GetProperty("net_settings").GetProperty("net_chain_class_definitions")
+                            .EnumerateArray().Select(v => v.GetString()).ToArray());
+                    var persisted = project.RootElement.GetProperty("net_settings").GetProperty("net_chain_classes");
+                    CollectionAssert.AreEquivalent(expected.Instances[0].Metadata.NetChainClasses.Assignments.Select(p => p.Key + ":" + p.Value).ToArray(),
+                        persisted.EnumerateObject().Select(p => p.Name + ":" + p.Value.GetString()).ToArray());
+                }
+                var undoneClass = await History("z", changed); await Same(previous.Data, undoneClass.Data, "chain-class-undo");
+                var redoneClass = await History("y", undoneClass); await Same(expected, redoneClass.Data, "chain-class-redo");
+                await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+                await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
+                var reopened = await Read(token); await Same(expected, reopened.Data, "chain-class-reopened");
+                // Opening setup after reload must show the still-unused class;
+                // unchanged OK may neither lose it nor create another revision.
+                await OpenSetupPage(); await FinishSetup(true);
+                await Same(reopened, await Read(token), "chain-class-reopen-noop");
+                var restore = new ApplySchematicItemBatch { Document = root, DocumentEpoch = reopened.Revision.Epoch,
+                    ExpectedRevision = reopened.Revision, OperationId = Guid.NewGuid().ToString("D") };
+                restore.Operations.Add(new SchematicItemOperation { ReplaceNetChainClasses = previous.Data.Instances[0].Metadata.NetChainClasses.Clone() });
+                await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(restore, token);
+                await Same(previous.Data, (await Read(token)).Data, "chain-class-restored");
+                await Saved(false);
+            }
+            var batchBaseline = await Read(token);
+            var originalState = batchBaseline.Data.Instances[0].Metadata.NetChainClasses;
+            ApplySchematicItemBatch ReplaceClasses(SchematicNetChainClassState state)
+            {
+                var batch = new ApplySchematicItemBatch { Document = root, DocumentEpoch = batchBaseline.Revision.Epoch,
+                    ExpectedRevision = batchBaseline.Revision, OperationId = Guid.NewGuid().ToString("D") };
+                batch.Operations.Add(new SchematicItemOperation { ReplaceNetChainClasses = state });
+                return batch;
+            }
+            foreach (Action<SchematicNetChainClassState> corrupt in new Action<SchematicNetChainClassState>[]
+            {
+                s => s.Definitions.Add(s.Definitions[0]), s => s.Definitions.Add(""), s => s.Definitions.Add("bad\0class"),
+                s => s.Assignments["CHAIN"] = "Missing", s => s.Assignments[""] = s.Definitions[0],
+                s => s.Assignments["bad\0chain"] = s.Definitions[0]
+            })
+            {
+                var invalid = originalState.Clone(); corrupt(invalid);
+                await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(ReplaceClasses(invalid), token));
+                await Same(batchBaseline, await Read(token), "chain-class-malformed");
+            }
+            var future = SchematicNetChainClassState.Parser.ParseFrom(originalState.ToByteArray()
+                .Concat(new byte[] { 0xf8, 0x07, 0x01 }).ToArray());
+            await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(ReplaceClasses(future), token));
+            await Same(batchBaseline, await Read(token), "chain-class-future");
+            var desired = originalState.Clone(); desired.Definitions.Add("newclass"); desired.Assignments.Add("UnresolvedChain", "newclass");
+            var edit = ReplaceClasses(desired);
+            var rollback = edit.Clone(); rollback.OperationId = Guid.NewGuid().ToString("D"); rollback.Operations.Add(new SchematicItemOperation());
+            await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(rollback, token));
+            await Same(batchBaseline, await Read(token), "chain-class-rollback");
+            var result = await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(edit, token);
+            Assert.IsTrue(result.NetChainClassesChanged);
+            var actualEdit = await Read(token);
+            foreach (var sheet in actualEdit.Data.Instances)
+                Assert.AreEqual("newclass", sheet.Metadata.NetChainClasses.Assignments["UnresolvedChain"]);
+            Assert.AreEqual(result, await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(edit, token));
+            await Same(actualEdit, await Read(token), "chain-class-retry");
+            var noop = edit.Clone(); noop.OperationId = Guid.NewGuid().ToString("D"); noop.ExpectedRevision = actualEdit.Revision;
+            Assert.IsFalse((await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(noop, token)).NetChainClassesChanged);
+            await Same(actualEdit, await Read(token), "chain-class-noop");
+            var stale = ReplaceClasses(originalState.Clone());
+            await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(stale, token));
+            await Same(actualEdit, await Read(token), "chain-class-stale");
+            var apiUndo = await History("z", actualEdit); await Same(batchBaseline.Data, apiUndo.Data, "chain-class-api-undo");
+            var apiRedo = await History("y", apiUndo); await Same(actualEdit.Data, apiRedo.Data, "chain-class-api-redo");
+            apiUndo = await History("z", apiRedo); await Same(batchBaseline.Data, apiUndo.Data, "chain-class-api-restored");
+            await Saved(false);
+        }
+
         async Task VerifyCreation(SchematicHierarchyDataSnapshot empty)
         {
             const string create = "Create Net Chain";

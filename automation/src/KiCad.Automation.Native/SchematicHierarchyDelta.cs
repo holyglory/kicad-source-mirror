@@ -23,6 +23,7 @@ public static class SchematicHierarchyDelta
                 || !s.Metadata.VariantDescriptions.Equals(assets.VariantDescriptions)
                 || !Equals(s.Metadata.DrawingRatios, assets.DrawingRatios)
                 || !Equals(s.Metadata.Formatting, assets.Formatting)
+                || !SchematicNetChainClasses.Same(s.Metadata.NetChainClasses, assets.NetChainClasses)
                 || !SchematicErcSettingsValidation.Same(s.Metadata.ErcSettings, assets.ErcSettings)))
                 throw Invalid("Schematic-wide assets, bus aliases, text variables and net chains must agree across all sheet instances.");
         }
@@ -67,6 +68,7 @@ public static class SchematicHierarchyDelta
         bool aliasesEmitted = false;
         bool variablesEmitted = false;
         bool chainsEmitted = false;
+        bool chainClassesEmitted = false;
         bool variantsEmitted = false;
         bool drawingRatiosEmitted = false;
         bool formattingEmitted = false;
@@ -140,6 +142,11 @@ public static class SchematicHierarchyDelta
                 {
                     if (chainsEmitted) continue;
                     chainsEmitted = true;
+                }
+                if (operation.ReplaceNetChainClasses is not null)
+                {
+                    if (chainClassesEmitted) continue;
+                    chainClassesEmitted = true;
                 }
                 var targeted = operation.Clone();
                 targeted.TargetDocument = screen.Metadata.Document.Clone();

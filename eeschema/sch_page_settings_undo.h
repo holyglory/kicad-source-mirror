@@ -38,7 +38,10 @@ public:
         m_currentVariant = aFrame->Schematic().GetCurrentVariant();
         m_netChains = aFrame->Schematic().ConnectionGraph()->GetNetChainDefinitions();
         if( auto settings = aFrame->Prj().GetProjectFile().NetSettings() )
+        {
             m_netChainClasses = settings->GetNetChainClasses();
+            m_netChainClassDefinitions = settings->GetNetChainClassDefinitions();
+        }
         for( const auto& alias : aFrame->Schematic().GetAllBusAliases() )
             m_busAliases.push_back( alias->Clone() );
         for( const SCH_SHEET_PATH& path : aFrame->Schematic().Hierarchy() )
@@ -78,6 +81,7 @@ public:
                 settings->ClearNetChainClasses();
                 for( const auto& [name, value] : *m_netChainClasses )
                     settings->SetNetChainClass( name, value );
+                settings->SetNetChainClassDefinitions( m_netChainClassDefinitions );
             }
         }
         if( m_restoreDrawingRatios )
@@ -245,6 +249,7 @@ private:
     std::array<double, 5> m_drawingRatios;
     std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION> m_netChains;
     std::optional<std::map<wxString, wxString>> m_netChainClasses;
+    std::set<wxString> m_netChainClassDefinitions;
     std::map<KIID, std::optional<SCH_SHEET_INSTANCE>> m_roots;
 };
 

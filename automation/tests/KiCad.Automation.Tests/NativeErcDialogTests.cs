@@ -27,7 +27,9 @@ public sealed class NativeErcDialogTests
         string executable = Environment.GetEnvironmentVariable("KICAD_ERC_NATIVE_EXECUTABLE")
             ?? Path.Combine(source.FullName, "automation/artifacts/native/kicad/kicad");
         Assert.IsTrue(Path.IsPathFullyQualified(executable) && File.Exists(executable));
-        string evidence = Directory.CreateDirectory(Path.Combine(TestContext.TestResultsDirectory!, "erc-dialog")).FullName;
+        // Retain this run, not every older TRX attachment tree. The same
+        // current/history helper preserves prior evidence without deleting it.
+        string evidence = NativeEvidenceDirectory.Begin(Path.Combine(source.FullName, "automation/artifacts/native-erc-evidence"));
         string scratch = Directory.CreateTempSubdirectory("kicad-erc-").FullName;
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         var processes = new List<Process>();

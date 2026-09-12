@@ -221,6 +221,21 @@ public:
         return m_netChainClasses;
     }
 
+    /// Named classes have a lifecycle independent of their chain assignments.
+    /// Include legacy assignment-only names when reading an older project.
+    std::set<wxString> GetNetChainClassDefinitions() const
+    {
+        auto names = m_netChainClassDefinitions;
+        for( const auto& [chain, name] : m_netChainClasses )
+            if( !name.IsEmpty() ) names.insert( name );
+        return names;
+    }
+
+    void SetNetChainClassDefinitions( const std::set<wxString>& aNames )
+    {
+        m_netChainClassDefinitions = aNames;
+    }
+
     /// @brief Removes all chain-to-class assignments.
     void ClearNetChainClasses()
     {
@@ -400,6 +415,7 @@ private:
      * Serialised under "net_chain_classes" in the net_settings JSON.
      */
     std::map<wxString, wxString> m_netChainClasses;
+    std::set<wxString> m_netChainClassDefinitions;
 
     /**
      * Map of net-chain name -> netclass name applied to every net in the chain.  This is the

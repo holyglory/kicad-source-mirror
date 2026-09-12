@@ -75,7 +75,7 @@ public sealed partial class NativeSessionTests
                 await File.WriteAllTextAsync(project, System.Text.Json.JsonSerializer.Serialize(new
                 {
                     meta = new { version = 3 }, text_variables = new { ENGINEERING_NOTE = "電源 & timing" },
-                    net_settings = new { meta = new { version = 5 }, net_chain_classes = new Dictionary<string, string>
+                    net_settings = new { meta = new { version = 5 }, net_chain_class_definitions = new[] { "emptygroup" }, net_chain_classes = new Dictionary<string, string>
                         { ["AUTOMATION_PATH"] = "fastbus", ["UNAFFECTED_CHAIN"] = "preserved" } },
                     schematic = new
                     {

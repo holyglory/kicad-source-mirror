@@ -422,6 +422,18 @@ void SCH_COMMIT::SetNetChainDefinitions( const std::map<wxString, CONNECTION_GRA
     frame->Schematic().ConnectionGraph()->SetNetChainDefinitions( aDefinitions );
 }
 
+bool SCH_COMMIT::SetNetChainClasses( const std::set<wxString>& aDefinitions,
+                                   const std::map<wxString, wxString>& aAssignments )
+{
+    auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+    auto settings = frame ? frame->Prj().GetProjectFile().NetSettings() : nullptr;
+    if( !settings || !StageNetChainEdit( {} ) ) return false;
+    settings->SetNetChainClassDefinitions( aDefinitions );
+    settings->ClearNetChainClasses();
+    for( const auto& [chain, name] : aAssignments ) settings->SetNetChainClass( chain, name );
+    return true;
+}
+
 void SCH_COMMIT::SetRootInstance( SCH_SHEET* aSheet, const std::optional<wxString>& aPageNumber )
 {
     auto* frame = dynamic_cast<SCH_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );

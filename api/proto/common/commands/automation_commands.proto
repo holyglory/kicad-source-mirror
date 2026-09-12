@@ -12,7 +12,8 @@ import "schematic/schematic_types.proto";
 
 message ReadSchematicMetadata {
   kiapi.common.types.DocumentSpecifier document = 1;
-  // 0/1: legacy fields with explicit missing-ERC coverage; 2: includes ERC.
+  // 0/1: legacy fields with explicit missing-ERC coverage; 2: includes ERC;
+  // 3: also includes the net-chain class registry and assignments.
   // Unknown versions are rejected, never silently simplified.
   uint32 schema_version = 2;
 }
@@ -326,6 +327,7 @@ message SchematicItemOperation {
     // Complete validated ERC replacement. Clients must discover actual native
     // support; older handlers do not implement this operation.
     kiapi.schematic.types.SchematicErcSettings set_erc_settings = 17;
+    kiapi.schematic.types.SchematicNetChainClassState replace_net_chain_classes = 18;
   }
 }
 
@@ -389,6 +391,7 @@ message SchematicItemBatchResult {
   DocumentRevision revision = 15;
   bool tracking_complete = 16;
   bool erc_settings_changed = 17;
+  bool net_chain_classes_changed = 18;
 }
 
 message InspectSchematicOperation {

@@ -63,8 +63,11 @@ public:
     {
         if( m_restoreSetup )
         {
+            const auto operating = SCH_FORMATTING::Capture( aFrame->Schematic().Settings() )
+                                           .operating_point().SerializeAsString();
             aFrame->Prj().GetProjectFile().ApplyCurrentStateDelta( *m_setupAfter, *m_setupBefore );
-            RefreshSetup( aFrame );
+            RefreshSetup( aFrame, operating != SCH_FORMATTING::Capture( aFrame->Schematic().Settings() )
+                                                       .operating_point().SerializeAsString() );
         }
         DS_PROXY_UNDO_ITEM::Restore( aFrame );
         aFrame->Schematic().Settings().m_SchDrawingSheetFileName = BASE_SCREEN::m_DrawingSheetFileName;
@@ -204,12 +207,15 @@ public:
             throw std::runtime_error( "A native commit already contains a Setup delta" );
         m_setupBefore = aBefore;
         m_setupAfter = aAfter;
+        const auto operating = SCH_FORMATTING::Capture( aFrame->Schematic().Settings() )
+                                       .operating_point().SerializeAsString();
         aFrame->Prj().GetProjectFile().ApplyCurrentStateDelta( aBefore, aAfter );
         m_restoreSetup = true;
-        RefreshSetup( aFrame );
+        RefreshSetup( aFrame, operating != SCH_FORMATTING::Capture( aFrame->Schematic().Settings() )
+                                                   .operating_point().SerializeAsString() );
     }
 
-    static void RefreshSetup( SCH_EDIT_FRAME* aFrame )
+    static void RefreshSetup( SCH_EDIT_FRAME* aFrame, bool aOperatingPointChanged )
     {
         auto& schematic = aFrame->Schematic();
         const auto& desiredAliases = aFrame->Prj().GetProjectFile().m_BusAliases;
@@ -229,6 +235,10 @@ public:
             schematic.SetBusAliases( aliases );
         }
         ApplyFormatting( aFrame, SCH_FORMATTING::Capture( schematic.Settings() ) );
+        // The generic parameter delta already installed the new values, so
+        // ApplyFormatting cannot detect this difference from its live input.
+        // Undo/Redo must update derived overlays as well as persisted settings.
+        if( aOperatingPointChanged ) aFrame->RefreshOperatingPointDisplay();
         aFrame->Prj().IncrementTextVarsTicker();
         aFrame->Prj().IncrementNetclassesTicker();
         if( auto* adapter = schematic.GetTextVarAdapter() )

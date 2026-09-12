@@ -379,7 +379,7 @@ public sealed partial class NativeSessionTests
             journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
                 { Document = root, DocumentEpoch = previous.Revision.Epoch, AfterSequence = previous.Revision.Sequence }, token);
             Assert.AreEqual(1, journal.Changes.Count);
-            Assert.AreEqual("Edit Net Chains", journal.Changes.Single().Description);
+            Assert.AreEqual("Edit Schematic Setup", journal.Changes.Single().Description);
             foreach (var screen in actual.Data.Instances)
             {
                 Assert.AreEqual(operation != "delete", screen.Metadata.NetChains.Any(c => c.Name == oldName));
@@ -504,7 +504,7 @@ public sealed partial class NativeSessionTests
                 await Same(expected, changed.Data, evidenceKey);
                 var events = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
                     { Document = root, DocumentEpoch = previous.Revision.Epoch, AfterSequence = previous.Revision.Sequence }, token);
-                Assert.AreEqual(1, events.Changes.Count); Assert.AreEqual("Edit Net Chains", events.Changes.Single().Description);
+                Assert.AreEqual(1, events.Changes.Count); Assert.AreEqual("Edit Schematic Setup", events.Changes.Single().Description);
                 await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
                 using (var project = JsonDocument.Parse(await File.ReadAllTextAsync(Path.ChangeExtension(rootFile, ".kicad_pro"), token)))
                 {

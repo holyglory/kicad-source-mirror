@@ -52,15 +52,11 @@ public sealed partial class NativeSessionTests
         {
             foreach (bool accept in new[] { false, true })
             {
-                NativeKeyboard.SchematicShortcut(display, processId, "f", controlKey: false, altKey: true);
-                NativeKeyboard.SchematicShortcut(display, processId, "End", controlKey: false, focusCanvas: false);
-                for (int i = 0; i < 4; ++i)
-                    NativeKeyboard.SchematicShortcut(display, processId, "Up", controlKey: false, focusCanvas: false);
-                NativeKeyboard.SchematicShortcut(display, processId, "Return", controlKey: false, focusCanvas: false);
-                await Window("Schematic Setup", true);
+                await NativeSetupUi.Open(client, document, display, processId, token);
                 NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
                     clickFromLeft: 400, clickFromBottom: 25);
                 await Window("Import Settings", true);
+                await NativeSetupUi.StableGeometry(display, processId, token, "Import Settings");
                 NativeKeyboard.SchematicShortcut(display, processId, "a", "Import Settings", true,
                     clickFromLeft: 150, clickFromTop: 23);
                 foreach (char c in sourceProject)
@@ -72,12 +68,10 @@ public sealed partial class NativeSessionTests
                 NativeKeyboard.SchematicShortcut(display, processId, "click", "Import Settings", false,
                     clickFromRight: 65, clickFromBottom: 25);
                 await Window("Import Settings", false);
-                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
-                    clickFromLeft: 120, clickFromTop: 286);
+                await NativeSetupUi.SelectPage(display, processId, 286, token);
                 await NativeKeyboard.CaptureAsync(display,
                     Path.Combine(evidence, instanceId + $"-setup-import-{accept}-text-variables.png"), token);
-                NativeKeyboard.SchematicShortcut(display, processId, "Home", "Schematic Setup", false,
-                    clickFromLeft: 80, clickFromTop: 40);
+                await NativeSetupUi.SelectPage(display, processId, 34, token);
                 await NativeKeyboard.CaptureAsync(display,
                     Path.Combine(evidence, instanceId + $"-setup-import-{accept}-formatting.png"), token);
                 NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,

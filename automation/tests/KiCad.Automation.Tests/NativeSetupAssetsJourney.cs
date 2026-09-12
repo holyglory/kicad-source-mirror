@@ -52,22 +52,15 @@ public sealed partial class NativeSessionTests
         }
         foreach (bool accept in new[] { false, true })
         {
-            NativeKeyboard.SchematicShortcut(display, processId, "f", controlKey: false, altKey: true);
-            NativeKeyboard.SchematicShortcut(display, processId, "End", controlKey: false, focusCanvas: false);
-            for (int i = 0; i < 4; ++i)
-                NativeKeyboard.SchematicShortcut(display, processId, "Up", controlKey: false, focusCanvas: false);
-            NativeKeyboard.SchematicShortcut(display, processId, "Return", controlKey: false, focusCanvas: false);
-            await Window("Schematic Setup", true);
-            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
-                clickFromLeft: 120, clickFromTop: 328);
+            await NativeSetupUi.Open(client, document, display, processId, token);
+            await NativeSetupUi.SelectPage(display, processId, 328, token);
             await Capture($"assets-{accept}-selected");
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
                 clickFromLeft: 350, clickFromTop: 35);
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
                 clickFromLeft: 330, clickFromBottom: 75);
             await Capture($"assets-{accept}-removed");
-            NativeKeyboard.SchematicShortcut(display, processId, "Home", "Schematic Setup", false,
-                clickFromLeft: 80, clickFromTop: 40);
+            await NativeSetupUi.SelectPage(display, processId, 34, token);
             Assert.IsFalse(NativeKeyboard.HasWindow(display, processId, "Confirmation"),
                 "Page switching must not remove nested symbol files or ask to commit them.");
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,

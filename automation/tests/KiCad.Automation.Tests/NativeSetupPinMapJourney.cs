@@ -23,34 +23,15 @@ public sealed partial class NativeSessionTests
         foreach (var (accept, validationFailure) in new[] { (false, false), (false, true), (true, true) })
         {
             string phase = $"{accept}-{validationFailure}";
-            NativeKeyboard.SchematicShortcut(display, processId, "f", controlKey: false, altKey: true);
-            NativeKeyboard.SchematicShortcut(display, processId, "End", controlKey: false, focusCanvas: false);
-            for (int i = 0; i < 4; ++i)
-                NativeKeyboard.SchematicShortcut(display, processId, "Up", controlKey: false, focusCanvas: false);
-            NativeKeyboard.SchematicShortcut(display, processId, "Return", controlKey: false, focusCanvas: false);
+            await NativeSetupUi.Open(client, document, display, processId, token);
             using var ready = CancellationTokenSource.CreateLinkedTokenSource(token);
             ready.CancelAfter(TimeSpan.FromSeconds(10));
             int delay = 25;
-            while (true)
-            {
-                ready.Token.ThrowIfCancellationRequested();
-                if (NativeKeyboard.HasWindow(display, processId, "Schematic Setup"))
-                {
-                    // A mapped window can precede entry into the modal event
-                    // loop. Use the same native readiness condition as the
-                    // established formatting journey before sending input.
-                    try { await client.InvokeAsync<GetPageSettings, PageSettings>(new() { Document = document }, ready.Token); }
-                    catch (NativeApiException busy) when (busy.Status == 7) { break; }
-                }
-                await Task.Delay(delay, ready.Token); delay = Math.Min(delay * 2, 500);
-            }
-
             // Click the visible Pin Conflicts Map row in this fixed Linux
             // fixture. Category redirection does not remove category rows from
             // keyboard navigation, and lazy page construction must finish before
             // traversal into its controls. Retain the rendered checkpoint.
-            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
-                clickFromLeft: 120, clickFromTop: 180);
+            await NativeSetupUi.SelectPage(display, processId, 180, token);
             await NativeKeyboard.CaptureAsync(display,
                 Path.Combine(evidence, instanceId + $"-setup-pinmap-{phase}-selected.png"), token);
             // The bitmap matrix is not the first keyboard traversal target.
@@ -62,8 +43,7 @@ public sealed partial class NativeSessionTests
                 Path.Combine(evidence, instanceId + $"-setup-pinmap-{phase}-edited.png"), token);
             Assert.IsFalse(NativeKeyboard.HasWindow(display, processId, "Import Settings"),
                 "The matrix probe must edit a matrix button, not activate the global Import action.");
-            NativeKeyboard.SchematicShortcut(display, processId, "Home", "Schematic Setup", false,
-                clickFromLeft: 80, clickFromTop: 40);
+            await NativeSetupUi.SelectPage(display, processId, 34, token);
             await NativeKeyboard.CaptureAsync(display,
                 Path.Combine(evidence, instanceId + $"-setup-pinmap-{phase}-page-switched.png"), token);
             if (validationFailure)

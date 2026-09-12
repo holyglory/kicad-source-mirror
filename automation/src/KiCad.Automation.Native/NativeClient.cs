@@ -18,6 +18,7 @@ public sealed class NativeClient(INativeTransport transport, string endpoint, st
     private readonly SemaphoreSlim serial = new(1, 1);
     private readonly string clientName = $"kicad-automation-{Guid.NewGuid():N}";
     private string? epoch = expectedEpoch;
+    private uint snapshotSchema = 4;
     public string Endpoint { get; } = endpoint;
     public string Epoch => epoch ?? throw new InvalidOperationException("Handshake has not completed.");
 
@@ -57,28 +58,43 @@ public sealed class NativeClient(INativeTransport transport, string endpoint, st
         await serial.WaitAsync(cancellationToken);
         try
         {
-            var envelope = new ApiRequest
+            bool negotiate = !ReferenceEquals(request, CurrentSnapshotRequest(request));
+            uint requestedSchema = snapshotSchema;
+            string? observedEpoch = epoch;
+            while (true)
             {
-                Header = new ApiRequestHeader { KicadToken = epoch ?? "", ClientName = clientName },
-                Message = Any.Pack(CurrentSnapshotRequest(request))
-            };
-            byte[] bytes = await transport.ExchangeAsync(Endpoint, envelope.ToByteArray(), TimeSpan.FromSeconds(15), cancellationToken);
-            ApiResponse response = ApiResponse.Parser.ParseFrom(bytes);
-            string? peerEpoch = response.Header?.KicadToken;
-            if (string.IsNullOrWhiteSpace(peerEpoch))
-                throw new AutomationException("invalid_response", "Native response did not identify its process epoch.");
-            // SA-04: a recycled socket cannot turn into a different target.
-            if (epoch is not null && epoch != peerEpoch)
-                throw new AutomationException("instance_changed", "The native process changed; reattach explicitly before continuing.");
-            if (response.Status is null || (int)response.Status.Status != 1)
-                throw new NativeApiException((int)(response.Status?.Status ?? 0),
-                                             response.Status?.ErrorMessage ?? "Native response has no status.");
-            var result = new TResponse();
-            if (response.Message is null || !response.Message.Is(result.Descriptor))
-                throw new AutomationException("invalid_response", $"Expected a {result.Descriptor.FullName} response.");
-            result.MergeFrom(response.Message.Value);
-            epoch = peerEpoch;
-            return result;
+                cancellationToken.ThrowIfCancellationRequested();
+                var envelope = new ApiRequest
+                {
+                    Header = new ApiRequestHeader { KicadToken = observedEpoch ?? "", ClientName = clientName },
+                    Message = Any.Pack(CurrentSnapshotRequest(request, requestedSchema))
+                };
+                byte[] bytes = await transport.ExchangeAsync(Endpoint, envelope.ToByteArray(), TimeSpan.FromSeconds(15), cancellationToken);
+                ApiResponse response = ApiResponse.Parser.ParseFrom(bytes);
+                string? peerEpoch = response.Header?.KicadToken;
+                if (string.IsNullOrWhiteSpace(peerEpoch))
+                    throw new AutomationException("invalid_response", "Native response did not identify its process epoch.");
+                // SA-04 applies between negotiation replies too, including before a first handshake.
+                if (observedEpoch is not null && observedEpoch != peerEpoch)
+                    throw new AutomationException("instance_changed", "The native process changed; reattach explicitly before continuing.");
+                observedEpoch = peerEpoch;
+                if (negotiate && requestedSchema > 1 && (int?)response.Status?.Status == 3
+                    && response.Status.ErrorMessage == "Unsupported schematic snapshot schema version")
+                {
+                    --requestedSchema;
+                    continue; // Only bounded, automatically versioned read requests reach this path.
+                }
+                if (response.Status is null || (int)response.Status.Status != 1)
+                    throw new NativeApiException((int)(response.Status?.Status ?? 0),
+                                                 response.Status?.ErrorMessage ?? "Native response has no status.");
+                var result = new TResponse();
+                if (response.Message is null || !response.Message.Is(result.Descriptor))
+                    throw new AutomationException("invalid_response", $"Expected a {result.Descriptor.FullName} response.");
+                result.MergeFrom(response.Message.Value);
+                epoch = peerEpoch;
+                if (negotiate) snapshotSchema = requestedSchema;
+                return result;
+            }
         }
         finally { serial.Release(); }
     }
@@ -86,14 +102,14 @@ public sealed class NativeClient(INativeTransport transport, string endpoint, st
     // New clients opt into all current schematic fields. Explicit legacy or
     // unknown versions remain untouched for negotiation/error handling. Clone
     // read requests so invoking a client never changes caller-owned messages.
-    internal static IMessage CurrentSnapshotRequest(IMessage request) => request switch
+    internal static IMessage CurrentSnapshotRequest(IMessage request, uint schemaVersion = 4) => request switch
     {
-        ReadSchematicMetadata { SchemaVersion: 0 } value => new ReadSchematicMetadata(value) { SchemaVersion = 4 },
-        ReadSchematicScreenData { SchemaVersion: 0 } value => new ReadSchematicScreenData(value) { SchemaVersion = 4 },
-        ReadSchematicHierarchyData { SchemaVersion: 0 } value => new ReadSchematicHierarchyData(value) { SchemaVersion = 4 },
-        ReadSchematicElectricalState { SchemaVersion: 0 } value => new ReadSchematicElectricalState(value) { SchemaVersion = 4 },
-        CaptureSchematicObservation { SchemaVersion: 0 } value => new CaptureSchematicObservation(value) { SchemaVersion = 4 },
-        RenderSchematicViews { SchemaVersion: 0 } value => new RenderSchematicViews(value) { SchemaVersion = 4 },
+        ReadSchematicMetadata { SchemaVersion: 0 } value => new ReadSchematicMetadata(value) { SchemaVersion = schemaVersion },
+        ReadSchematicScreenData { SchemaVersion: 0 } value => new ReadSchematicScreenData(value) { SchemaVersion = schemaVersion },
+        ReadSchematicHierarchyData { SchemaVersion: 0 } value => new ReadSchematicHierarchyData(value) { SchemaVersion = schemaVersion },
+        ReadSchematicElectricalState { SchemaVersion: 0 } value => new ReadSchematicElectricalState(value) { SchemaVersion = schemaVersion },
+        CaptureSchematicObservation { SchemaVersion: 0 } value => new CaptureSchematicObservation(value) { SchemaVersion = schemaVersion },
+        RenderSchematicViews { SchemaVersion: 0 } value => new RenderSchematicViews(value) { SchemaVersion = schemaVersion },
         _ => request
     };
 }

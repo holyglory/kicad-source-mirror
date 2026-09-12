@@ -104,6 +104,112 @@ public sealed class NativeClientTests
         Assert.AreEqual(0U, query.SchemaVersion);
     }
 
+    [TestMethod]
+    [DataRow(1U)]
+    [DataRow(2U)]
+    [DataRow(3U)]
+    public async Task AutomaticSnapshotNegotiationIsBoundedPinnedAndCachedPerPeer(uint maximum)
+    {
+        var payload = new SchematicMetadataSnapshot { Metadata = new(), TrackingComplete = false };
+        payload.Metadata.UnrepresentedState.Add("fixture-unrepresented-feature");
+        var transport = new ScriptTransport((request, _) => SnapshotReply(payload,
+            request.Message.Unpack<ReadSchematicMetadata>().SchemaVersion > maximum ? 3 : 1));
+        var client = new NativeClient(transport, "ipc:///tmp/schema-negotiation.sock");
+        var query = new ReadSchematicMetadata();
+        var result = await client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(query);
+        Assert.AreEqual(payload, result); // Coverage limitations are not discarded or invented.
+        CollectionAssert.AreEqual(Enumerable.Range((int)maximum, 5 - (int)maximum).Reverse().Select(x => (uint)x).ToArray(),
+            transport.Requests.Select(x => x.Message.Unpack<ReadSchematicMetadata>().SchemaVersion).ToArray());
+        Assert.AreEqual(0U, query.SchemaVersion);
+        Assert.AreEqual("schema-peer", client.Epoch);
+        foreach (var request in transport.Requests.Skip(1)) Assert.AreEqual("schema-peer", request.Header.KicadToken);
+        int count = transport.Requests.Count;
+        await client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(query);
+        Assert.HasCount(count + 1, transport.Requests);
+        Assert.AreEqual(maximum, transport.Requests[^1].Message.Unpack<ReadSchematicMetadata>().SchemaVersion);
+        var independent = new NativeClient(transport, "ipc:///tmp/another-schema-peer.sock");
+        await independent.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(query);
+        Assert.AreEqual(4U, transport.Requests[count + 1].Message.Unpack<ReadSchematicMetadata>().SchemaVersion);
+    }
+
+    [TestMethod]
+    public async Task ExplicitSchemasAndMutationsNeverNegotiateOrRetry()
+    {
+        foreach (uint version in new[] { 1U, 3U, 4U, 5U })
+        {
+            var transport = new ScriptTransport((_, _) => SnapshotReply(new SchematicMetadataSnapshot(), 3));
+            var client = new NativeClient(transport, "ipc:///tmp/explicit-schema.sock");
+            await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(
+                new() { SchemaVersion = version }));
+            Assert.HasCount(1, transport.Requests);
+            Assert.AreEqual(version, transport.Requests[0].Message.Unpack<ReadSchematicMetadata>().SchemaVersion);
+        }
+        var mutationTransport = new ScriptTransport((_, _) => SnapshotReply(new SchematicItemBatchResult(), 3));
+        var mutationClient = new NativeClient(mutationTransport, "ipc:///tmp/mutation-no-retry.sock");
+        await Assert.ThrowsExactlyAsync<NativeApiException>(() => mutationClient.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(new()));
+        Assert.HasCount(1, mutationTransport.Requests);
+    }
+
+    [TestMethod]
+    [DataRow(7, "Unsupported schematic snapshot schema version")]
+    [DataRow(3, "Wrong document")]
+    [DataRow(8, "Unsupported schematic snapshot schema version")]
+    public async Task UnrelatedFailuresCannotTriggerSchemaDowngrade(int status, string message)
+    {
+        var transport = new ScriptTransport((_, _) => SnapshotReply(new SchematicMetadataSnapshot(), status, message));
+        var client = new NativeClient(transport, "ipc:///tmp/unrelated-schema-error.sock");
+        await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(new()));
+        Assert.HasCount(1, transport.Requests);
+    }
+
+    [TestMethod]
+    public async Task SchemaNegotiationStopsAtOneAndRejectsEpochChangesCancellationAndTimeout()
+    {
+        var rejected = new ScriptTransport((_, _) => SnapshotReply(new SchematicMetadataSnapshot(), 3));
+        await Assert.ThrowsExactlyAsync<NativeApiException>(() => new NativeClient(rejected, "ipc:///tmp/rejected-schema.sock")
+            .InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(new()));
+        Assert.HasCount(4, rejected.Requests);
+
+        var replaced = new ScriptTransport((_, attempt) =>
+        {
+            var reply = SnapshotReply(new SchematicMetadataSnapshot(), attempt == 1 ? 3 : 1);
+            if (attempt > 1) reply.Header.KicadToken = "replacement-peer";
+            return reply;
+        });
+        var changed = await Assert.ThrowsExactlyAsync<AutomationException>(() => new NativeClient(replaced, "ipc:///tmp/replaced-schema.sock")
+            .InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(new()));
+        Assert.AreEqual("instance_changed", changed.Code);
+        Assert.HasCount(2, replaced.Requests);
+
+        using var cancellation = new CancellationTokenSource();
+        var cancelled = new ScriptTransport((_, _) => { cancellation.Cancel(); return SnapshotReply(new SchematicMetadataSnapshot(), 3); });
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => new NativeClient(cancelled, "ipc:///tmp/cancelled-schema.sock")
+            .InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(new(), cancellation.Token));
+        Assert.HasCount(1, cancelled.Requests);
+        var timedOut = new ScriptTransport((_, _) => throw new TimeoutException("fixture timeout"));
+        await Assert.ThrowsExactlyAsync<TimeoutException>(() => new NativeClient(timedOut, "ipc:///tmp/timed-out-schema.sock")
+            .InvokeAsync<ReadSchematicMetadata, SchematicMetadataSnapshot>(new()));
+        Assert.HasCount(1, timedOut.Requests);
+    }
+
+    private static ApiResponse SnapshotReply(IMessage payload, int status,
+        string error = "Unsupported schematic snapshot schema version") => new()
+    {
+        Header = new() { KicadToken = "schema-peer" },
+        Status = new() { Status = (ApiStatusCode)status, ErrorMessage = status == 1 ? "" : error },
+        Message = Any.Pack(payload)
+    };
+
+    private sealed class ScriptTransport(Func<ApiRequest, int, ApiResponse> reply) : INativeTransport
+    {
+        public List<ApiRequest> Requests { get; } = new();
+        public Task<byte[]> ExchangeAsync(string endpoint, byte[] request, TimeSpan timeout, CancellationToken cancellationToken = default)
+        {
+            Requests.Add(ApiRequest.Parser.ParseFrom(request));
+            return Task.FromResult(reply(Requests[^1], Requests.Count).ToByteArray());
+        }
+    }
+
     internal sealed class FixtureTransport : INativeTransport
     {
         public string Epoch { get; set; } = "fixture-epoch";

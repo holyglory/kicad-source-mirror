@@ -5,6 +5,7 @@ using Kiapi.Common.Types;
 using Kiapi.Schematic.Commands;
 using Kiapi.Schematic.Types;
 using KiCad.Automation.Native;
+using KiCad.Automation.Protocol;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace KiCad.Automation.Tests;

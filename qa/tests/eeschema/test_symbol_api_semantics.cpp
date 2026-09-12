@@ -30,6 +30,8 @@
 #include <settings/settings_manager.h>
 #include <locale_io.h>
 #include <reporter.h>
+#include <connection_graph.h>
+#include <sstream>
 
 namespace
 {
@@ -83,14 +85,30 @@ BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpda
     SETTINGS_MANAGER settings;
     std::unique_ptr<SCHEMATIC> schematic;
     KI_TEST::LoadSchematic( settings, "net_chains_four_nets", schematic );
-    for( const SCH_SHEET_PATH& path : schematic->Hierarchy() )
+    for( int pass = 0; pass < 2; ++pass )
     {
-        for( SCH_ITEM* item : path.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
+        if( pass != 0 )
         {
-            auto* symbol = static_cast<SCH_SYMBOL*>( item );
+            STRING_FORMATTER formatter;
+            SCH_IO_KICAD_SEXPR writer;
+            writer.FormatSchematicToFormatter( &formatter, schematic->GetTopLevelSheet( 0 ), schematic.get() );
+            std::istringstream input( formatter.GetString() );
+            auto reopened = KI_TEST::ReadSchematicFromStream( input, &schematic->Project() );
+            BOOST_REQUIRE( reopened );
+            schematic = std::move( reopened );
+        }
+        for( const SCH_SHEET_PATH& path : schematic->Hierarchy() )
+        {
+          std::vector<SCH_SYMBOL*> symbols;
+          for( SCH_ITEM* item : path.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
+              symbols.push_back( static_cast<SCH_SYMBOL*>( item ) );
+          for( SCH_SYMBOL* symbol : symbols )
+          {
             google::protobuf::Any packed;
             SchematicSymbolInstance message;
             BOOST_REQUIRE( PackSymbol( &message, symbol, path ) );
+            const LIB_ID originalDefinitionId = symbol->GetLibSymbolRef()->GetLibId();
+            const wxString originalCacheKey = symbol->GetSchSymbolLibraryName();
             message.set_passthrough( SPM_BLOCK );
             packed.PackFrom( message );
             SCH_SYMBOL decoded;
@@ -99,7 +117,21 @@ BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpda
             const int comparison = symbol->GetLibSymbolRef()->Compare( *decoded.GetLibSymbolRef(), ~SCH_ITEM::COMPARE_FLAGS::UNIT, &differences );
             BOOST_CHECK_MESSAGE( comparison == 0, symbol->GetRef( &path ).ToStdString()
                     + ": " + differences.GetMessages().ToStdString() );
+            // Follow the real update path through the screen cache, not only
+            // the decoder. Old graph pin addresses must not outlive their owner.
+            auto* graph = schematic->ConnectionGraph();
+            graph->RemoveItem( symbol );
+            for( SCH_PIN* pin : symbol->GetPins() ) graph->RemoveItem( pin );
+            symbol->SwapItemData( &decoded );
+            ApplySymbolInstance( symbol, message, path, schematic.get() );
+            path.LastScreen()->Update( symbol );
+            BOOST_CHECK_MESSAGE( symbol->GetLibSymbolRef()->GetLibId() == originalDefinitionId,
+                                 "Placement-only update changed the embedded definition ID" );
+            BOOST_CHECK_MESSAGE( symbol->GetSchSymbolLibraryName() == originalCacheKey,
+                                 "Placement-only update allocated an unrelated cache alias" );
+          }
         }
+        schematic->ConnectionGraph()->Recalculate( schematic->Hierarchy(), true );
     }
 }
 

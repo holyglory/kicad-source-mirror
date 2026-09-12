@@ -20,8 +20,9 @@ public sealed partial class NativeSessionTests
         var inputRule = changed.Metadata.ErcSettings.PinMap.Single(x => (int)x.First == 1 && (int)x.Second == 1);
         Assert.IsTrue((int)inputRule.Conflict is >= 1 and <= 3);
         inputRule.Conflict = (SchematicErcPinConflict)((int)inputRule.Conflict % 3 + 1);
-        foreach (bool accept in new[] { false, true })
+        foreach (var (accept, validationFailure) in new[] { (false, false), (false, true), (true, true) })
         {
+            string phase = $"{accept}-{validationFailure}";
             NativeKeyboard.SchematicShortcut(display, processId, "f", controlKey: false, altKey: true);
             NativeKeyboard.SchematicShortcut(display, processId, "End", controlKey: false, focusCanvas: false);
             for (int i = 0; i < 4; ++i)
@@ -51,20 +52,49 @@ public sealed partial class NativeSessionTests
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
                 clickFromLeft: 120, clickFromTop: 180);
             await NativeKeyboard.CaptureAsync(display,
-                Path.Combine(evidence, instanceId + $"-setup-pinmap-{accept}-selected.png"), token);
+                Path.Combine(evidence, instanceId + $"-setup-pinmap-{phase}-selected.png"), token);
             // The bitmap matrix is not the first keyboard traversal target.
             // Use its measured input/input cell on the rendered fixed-display
             // fixture (native window-relative coordinates).
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
                 clickFromLeft: 414, clickFromTop: 59);
             await NativeKeyboard.CaptureAsync(display,
-                Path.Combine(evidence, instanceId + $"-setup-pinmap-{accept}-edited.png"), token);
+                Path.Combine(evidence, instanceId + $"-setup-pinmap-{phase}-edited.png"), token);
             Assert.IsFalse(NativeKeyboard.HasWindow(display, processId, "Import Settings"),
                 "The matrix probe must edit a matrix button, not activate the global Import action.");
             NativeKeyboard.SchematicShortcut(display, processId, "Home", "Schematic Setup", false,
                 clickFromLeft: 80, clickFromTop: 40);
             await NativeKeyboard.CaptureAsync(display,
-                Path.Combine(evidence, instanceId + $"-setup-pinmap-{accept}-page-switched.png"), token);
+                Path.Combine(evidence, instanceId + $"-setup-pinmap-{phase}-page-switched.png"), token);
+            if (validationFailure)
+            {
+                // An invalid value on a later page must not commit the earlier
+                // matrix change. After acknowledging the error, correcting the
+                // value and accepting must retain that earlier pending change.
+                NativeKeyboard.SchematicShortcut(display, processId, "a", "Schematic Setup", true,
+                    clickFromLeft: 500, clickFromTop: 493);
+                NativeKeyboard.SchematicShortcut(display, processId, "0", "Schematic Setup", false, false);
+                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
+                    clickFromRight: 60, clickFromBottom: 25);
+                using var invalid = CancellationTokenSource.CreateLinkedTokenSource(token);
+                invalid.CancelAfter(TimeSpan.FromSeconds(8));
+                int errorDelay = 25;
+                while (!NativeKeyboard.HasWindow(display, processId, "Error"))
+                { await Task.Delay(errorDelay, invalid.Token); errorDelay = Math.Min(errorDelay * 2, 500); }
+                await NativeKeyboard.CaptureAsync(display,
+                    Path.Combine(evidence, instanceId + $"-setup-pinmap-{phase}-validation-error.png"), token);
+                NativeKeyboard.SchematicShortcut(display, processId, "Return", "Error", false, false);
+                while (NativeKeyboard.HasWindow(display, processId, "Error"))
+                    await Task.Delay(50, invalid.Token);
+                Assert.IsTrue(NativeKeyboard.HasWindow(display, processId, "Schematic Setup"));
+                NativeKeyboard.SchematicShortcut(display, processId, "a", "Schematic Setup", true,
+                    clickFromLeft: 500, clickFromTop: 493);
+                string originalGridMils = (baseline.Data.Metadata.Formatting.ConnectionGridNm / 25400m)
+                    .ToString(System.Globalization.CultureInfo.InvariantCulture);
+                foreach (char c in originalGridMils)
+                    NativeKeyboard.SchematicShortcut(display, processId, c.ToString(), "Schematic Setup", false, false);
+            }
+            ready.CancelAfter(TimeSpan.FromSeconds(10));
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
                 clickFromRight: accept ? 60 : 150, clickFromBottom: 25);
             delay = 25;

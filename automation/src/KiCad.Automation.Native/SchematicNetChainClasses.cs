@@ -7,13 +7,13 @@ internal static class SchematicNetChainClasses
 {
     internal static SchematicNetChainClassState Normalize(SchematicNetChainClassState value)
     {
-        SchematicDataXml.Write(value); // Reject unknown descriptor fields, never drop them.
         var names = new HashSet<string>(StringComparer.Ordinal);
         static bool Valid(string text) => text.Length != 0 && !text.Contains('\0');
         if (value.Definitions.Any(name => !Valid(name) || !names.Add(name)))
             throw Invalid("Class definitions must be unique nonempty names without NUL.");
         if (value.Assignments.Any(pair => !Valid(pair.Key) || !Valid(pair.Value) || !names.Contains(pair.Value)))
             throw Invalid("Class assignments require nonempty chain names and declared classes.");
+        SchematicDataXml.Write(value); // Reject unknown descriptor fields after domain validation.
         var result = value.Clone(); result.Definitions.Clear();
         result.Definitions.Add(names.Order(StringComparer.Ordinal));
         return result;

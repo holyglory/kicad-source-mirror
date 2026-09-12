@@ -69,7 +69,7 @@ public sealed class GuidanceQuantityTests
         var result = ComponentGuidance.Resolve(parsed, binding);
         CollectionAssert.AreEquivalent(new[] { "inverted_range", "nominal_below_minimum", "nominal_above_maximum" },
             result.QuantityIssues!.Select(i => i.Code).ToArray());
-        Assert.IsTrue(result.QuantityIssues.All(i => i.StatementId == statement.Id));
+        Assert.IsTrue(result.QuantityIssues!.All(i => i.StatementId == statement.Id));
         Assert.AreEqual(statement.Quantity, result.Effective.Single().Statement.Quantity);
         Assert.AreEqual(VerificationState.Unverified, result.Effective.Single().Statement.Verification);
         Assert.AreEqual(xml, ComponentKnowledgeXml.WriteLibrary(parsed));
@@ -90,8 +90,12 @@ public sealed class GuidanceQuantityTests
         string xml = ComponentKnowledgeXml.WriteLibrary(library);
         foreach (string invalid in new[] { xml.Replace("<quantity ", "<quantity dropped=\"data\" ", StringComparison.Ordinal),
             xml.Replace("nominal=\"1\"", "nominal=\"NaN\"", StringComparison.Ordinal),
+            xml.Replace("nominal=\"1\"", "nominal=\"0.123456789012345678901234567890123\"", StringComparison.Ordinal),
+            xml.Replace("nominal=\"1\"", "nominal=\"0.00000000000000000000000000001\"", StringComparison.Ordinal),
             xml.Replace("nominal=\"1\"", "nominal=\"99999999999999999999999999999999999999999999\"", StringComparison.Ordinal) })
             Assert.ThrowsExactly<AutomationException>(() => ComponentKnowledgeXml.ReadLibrary(invalid));
+        var equivalent = ComponentKnowledgeXml.ReadLibrary(xml.Replace("nominal=\"1\"", "nominal=\"+0001.00000000000000000000000000000000\"", StringComparison.Ordinal));
+        Assert.AreEqual(1m, equivalent.Classes.Single(c => c.Guidance.Count != 0).Guidance.Single().Quantity!.Nominal);
     }
 
     [TestMethod]

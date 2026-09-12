@@ -90,9 +90,26 @@ public static class ComponentKnowledgeXml
         decimal? Number(XElement element, string name)
         {
             if (element.Attribute(name) is not XAttribute attribute) return null;
-            try { return XmlConvert.ToDecimal(attribute.Value); }
+            try
+            {
+                decimal number = XmlConvert.ToDecimal(attribute.Value);
+                if (CanonicalDecimal(attribute.Value) != CanonicalDecimal(XmlConvert.ToString(number)))
+                    throw new AutomationException("invalid_quantity", "Quantity precision exceeds the supported decimal representation; no rounded value was imported.");
+                return number;
+            }
             catch (Exception error) when (error is FormatException or OverflowException)
             { throw new AutomationException("invalid_quantity", "Quantity values must fit the supported decimal range."); }
+        }
+        static string CanonicalDecimal(string input)
+        {
+            string text = input.Trim(); bool negative = text.StartsWith('-');
+            text = text.TrimStart('+', '-');
+            int point = text.IndexOf('.');
+            string integer = (point < 0 ? text : text[..point]).TrimStart('0');
+            string fraction = point < 0 ? "" : text[(point + 1)..].TrimEnd('0');
+            if (integer.Length == 0) integer = "0";
+            return (negative && (integer != "0" || fraction.Length != 0) ? "-" : "")
+                + integer + (fraction.Length == 0 ? "" : "." + fraction);
         }
         var tolerance = value.Element(Ns + "tolerance");
         return new(Enum.Parse<ParameterKind>(Text(value, "kind")), Text(value, "unit"),

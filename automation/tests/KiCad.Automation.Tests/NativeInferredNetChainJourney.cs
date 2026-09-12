@@ -103,6 +103,43 @@ public sealed partial class NativeSessionTests
         Assert.AreEqual(2, pins.Length);
         var electrical = await Electrical();
         Assert.AreEqual(4, electrical.Nets.Count, "The inferred path must cross three resistors and four distinct electrical nets.");
+        // Reproduce the original complete-symbol mutation surface. Changing
+        // only propagation and restoring all five typed instances must retain
+        // the exact shared library definitions, cache keys and placed pin IDs.
+        var symbolBaseline = await Read();
+        async Task<SchematicHierarchyDataSnapshot> UpdateAllSymbols(bool block)
+        {
+            var current = await Read();
+            var batch = new ApplySchematicItemBatch { Document = root, DocumentEpoch = current.Revision.Epoch,
+                ExpectedRevision = current.Revision, OperationId = Guid.NewGuid().ToString("D") };
+            foreach (var original in symbols)
+            {
+                var update = original.Clone();
+                if (block && update.ReferenceField.Text.Text_ == "R2") update.Passthrough = (SchematicPassthroughMode)2;
+                batch.Operations.Add(new SchematicItemOperation { Update = Any.Pack(update) });
+            }
+            await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(batch, token);
+            return await Read();
+        }
+        var blockedSymbol = await UpdateAllSymbols(true);
+        var expectedBlocked = symbolBaseline.Data.Clone();
+        var rootItems = expectedBlocked.Instances[0].Items;
+        for (int index = 0; index < rootItems.Count; ++index)
+        {
+            if (!rootItems[index].Is(SchematicSymbolInstance.Descriptor)) continue;
+            var symbol = rootItems[index].Unpack<SchematicSymbolInstance>();
+            if (symbol.ReferenceField.Text.Text_ != "R2") continue;
+            symbol.Passthrough = (SchematicPassthroughMode)2; rootItems[index] = Any.Pack(symbol);
+        }
+        await Same(expectedBlocked, blockedSymbol.Data, "symbol-complete-update");
+        CollectionAssert.AreEqual(Partition(electrical), Partition(await Electrical()));
+        var restoredSymbols = await UpdateAllSymbols(false);
+        await Same(symbolBaseline.Data, restoredSymbols.Data, "symbol-complete-restoration");
+        var undoSymbols = await History("z", restoredSymbols); await Same(expectedBlocked, undoSymbols.Data, "symbol-complete-undo");
+        var redoSymbols = await History("y", undoSymbols); await Same(symbolBaseline.Data, redoSymbols.Data, "symbol-complete-redo");
+        await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+        await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
+        await Same(symbolBaseline.Data, (await Read()).Data, "symbol-complete-reloaded");
         const string title = "Create Net Chain";
         foreach (bool shortcut in new[] { false, true })
         {

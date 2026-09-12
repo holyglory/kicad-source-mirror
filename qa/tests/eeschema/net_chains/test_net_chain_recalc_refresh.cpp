@@ -235,10 +235,12 @@ BOOST_FIXTURE_TEST_CASE( NetChain_ExcludedMembersCannotReturnThroughRestore,
         { attachedWire = line; break; }
     }
     BOOST_REQUIRE( attachedWire );
+    const VECTOR2I gap( 0, schIUScale.MilsToIU( 100 ) );
     if( attachedWire->GetStartPoint() == selected->GetPosition() )
-        attachedWire->SetStartPoint( attachedWire->GetStartPoint() + VECTOR2I( 0, 100000 ) );
+        attachedWire->SetStartPoint( attachedWire->GetStartPoint() + gap );
     else
-        attachedWire->SetEndPoint( attachedWire->GetEndPoint() + VECTOR2I( 0, 100000 ) );
+        attachedWire->SetEndPoint( attachedWire->GetEndPoint() + gap );
+    selectedPath.LastScreen()->Update( attachedWire, false );
     graph->Recalculate( sheets, true );
     BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
     SCH_PIN* other = nullptr;

@@ -1672,6 +1672,12 @@ requires = ["native-build"]
 command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_net_chain_terminals$", "--output-on-failure", "--no-tests=error"]
 
 [[test.native-net-chains.check]]
+name = "symbol-update-identity"
+tier = "development"
+requires = ["native-build"]
+command = ["ctest", "--test-dir", "automation/artifacts/native", "--tests-regex", "^qa_symbol_update_identity$", "--output-on-failure", "--no-tests=error"]
+
+[[test.native-net-chains.check]]
 name = "native-chains"
 tier = "development"
 requires = ["native-build"]

@@ -56,7 +56,7 @@ public sealed partial class NativeSessionTests
             }
             Assert.IsTrue(same, "Net-chain state differs; see retained " + name + " snapshots.");
         }
-        async Task Open()
+        async Task OpenChainMenu()
         {
             await client.InvokeAsync<ClearSelection, Empty>(new() { Header = header }, token);
             var select = new AddToSelection { Header = header }; select.Items.Add(new KIID { Value = pinId });
@@ -95,6 +95,10 @@ public sealed partial class NativeSessionTests
             }
             if (assertion)
                 throw new InvalidOperationException("Native assertion while opening the net-chain menu; see retained window/stack evidence.");
+        }
+        async Task Open()
+        {
+            await OpenChainMenu();
             Key("End"); Key("Up"); Key("Return");
             await Window(title, true);
         }
@@ -162,6 +166,38 @@ public sealed partial class NativeSessionTests
         var undone = await History("z", changed); await Same(before.Data, undone.Data, "chain-undo"); await Saved(false);
         var redone = await History("y", undone); await Same(changed.Data, redone.Data, "chain-redo"); await Saved(true);
         undone = await History("z", redone); await Same(before.Data, undone.Data, "chain-restored"); await Saved(false);
+
+        // Replace terminal B with the exact currently selected pin A. The
+        // native menu explicitly offers B here; A is the disabled no-op entry.
+        var terminalBefore = await Read(token);
+        var electricalBefore = await client.InvokeAsync<ReadSchematicElectricalState, SchematicElectricalState>(new() { Document = root }, token);
+        await OpenChainMenu(); Key("End"); Key("Up"); Key("Up"); Key("Right");
+        await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-terminal-menu.png"), token);
+        Key("Escape"); Key("Escape"); Key("Escape");
+        await Same(terminalBefore, await Read(token), "chain-terminal-cancel");
+        await OpenChainMenu(); Key("End"); Key("Up"); Key("Up"); Key("Right"); Key("End"); Key("Return");
+        var terminalAfter = await Read(token);
+        Assert.IsTrue(terminalAfter.Revision.Sequence > terminalBefore.Revision.Sequence);
+        foreach (var screen in terminalAfter.Data.Instances)
+        {
+            var chain = screen.Metadata.NetChains.Single(c => c.Name == oldName);
+            Assert.AreEqual(chain.From.Reference, chain.To.Reference);
+            Assert.AreEqual(chain.From.Pin, chain.To.Pin);
+        }
+        var electricalAfter = await client.InvokeAsync<ReadSchematicElectricalState, SchematicElectricalState>(new() { Document = root }, token);
+        string[] Partition(SchematicElectricalState state) => state.Nets.Select(n =>
+            string.Join("|", n.Sheets.SelectMany(s => s.Items.Select(id => string.Join('/', s.Path.Path.Select(p => p.Value)) + ":" + id.Value)).Order(StringComparer.Ordinal)))
+            .Order(StringComparer.Ordinal).ToArray();
+        CollectionAssert.AreEqual(Partition(electricalBefore), Partition(electricalAfter), "Changing a chain endpoint must not rewire the circuit.");
+        journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
+            { Document = root, DocumentEpoch = terminalBefore.Revision.Epoch, AfterSequence = terminalBefore.Revision.Sequence }, token);
+        Assert.AreEqual(1, journal.Changes.Count);
+        Assert.AreEqual("Replace terminal pin", journal.Changes.Single().Description);
+        await Saved(false);
+        var terminalUndo = await History("z", terminalAfter); await Same(terminalBefore.Data, terminalUndo.Data, "chain-terminal-undo");
+        var terminalRedo = await History("y", terminalUndo); await Same(terminalAfter.Data, terminalRedo.Data, "chain-terminal-redo");
+        terminalUndo = await History("z", terminalRedo); await Same(terminalBefore.Data, terminalUndo.Data, "chain-terminal-restore");
+        await Saved(false);
         await client.InvokeAsync<ClearSelection, Empty>(new() { Header = header }, token);
 
         // Schematic Setup remains a real native dialog. Exercise the lazy
@@ -174,9 +210,9 @@ public sealed partial class NativeSessionTests
             Key("Return"); await Window("Schematic Setup", true);
             NativeKeyboard.SchematicShortcut(display, processId, "Home", "Schematic Setup", controlKey: false,
                 focusCanvas: true, clickFromLeft: 80, clickFromTop: 40);
-            // Expanded category roots redirect to their first child. From
-            // Formatting, nine visible downward steps reach Net Chains.
-            for (int i = 0; i < 9; i++) Key("Down", "Schematic Setup");
+            // The rendered tree's keyboard selection includes category rows.
+            // Eleven downward steps from Home reach Net Chains, not Net Classes.
+            for (int i = 0; i < 11; i++) Key("Down", "Schematic Setup");
             await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-setup-page.png"), token);
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
                 focusCanvas: true, clickFromRight: accept ? 60 : 150, clickFromBottom: 25);

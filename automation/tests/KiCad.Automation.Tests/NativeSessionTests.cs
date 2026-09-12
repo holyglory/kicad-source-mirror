@@ -36,9 +36,11 @@ public sealed partial class NativeSessionTests
         string evidence = NativeEvidenceDirectory.Begin(journey == NativeJourney.Foundation ? artifacts
             : Path.Combine(artifacts, journey == NativeJourney.TableVariants ? "native-table-variants" : "native-net-chains"));
         string temporary = Directory.CreateTempSubdirectory("kicad-native-").FullName;
-        // Aggregate ceiling for the expanded editor journey. Local startup,
-        // undo and competing-instance deadlines remain separately bounded.
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(300));
+        // Full composed verification includes all editor/chain/color journeys
+        // in both instances (first instance measured at 166s). Keep individual
+        // action/startup limits; only the complete journey gets a larger ceiling.
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(
+            journey == NativeJourney.Foundation ? 480 : 300));
         var elapsed = Stopwatch.StartNew();
         var processes = new List<Process>();
         var captures = new List<Task>();

@@ -44,16 +44,20 @@ public sealed partial class NativeSessionTests
                 await Task.Delay(delay, ready.Token); delay = Math.Min(delay * 2, 500);
             }
 
-            // Expanded category rows redirect to their first child. Six Down
-            // steps from Formatting select the native Pin Conflicts Map page.
-            NativeKeyboard.SchematicShortcut(display, processId, "Home", "Schematic Setup", false,
-                clickFromLeft: 80, clickFromTop: 40);
-            for (int i = 0; i < 6; ++i)
-                NativeKeyboard.SchematicShortcut(display, processId, "Down", "Schematic Setup", false, false);
+            // Click the visible Pin Conflicts Map row in this fixed Linux
+            // fixture. Category redirection does not remove category rows from
+            // keyboard navigation, and lazy page construction must finish before
+            // traversal into its controls. Retain the rendered checkpoint.
+            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
+                clickFromLeft: 120, clickFromTop: 180);
+            await NativeKeyboard.CaptureAsync(display,
+                Path.Combine(evidence, instanceId + $"-setup-pinmap-{accept}-selected.png"), token);
             NativeKeyboard.SchematicShortcut(display, processId, "Tab", "Schematic Setup", false, false);
             NativeKeyboard.SchematicShortcut(display, processId, "space", "Schematic Setup", false, false);
             await NativeKeyboard.CaptureAsync(display,
                 Path.Combine(evidence, instanceId + $"-setup-pinmap-{accept}-edited.png"), token);
+            Assert.IsFalse(NativeKeyboard.HasWindow(display, processId, "Import Settings"),
+                "The matrix probe must edit a matrix button, not activate the global Import action.");
             NativeKeyboard.SchematicShortcut(display, processId, "Home", "Schematic Setup", false,
                 clickFromLeft: 80, clickFromTop: 40);
             await NativeKeyboard.CaptureAsync(display,

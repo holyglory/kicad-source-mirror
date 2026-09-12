@@ -30,8 +30,19 @@ public sealed partial class NativeSessionTests
             using var ready = CancellationTokenSource.CreateLinkedTokenSource(token);
             ready.CancelAfter(TimeSpan.FromSeconds(10));
             int delay = 25;
-            while (!NativeKeyboard.HasWindow(display, processId, "Schematic Setup"))
-            { await Task.Delay(delay, ready.Token); delay = Math.Min(delay * 2, 500); }
+            while (true)
+            {
+                ready.Token.ThrowIfCancellationRequested();
+                if (NativeKeyboard.HasWindow(display, processId, "Schematic Setup"))
+                {
+                    // A mapped window can precede entry into the modal event
+                    // loop. Use the same native readiness condition as the
+                    // established formatting journey before sending input.
+                    try { await client.InvokeAsync<GetPageSettings, PageSettings>(new() { Document = document }, ready.Token); }
+                    catch (NativeApiException busy) when (busy.Status == 7) { break; }
+                }
+                await Task.Delay(delay, ready.Token); delay = Math.Min(delay * 2, 500);
+            }
 
             // Expanded category rows redirect to their first child. Six Down
             // steps from Formatting select the native Pin Conflicts Map page.
@@ -50,8 +61,19 @@ public sealed partial class NativeSessionTests
             NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
                 clickFromRight: accept ? 60 : 150, clickFromBottom: 25);
             delay = 25;
-            while (NativeKeyboard.HasWindow(display, processId, "Schematic Setup"))
-            { await Task.Delay(delay, ready.Token); delay = Math.Min(delay * 2, 500); }
+            try
+            {
+                while (NativeKeyboard.HasWindow(display, processId, "Schematic Setup"))
+                { await Task.Delay(delay, ready.Token); delay = Math.Min(delay * 2, 500); }
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                var windows = new List<string>();
+                NativeKeyboard.HasWindow(display, processId, "Schematic Setup", describe: windows.Add);
+                await File.WriteAllLinesAsync(Path.Combine(evidence, instanceId + "-setup-pinmap-windows.txt"), windows, token);
+                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, instanceId + "-setup-pinmap-close-failed.png"), token);
+                throw;
+            }
             var result = await Snapshot();
             Assert.AreEqual(accept ? changed : baseline.Data, result.Data,
                 "The clicked matrix value must stay provisional across page switches and preserve all other fields.");

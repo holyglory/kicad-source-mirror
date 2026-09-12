@@ -358,6 +358,7 @@ void SCH_IO_KICAD_SEXPR::loadFile( const wxString& aFileName, SCH_SHEET* aSheet 
 
         m_schematic->ConnectionGraph()->SetNetChainTerminalRefOverrides( termRefs );
         m_schematic->ConnectionGraph()->SetNetChainMemberNetOverrides( parser.GetNetChainMemberNets() );
+        m_schematic->ConnectionGraph()->SetNetChainExcludedNetOverrides( parser.GetNetChainExcludedNets() );
     }
 }
 
@@ -384,6 +385,7 @@ void SCH_IO_KICAD_SEXPR::LoadContent( LINE_READER& aReader, SCH_SHEET* aSheet, i
 
         m_schematic->ConnectionGraph()->SetNetChainTerminalRefOverrides( termRefs );
         m_schematic->ConnectionGraph()->SetNetChainMemberNetOverrides( parser.GetNetChainMemberNets() );
+        m_schematic->ConnectionGraph()->SetNetChainExcludedNetOverrides( parser.GetNetChainExcludedNets() );
     }
 }
 
@@ -605,6 +607,13 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
                 m_out->Print( ")" );
             }
 
+            if( !definition.excludedNets.empty() )
+            {
+                m_out->Print( " (excluded_nets" );
+                for( const wxString& name : definition.excludedNets )
+                    m_out->Print( " %s", m_out->Quotew( name ).c_str() );
+                m_out->Print( ")" );
+            }
             m_out->Print( ")" );
         }
     }

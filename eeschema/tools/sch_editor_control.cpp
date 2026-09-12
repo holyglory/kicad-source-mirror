@@ -1342,12 +1342,37 @@ int SCH_EDITOR_CONTROL::RemoveFromNetChain( const TOOL_EVENT& aEvent )
         }
     }
 
-    if( !bridges.empty() )
+    auto definitions = graph->GetNetChainDefinitions();
+    std::set<SCH_SYMBOL*> affected = bridges;
+    bool membershipChanged = false;
+    for( auto& [name, definition] : definitions )
+    {
+        if( !definition.committed ) continue;
+        bool changed = false;
+        for( const wxString& net : selectedNets )
+        {
+            if( definition.memberNets.erase( net ) )
+            {
+                definition.excludedNets.insert( net );
+                changed = true;
+            }
+        }
+        if( changed )
+        {
+            membershipChanged = true;
+            if( auto* chain = graph->GetNetChainByName( name ) )
+                affected.insert( chain->GetSymbols().begin(), chain->GetSymbols().end() );
+        }
+    }
+    if( membershipChanged )
     {
         SCH_COMMIT commit( editFrame );
-        if( !commit.StageNetChainEdit( bridges ) ) return 0;
+        if( !commit.StageNetChainEdit( affected ) ) return 0;
         for( SCH_SYMBOL* symbol : bridges )
             symbol->SetPassthroughMode( SCH_SYMBOL::PASSTHROUGH_MODE::BLOCK );
+        // Keep original endpoint and class intent in an uncommitted declaration
+        // if the retained path no longer spans it. Never guess new terminals.
+        commit.SetNetChainDefinitions( definitions );
         commit.Push( _( "Remove from Net Chain" ) );
         editFrame->UpdateNetHighlightStatus();
         editFrame->GetCanvas()->Refresh();

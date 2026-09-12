@@ -222,6 +222,14 @@ public sealed partial class NativeSessionTests
                 await OpenRemoval(true);
                 var removed = await Read();
                 Assert.IsTrue(removed.Revision.Sequence > before.Revision.Sequence);
+                var originalChain = before.Data.Instances.Single().Metadata.NetChains.Single(c => c.Committed);
+                var removedChain = removed.Data.Instances.Single().Metadata.NetChains.Single(c => c.Name == originalChain.Name);
+                var selectedNets = electrical.Nets.Where(n => n.Sheets.SelectMany(s => s.Items)
+                    .Any(id => pins.Take(pinCount).Contains(id.Value))).Select(n => n.Name).ToArray();
+                Assert.IsFalse(removedChain.Committed, "Removing an endpoint retains unresolved intent without guessing a new endpoint.");
+                CollectionAssert.AreEquivalent(selectedNets, removedChain.Exclusions.NetNames.ToArray());
+                CollectionAssert.AreEquivalent(originalChain.MemberNets.Except(selectedNets).ToArray(), removedChain.MemberNets.ToArray());
+                Assert.AreEqual(originalChain.From, removedChain.From); Assert.AreEqual(originalChain.To, removedChain.To);
                 var originalSymbols = before.Data.Instances.Single().Items.Where(i => i.Is(SchematicSymbolInstance.Descriptor))
                     .Select(i => i.Unpack<SchematicSymbolInstance>()).ToDictionary(s => s.Id.Value);
                 int changed = 0;
@@ -244,7 +252,18 @@ public sealed partial class NativeSessionTests
                     { Document = root, DocumentEpoch = before.Revision.Epoch, AfterSequence = before.Revision.Sequence }, token);
                 Assert.AreEqual(1, journal.Changes.Count);
                 Assert.AreEqual("Remove from Net Chain", journal.Changes.Single().Description);
-                await OpenRemoval(true); await Same(removed, await Read(), stage + "-noop");
+                var retained = new SchematicNetChainState();
+                foreach (var declaration in removed.Data.Instances.Single().Metadata.NetChains)
+                { var copy = declaration.Clone(); copy.Committed = false; retained.Definitions.Add(copy); }
+                var repeat = new ApplySchematicItemBatch { Document = root, DocumentEpoch = removed.Revision.Epoch,
+                    ExpectedRevision = removed.Revision, OperationId = Guid.NewGuid().ToString("D") };
+                repeat.Operations.Add(new SchematicItemOperation { ReplaceNetChains = retained });
+                Assert.IsFalse((await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(repeat, token)).NetChainsChanged);
+                await Same(removed, await Read(), stage + "-noop");
+                var legacy = repeat.Clone(); legacy.OperationId = Guid.NewGuid().ToString("D");
+                foreach (var declaration in legacy.Operations.Single().ReplaceNetChains.Definitions) declaration.Exclusions = null;
+                await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(legacy, token));
+                await Same(removed, await Read(), stage + "-legacy-rejected");
                 var stale = new ApplySchematicItemBatch { Document = root, DocumentEpoch = before.Revision.Epoch,
                     ExpectedRevision = before.Revision, OperationId = Guid.NewGuid().ToString("D") };
                 stale.Operations.Add(new SchematicItemOperation { ReplaceNetChains = new() });
@@ -254,7 +273,23 @@ public sealed partial class NativeSessionTests
                 Assert.AreEqual(pinCount, (await File.ReadAllTextAsync(rootFile, token)).Split("(passthrough block)", StringSplitOptions.None).Length - 1);
                 var undone = await History("z", removed); await Same(before.Data, undone.Data, stage + "-undo");
                 var redone = await History("y", undone); await Same(removed.Data, redone.Data, stage + "-redo");
-                undone = await History("z", redone); await Same(before.Data, undone.Data, stage + "-restored");
+                await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+                StringAssert.Contains(await File.ReadAllTextAsync(rootFile, token), "(excluded_nets");
+                await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
+                var reloaded = await Read(); await Same(removed.Data, reloaded.Data, stage + "-reload");
+                Assert.AreEqual(removed.Data, SchematicDataXml.Read(SchematicDataXml.Write(reloaded.Data)));
+                // Reload intentionally resets Undo. Restore the exact original
+                // declarations and changed bridge symbols in one native batch.
+                var restore = new ApplySchematicItemBatch { Document = root, DocumentEpoch = reloaded.Revision.Epoch,
+                    ExpectedRevision = reloaded.Revision, OperationId = Guid.NewGuid().ToString("D") };
+                var originalDefinitions = new SchematicNetChainState();
+                foreach (var declaration in before.Data.Instances.Single().Metadata.NetChains)
+                { var copy = declaration.Clone(); copy.Committed = false; originalDefinitions.Definitions.Add(copy); }
+                restore.Operations.Add(new SchematicItemOperation { ReplaceNetChains = originalDefinitions });
+                foreach (var symbol in originalSymbols.Values)
+                    restore.Operations.Add(new SchematicItemOperation { Update = Any.Pack(symbol) });
+                await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(restore, token);
+                await Same(before.Data, (await Read()).Data, stage + "-restored");
             }
         }
     }

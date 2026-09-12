@@ -14,6 +14,7 @@ message ReadSchematicMetadata {
   kiapi.common.types.DocumentSpecifier document = 1;
   // 0/1: legacy fields with explicit missing-ERC coverage; 2: includes ERC;
   // 3: also includes the net-chain class registry and assignments.
+  // 4: includes explicit net-chain member exclusions.
   // Unknown versions are rejected, never silently simplified.
   uint32 schema_version = 2;
 }

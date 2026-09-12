@@ -80,6 +80,14 @@ message SchematicNetChainDefinition
   // Observation only: membership in the native committed-chain collection,
   // not a connectivity-verification result. False retains a pending declaration.
   bool committed = 7;
+  // Schema 4. Presence distinguishes an explicitly empty restriction from an
+  // older client that cannot represent removal intent.
+  SchematicNetChainExclusions exclusions = 8;
+}
+
+message SchematicNetChainExclusions
+{
+  repeated string net_names = 1;
 }
 
 // Typed non-item state. This is not yet the complete document snapshot.

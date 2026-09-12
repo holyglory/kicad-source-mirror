@@ -150,6 +150,41 @@ BOOST_FIXTURE_TEST_CASE( NetChain_RestoreKeepsDeclaredTerminalOrder,
 }
 
 
+BOOST_FIXTURE_TEST_CASE( NetChain_ExcludedMembersCannotReturnThroughRestore,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO locale;
+    KI_TEST::LoadSchematic( m_settingsManager, wxString( "net_chains_four_nets" ), m_schematic );
+    CONNECTION_GRAPH* graph = m_schematic->ConnectionGraph();
+    auto sheets = m_schematic->BuildSheetListSortedByPageNumbers();
+    graph->Recalculate( sheets, true );
+    BOOST_REQUIRE( !graph->GetPotentialNetChains().empty() );
+    BOOST_REQUIRE( graph->CreateNetChainFromPotential( graph->GetPotentialNetChains().front().get(), "RESTRICTED" ) );
+    const auto baseline = graph->GetNetChainDefinitions();
+    const auto original = baseline.at( "RESTRICTED" );
+    BOOST_REQUIRE_EQUAL( original.memberNets.size(), 4u );
+    for( const wxString& net : original.memberNets )
+    {
+        auto desired = baseline;
+        desired["RESTRICTED"].memberNets.erase( net );
+        desired["RESTRICTED"].excludedNets.insert( net );
+        graph->SetNetChainDefinitions( desired );
+        for( int pass = 0; pass < 2; ++pass )
+        {
+            BOOST_CHECK( !graph->GetNetChainForNet( net ) );
+            const auto observed = graph->GetNetChainDefinitions().at( "RESTRICTED" );
+            BOOST_CHECK( !observed.committed );
+            BOOST_CHECK( observed.terminals == original.terminals );
+            BOOST_CHECK( observed.memberNets == desired.at( "RESTRICTED" ).memberNets );
+            BOOST_CHECK( observed.excludedNets == desired.at( "RESTRICTED" ).excludedNets );
+            graph->Recalculate( sheets, true );
+        }
+        graph->SetNetChainDefinitions( baseline );
+        BOOST_CHECK( graph->GetNetChainDefinitions() == baseline );
+    }
+}
+
+
 BOOST_FIXTURE_TEST_CASE( NetChain_OpacityWriterPreservesDoublePrecision,
                         NETCHAIN_RECALC_REFRESH_FIXTURE )
 {

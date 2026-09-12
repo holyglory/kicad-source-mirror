@@ -3281,6 +3281,13 @@ CONNECTION_GRAPH::BRIDGE_GRAPH CONNECTION_GRAPH::buildBridgeAdjacency()
 
 void CONNECTION_GRAPH::RebuildNetChains()
 {
+    // Restricted declarations are re-admitted only from a path that still
+    // satisfies their explicit exclusions, never from stale saved membership.
+    std::erase_if( m_committedNetChains, [&]( const auto& chain )
+    {
+        auto it = m_netChainExcludedNetOverrides.find( chain->GetName() );
+        return it != m_netChainExcludedNetOverrides.end() && !it->second.empty();
+    } );
     // Snapshot the committed-chain count so a throw partway through the restore loop can
     // truncate any half-built entries instead of leaving the container partially mutated.
     const size_t committedSnapshot = m_committedNetChains.size();
@@ -3677,6 +3684,12 @@ void CONNECTION_GRAPH::RebuildNetChains()
             if( !match )
                 continue;
 
+            auto excluded = m_netChainExcludedNetOverrides.find( chainName );
+            if( excluded != m_netChainExcludedNetOverrides.end()
+                && std::any_of( excluded->second.begin(), excluded->second.end(),
+                                [&]( const wxString& net ) { return match->GetNets().contains( net ); } ) )
+                continue;
+
             // A potential's endpoint order is derived from screen iteration,
             // not from the persisted From/To declaration. Save/reload can
             // change that order; keep the explicitly declared endpoints.
@@ -3720,6 +3733,12 @@ void CONNECTION_GRAPH::RebuildNetChains()
             // Skip chains pass 2a already refreshed; the potential's symbol set is more
             // precise than the broad member-net match collected here.
             if( alreadyCommitted.count( chainName ) && refreshedThisPass.count( chainName ) )
+                continue;
+
+            // A removed endpoint or broken retained path needs explicit
+            // repair. Broad saved membership must not recreate that path.
+            auto excluded = m_netChainExcludedNetOverrides.find( chainName );
+            if( excluded != m_netChainExcludedNetOverrides.end() && !excluded->second.empty() )
                 continue;
 
             auto termIt = m_netChainTerminalRefOverrides.find( chainName );
@@ -3917,6 +3936,8 @@ std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION> CONNECTION_GRAPH::Get
         definitions[name].color = color;
     for( const auto& [name, nets] : m_netChainMemberNetOverrides )
         definitions[name].memberNets = nets;
+    for( const auto& [name, nets] : m_netChainExcludedNetOverrides )
+        definitions[name].excludedNets = nets;
 
     // Live color/class edits need not have been copied into the restore maps.
     for( const auto& chain : m_committedNetChains )
@@ -3946,12 +3967,14 @@ void CONNECTION_GRAPH::SetNetChainDefinitions( const std::map<wxString, NET_CHAI
     m_netChainNetClassOverrides.clear();
     m_netChainColorOverrides.clear();
     m_netChainMemberNetOverrides.clear();
+    m_netChainExcludedNetOverrides.clear();
     for( const auto& [name, definition] : aDefinitions )
     {
         m_netChainTerminalRefOverrides[name] = definition.terminals;
         m_netChainNetClassOverrides[name] = definition.netClass;
         m_netChainColorOverrides[name] = definition.color;
         m_netChainMemberNetOverrides[name] = definition.memberNets;
+        m_netChainExcludedNetOverrides[name] = definition.excludedNets;
     }
     RebuildNetChains();
     ApplyNetChainNetclasses();
@@ -3987,6 +4010,7 @@ bool CONNECTION_GRAPH::DeleteCommittedNetChain( const wxString& aName )
     m_netChainTerminalRefOverrides.erase( aName );
     m_netChainTerminalOverrides.erase( aName );
     m_netChainMemberNetOverrides.erase( aName );
+    m_netChainExcludedNetOverrides.erase( aName );
 
     return true;
 }
@@ -4054,6 +4078,7 @@ void CONNECTION_GRAPH::rekeyOverrideMaps( const wxString& aOld, const wxString& 
     rekey( m_netChainTerminalRefOverrides );
     rekey( m_netChainTerminalOverrides );
     rekey( m_netChainMemberNetOverrides );
+    rekey( m_netChainExcludedNetOverrides );
 }
 
 

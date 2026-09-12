@@ -14,7 +14,7 @@ public static class SchematicItemDelta
 {
     // Pinned fork eeschema/sch_file_versions.h. Native journey asserts this
     // value against the actual build; upgrading needs explicit coverage work.
-    public const uint SupportedWriterFormatVersion = 20260907;
+    public const uint SupportedWriterFormatVersion = 20260912;
     private static readonly MessageDescriptor[] ItemTypes =
     [
         SchematicLine.Descriptor, Junction.Descriptor, NoConnectMarker.Descriptor, BusEntry.Descriptor,
@@ -317,6 +317,12 @@ public static class SchematicItemDelta
                 if (chain.MemberNets.Any(n => n.Length == 0 || !NoNul(n) || n.StartsWith("__SG_", StringComparison.Ordinal))
                     || chain.MemberNets.Distinct(StringComparer.Ordinal).Count() != chain.MemberNets.Count)
                     throw Invalid("Net chain member nets must be unique nonempty persisted names.");
+                if (prior?.Exclusions is { NetNames.Count: > 0 } && chain.Exclusions is null)
+                    throw Invalid("Removal restrictions cannot be cleared by an older or incomplete representation.");
+                if (chain.Exclusions is { } exclusions && (exclusions.NetNames.Any(n => n.Length == 0 || !NoNul(n)
+                    || n.StartsWith("__SG_", StringComparison.Ordinal) || chain.MemberNets.Contains(n))
+                    || exclusions.NetNames.Distinct(StringComparer.Ordinal).Count() != exclusions.NetNames.Count))
+                    throw Invalid("Excluded net names must be unique persisted names disjoint from retained members.");
                 SchematicDataXml.Write(chain);
                 var declaration = chain.Clone(); declaration.Committed = false;
                 state.Definitions.Add(declaration);

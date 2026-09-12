@@ -88,12 +88,12 @@ public sealed class NativeClient(INativeTransport transport, string endpoint, st
     // read requests so invoking a client never changes caller-owned messages.
     internal static IMessage CurrentSnapshotRequest(IMessage request) => request switch
     {
-        ReadSchematicMetadata { SchemaVersion: 0 } value => new ReadSchematicMetadata(value) { SchemaVersion = 3 },
-        ReadSchematicScreenData { SchemaVersion: 0 } value => new ReadSchematicScreenData(value) { SchemaVersion = 3 },
-        ReadSchematicHierarchyData { SchemaVersion: 0 } value => new ReadSchematicHierarchyData(value) { SchemaVersion = 3 },
-        ReadSchematicElectricalState { SchemaVersion: 0 } value => new ReadSchematicElectricalState(value) { SchemaVersion = 3 },
-        CaptureSchematicObservation { SchemaVersion: 0 } value => new CaptureSchematicObservation(value) { SchemaVersion = 3 },
-        RenderSchematicViews { SchemaVersion: 0 } value => new RenderSchematicViews(value) { SchemaVersion = 3 },
+        ReadSchematicMetadata { SchemaVersion: 0 } value => new ReadSchematicMetadata(value) { SchemaVersion = 4 },
+        ReadSchematicScreenData { SchemaVersion: 0 } value => new ReadSchematicScreenData(value) { SchemaVersion = 4 },
+        ReadSchematicHierarchyData { SchemaVersion: 0 } value => new ReadSchematicHierarchyData(value) { SchemaVersion = 4 },
+        ReadSchematicElectricalState { SchemaVersion: 0 } value => new ReadSchematicElectricalState(value) { SchemaVersion = 4 },
+        CaptureSchematicObservation { SchemaVersion: 0 } value => new CaptureSchematicObservation(value) { SchemaVersion = 4 },
+        RenderSchematicViews { SchemaVersion: 0 } value => new RenderSchematicViews(value) { SchemaVersion = 4 },
         _ => request
     };
 }

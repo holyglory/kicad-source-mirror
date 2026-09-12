@@ -528,6 +528,11 @@ public:
         return m_netChainMemberNetOverrides;
     }
 
+    void SetNetChainExcludedNetOverrides( const std::map<wxString, std::set<wxString>>& aOverrides )
+    {
+        m_netChainExcludedNetOverrides = aOverrides;
+    }
+
     /**
      * Return the subgraph for a given net name on a given sheet.
      *
@@ -970,6 +975,7 @@ public:
         wxString netClass;
         COLOR4D color = COLOR4D::UNSPECIFIED;
         std::set<wxString> memberNets;
+        std::set<wxString> excludedNets;
         bool committed = false;
         bool operator==( const NET_CHAIN_DEFINITION& ) const = default;
     };
@@ -1140,6 +1146,7 @@ private:
     std::map<wxString, COLOR4D>               m_netChainColorOverrides;
     std::map<wxString, CHAIN_TERMINAL_REFS>    m_netChainTerminalRefOverrides;
     std::map<wxString, std::set<wxString>>    m_netChainMemberNetOverrides;
+    std::map<wxString, std::set<wxString>>    m_netChainExcludedNetOverrides;
 
     int m_last_net_code;
 

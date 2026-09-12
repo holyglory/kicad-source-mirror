@@ -149,6 +149,10 @@ public:
     {
         return m_netChainMemberNets;
     }
+    const std::map<wxString, std::set<wxString>>& GetNetChainExcludedNets() const
+    {
+        return m_netChainExcludedNets;
+    }
 
 private:
     // Group membership info refers to other Uuids in the file.
@@ -359,6 +363,7 @@ private:
     std::map<wxString, COLOR4D>               m_netChainColors;
     std::map<wxString, CHAIN_TERMINALS>       m_netChainTerminalRefs;
     std::map<wxString, std::set<wxString>>    m_netChainMemberNets;
+    std::map<wxString, std::set<wxString>>    m_netChainExcludedNets;
 };
 
 #endif    // SCH_IO_KICAD_SEXPR_PARSER_H_

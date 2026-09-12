@@ -20,6 +20,8 @@
 
 #include <api/api_handler_sch.h>
 #include <sch_file_versions.h>
+#include <project/project_file.h>
+#include <project/net_settings.h>
 #include <cmath>
 #include <limits>
 #include <google/protobuf/util/message_differencer.h>

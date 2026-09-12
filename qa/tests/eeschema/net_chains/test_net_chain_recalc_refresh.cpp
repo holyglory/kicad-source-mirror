@@ -32,6 +32,7 @@
 #include <sch_symbol.h>
 #include <sch_pin.h>
 #include <sch_label.h>
+#include <sch_line.h>
 #include <settings/settings_manager.h>
 #include <locale_io.h>
 #include <richio.h>
@@ -222,6 +223,39 @@ BOOST_FIXTURE_TEST_CASE( NetChain_ExcludedMembersCannotReturnThroughRestore,
     BOOST_CHECK( !reloadedGraph->GetNetChainByName( "RESTRICTED" ) );
     BOOST_CHECK( reloadedGraph->GetNetChainDefinitions().at( "RESTRICTED" ).excludedPins
                  == anchored.at( "RESTRICTED" ).excludedPins );
+
+    // Split the removed electrical owner, then merge its anchored side into
+    // the opposite endpoint. Neither operation may revive removed membership.
+    SCH_LINE* attachedWire = nullptr;
+    for( SCH_ITEM* item : selectedPath.LastScreen()->Items().OfType( SCH_LINE_T ) )
+    {
+        auto* line = static_cast<SCH_LINE*>( item );
+        if( line->GetLayer() == LAYER_WIRE && ( line->GetStartPoint() == selected->GetPosition()
+                || line->GetEndPoint() == selected->GetPosition() ) )
+        { attachedWire = line; break; }
+    }
+    BOOST_REQUIRE( attachedWire );
+    if( attachedWire->GetStartPoint() == selected->GetPosition() )
+        attachedWire->SetStartPoint( attachedWire->GetStartPoint() + VECTOR2I( 0, 100000 ) );
+    else
+        attachedWire->SetEndPoint( attachedWire->GetEndPoint() + VECTOR2I( 0, 100000 ) );
+    graph->Recalculate( sheets, true );
+    BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
+    SCH_PIN* other = nullptr;
+    for( SCH_ITEM* item : selectedPath.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
+    {
+        auto* symbol = static_cast<SCH_SYMBOL*>( item );
+        for( SCH_PIN* pin : symbol->GetPins( &selectedPath ) )
+            if( symbol->GetRef( &selectedPath ) == original.terminals.second.ref
+                && pin->GetNumber() == original.terminals.second.pin ) other = pin;
+    }
+    BOOST_REQUIRE( other && other != selected );
+    auto* merged = new SCH_LINE( selected->GetPosition(), LAYER_WIRE );
+    merged->SetEndPoint( other->GetPosition() ); selectedPath.LastScreen()->Append( merged );
+    graph->Recalculate( sheets, true );
+    BOOST_CHECK( selected->Connection( &selectedPath )->Name() == other->Connection( &selectedPath )->Name() );
+    BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
+    BOOST_CHECK( graph->GetNetChainDefinitions().at( "RESTRICTED" ).excludedPins == anchored.at( "RESTRICTED" ).excludedPins );
 
     // An unmatched path is unresolved, not an invitation to find a similarly
     // named pin elsewhere. Intent remains present through subsequent rebuilds.

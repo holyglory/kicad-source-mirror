@@ -589,7 +589,10 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
                               KiROUND( c.r * 255.0 ),
                               KiROUND( c.g * 255.0 ),
                               KiROUND( c.b * 255.0 ),
-                              FormatDouble2Str( c.a ).c_str() );
+                              // Opacity is persisted as a double, unlike the
+                              // eight-bit RGB fields. Keep enough digits for
+                              // an exact round trip and idempotent XML sync.
+                              fmt::format( "{:.17g}", c.a ).c_str() );
             }
 
             if( !definition.memberNets.empty() )

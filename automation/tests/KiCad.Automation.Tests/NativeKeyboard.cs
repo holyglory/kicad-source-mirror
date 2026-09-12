@@ -40,6 +40,11 @@ internal static class NativeKeyboard
         }
     }
 
+    // focusCanvas controls the optional pre-click for keyboard input. Explicit
+    // pointer commands still have to send their requested physical action.
+    internal static bool RequestsPointerInput(string key, bool focusCanvas) => key.Length != 0
+        && (focusCanvas || key is "click" or "right-click" or "motion");
+
     public static void SchematicShortcut(string fixtureDisplay, int processId, string key,
         string titleMatch = "Schematic Editor", bool controlKey = true, bool focusCanvas = true,
         int? clickFromRight = null, int? clickFromBottom = null, Action<string>? describe = null,
@@ -137,7 +142,7 @@ internal static class NativeKeyboard
             // The fixture's lower-right margin is outside the drawing sheet;
             // its former 3/4-width point hit the page border after fit/reload,
             // where repeated clicks legitimately open Page Settings.
-            if (focusCanvas)
+            if (RequestsPointerInput(key, focusCanvas))
             {
                 XTestFakeMotionEvent(display, -1, pointerX, pointerY, 0);
                 if (key != "motion")

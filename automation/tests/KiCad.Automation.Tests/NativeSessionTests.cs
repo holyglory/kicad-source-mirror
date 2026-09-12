@@ -246,8 +246,12 @@ public sealed partial class NativeSessionTests
                     await client.InvokeAsync<SaveDocument, Empty>(new() { Document = opened.Document }, deadline.Token);
                     Console.WriteLine($"Focused {journey} {target.Id} reached its target at {elapsed.Elapsed.TotalSeconds:F1}s.");
                     if (journey == NativeJourney.Setup)
+                    {
                         await VerifyManualSetup(client, opened.Document, focusProcessId, ":" + displayNumber,
                             evidence, target.Id, deadline.Token);
+                        await VerifySetupPinMap(client, opened.Document, focusProcessId, ":" + displayNumber,
+                            evidence, target.Id, deadline.Token);
+                    }
                     else if (journey == NativeJourney.TableVariants)
                         await VerifyTableVariantEdits(client, opened.Document, schematic, focusProcessId,
                             ":" + displayNumber, evidence, deadline.Token);
@@ -496,6 +500,8 @@ public sealed partial class NativeSessionTests
                 await VerifyManualPageSettings(client, opened.Document, nativeProcessId, ":" + displayNumber,
                     evidence, target.Id, textId, hierarchyFixture, deadline.Token);
                 await VerifyManualSetup(client, opened.Document, nativeProcessId, ":" + displayNumber,
+                    evidence, target.Id, deadline.Token);
+                await VerifySetupPinMap(client, opened.Document, nativeProcessId, ":" + displayNumber,
                     evidence, target.Id, deadline.Token);
                 await VerifyNativeEvents(client, registry.Client(launched.Single(p => p.Id != target.Id).Id),
                     opened.Document, textId, nativeProcessId, ":" + displayNumber, evidence, target.Id, deadline.Token);

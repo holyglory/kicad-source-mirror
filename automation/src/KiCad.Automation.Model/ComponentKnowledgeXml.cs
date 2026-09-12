@@ -85,7 +85,7 @@ public static class ComponentKnowledgeXml
         Enum.Parse<VerificationState>(Text(s, "verification")), OptionalId(s, "replaces"), (string?)s.Element(Ns + "exception-rationale"),
         s.Element(Ns + "quantity") is XElement quantity ? ReadQuantity(quantity) : null);
 
-    private static EngineeringQuantity ReadQuantity(XElement value)
+    private static GuidanceQuantity ReadQuantity(XElement value)
     {
         decimal? Number(XElement element, string name)
         {

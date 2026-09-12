@@ -1598,7 +1598,7 @@ command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore"
 [[test.component-quantity-model.check]]
 name = "contracts"
 tier = "development"
-command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~EngineeringQuantityTests|FullyQualifiedName~ComponentGuidanceTests|FullyQualifiedName~EngineeringDesignXmlTests|FullyQualifiedName~SchematicDesignTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/component-quantity-model"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~GuidanceQuantityTests|FullyQualifiedName~ComponentGuidanceTests|FullyQualifiedName~EngineeringDesignXmlTests|FullyQualifiedName~SchematicDesignTests|FullyQualifiedName~McpProcessTests", "--logger", "trx", "--results-directory", "automation/artifacts/component-quantity-model"]
 retained_artifacts = [{ name = "quantity-model-results", path = "automation/artifacts/component-quantity-model", max_bytes = 16777216 }]
 
 [test.net-chain-class-model]

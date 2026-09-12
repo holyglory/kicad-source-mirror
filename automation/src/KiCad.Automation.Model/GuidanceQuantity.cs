@@ -7,7 +7,9 @@ public enum ToleranceKind { Absolute, Percent }
 public sealed record ParameterTolerance(ToleranceKind Kind, decimal Minus, decimal Plus);
 public sealed record QuantityIssue(Guid StatementId, string Code, string Message);
 
-public sealed record EngineeringQuantity(ParameterKind Kind, string Unit, decimal? Nominal = null,
+// The enclosing guidance statement owns applicability, provenance and
+// verification. This is not the standalone EngineeringQuantity evidence record.
+public sealed record GuidanceQuantity(ParameterKind Kind, string Unit, decimal? Nominal = null,
     decimal? Minimum = null, decimal? Maximum = null, ParameterTolerance? Tolerance = null,
     string? UnknownReason = null)
 {

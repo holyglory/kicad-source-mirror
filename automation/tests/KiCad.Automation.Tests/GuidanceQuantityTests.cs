@@ -5,9 +5,9 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace KiCad.Automation.Tests;
 
 [TestClass]
-public sealed class EngineeringQuantityTests
+public sealed class GuidanceQuantityTests
 {
-    private static GuidanceStatement Statement(EngineeringQuantity quantity, string key = "supply-operating") =>
+    private static GuidanceStatement Statement(GuidanceQuantity quantity, string key = "supply-operating") =>
         new(Guid.NewGuid(), key, "power", "Synthetic source claim, not a real component specification.",
             GuidanceStrength.Information, "variant:A; ambient:25 C",
             [new("synthetic-datasheet", "rev-2", 7, "Characteristics", "A")], Quantity: quantity);
@@ -22,7 +22,7 @@ public sealed class EngineeringQuantityTests
     [TestMethod]
     public void ClassAndInstanceQuantitiesPreserveUnitsKindsToleranceAndSourceHistory()
     {
-        var quantity = new EngineeringQuantity(ParameterKind.OperatingLimit, "V", 3.3m, 3m, 3.6m,
+        var quantity = new GuidanceQuantity(ParameterKind.OperatingLimit, "V", 3.3m, 3m, 3.6m,
             new(ToleranceKind.Percent, 10m, 10m));
         var original = Statement(quantity);
         var (library, binding) = Fixture(original, Statement(new(ParameterKind.AbsoluteMaximum, "V", Maximum: 5m), "supply-absolute-maximum"));
@@ -48,8 +48,8 @@ public sealed class EngineeringQuantityTests
     [TestMethod]
     public void UnknownNumbersNeverBecomeZeroAndToleranceKeepsItsExplicitKind()
     {
-        var unknown = new EngineeringQuantity(ParameterKind.Unclassified, "pF", UnknownReason: "Package has not been selected");
-        var measured = new EngineeringQuantity(ParameterKind.Measurement, "mA", Nominal: 0m,
+        var unknown = new GuidanceQuantity(ParameterKind.Unclassified, "pF", UnknownReason: "Package has not been selected");
+        var measured = new GuidanceQuantity(ParameterKind.Measurement, "mA", Nominal: 0m,
             Tolerance: new(ToleranceKind.Absolute, 0.1m, 0.2m));
         var (library, binding) = Fixture(Statement(unknown, "capacitance"), Statement(measured, "measured-current"));
         var parsed = ComponentKnowledgeXml.ReadLibrary(ComponentKnowledgeXml.WriteLibrary(library));
@@ -78,7 +78,7 @@ public sealed class EngineeringQuantityTests
     [TestMethod]
     public void MalformedShapesAndUnknownXmlFieldsFailWithoutDroppingData()
     {
-        foreach (var invalid in new EngineeringQuantity[]
+        foreach (var invalid in new GuidanceQuantity[]
         {
             new((ParameterKind)99, "V", 1m), new(ParameterKind.Nominal, " ", 1m), new(ParameterKind.Nominal, "V"),
             new(ParameterKind.Nominal, "V", UnknownReason: " "),

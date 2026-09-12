@@ -7,7 +7,7 @@ public enum GuidanceStrength { Information, Preference, Requirement }
 public sealed record GuidanceStatement(Guid Id, string Key, string Category, string Text,
     GuidanceStrength Strength, string Applicability, IReadOnlyList<SourceReference> Sources,
     VerificationState Verification = VerificationState.Unverified, Guid? Replaces = null,
-    string? ExceptionRationale = null, EngineeringQuantity? Quantity = null);
+    string? ExceptionRationale = null, GuidanceQuantity? Quantity = null);
 
 // Library revision is explicit. Resolving an instance never silently upgrades it.
 public sealed record ComponentClass(Guid Id, string Name, Guid? BaseClassId,

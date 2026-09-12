@@ -85,4 +85,27 @@ public sealed class SchematicNetChainClassesTests
         Assert.AreEqual(native.Metadata.TextVariables["NOTE"], result.Merged!.Metadata.TextVariables["NOTE"]);
         Assert.IsNotNull(result.NativeOperations.Single().ReplaceNetChainClasses);
     }
+
+    [TestMethod]
+    public void ClassNamesRemainLiteralAcrossUnicodeXmlEscapingAndOrdering()
+    {
+        var value = new SchematicNetChainClassState
+        {
+            Definitions = { "電源", "RF_µwave", "Keep <A> & 'B'", "🛠", "  literal spacing  " },
+            Assignments = { ["階層/Chain:1"] = "電源", ["Quoted \"chain\""] = "Keep <A> & 'B'" }
+        };
+        string xml = SchematicDataXml.Write(value);
+        Assert.AreEqual(value, SchematicDataXml.Read(xml));
+        var before = SchematicHierarchyTopologyTests.Fixture();
+        foreach (var sheet in before.Instances) sheet.Metadata.NetChainClasses = value.Clone();
+        var reordered = before.Clone();
+        foreach (var sheet in reordered.Instances)
+        {
+            sheet.Metadata.NetChainClasses.Definitions.Clear();
+            sheet.Metadata.NetChainClasses.Definitions.Add(value.Definitions.Reverse());
+        }
+        Assert.AreEqual(0, SchematicHierarchyDelta.Plan(before, reordered).Count,
+            "A different presentation order cannot create a native edit.");
+        Assert.AreEqual(xml, SchematicDataXml.Write(value));
+    }
 }

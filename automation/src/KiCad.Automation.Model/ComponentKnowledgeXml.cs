@@ -82,7 +82,25 @@ public static class ComponentKnowledgeXml
         s.Elements(Ns + "source").Select(p => new SourceReference(Text(p, "document"), Text(p, "revision"),
             p.Attribute("page") is XAttribute page ? ReadPage(page.Value) : null,
             (string?)p.Attribute("table"), (string?)p.Attribute("part-variant"))).ToArray(),
-        Enum.Parse<VerificationState>(Text(s, "verification")), OptionalId(s, "replaces"), (string?)s.Element(Ns + "exception-rationale"));
+        Enum.Parse<VerificationState>(Text(s, "verification")), OptionalId(s, "replaces"), (string?)s.Element(Ns + "exception-rationale"),
+        s.Element(Ns + "quantity") is XElement quantity ? ReadQuantity(quantity) : null);
+
+    private static EngineeringQuantity ReadQuantity(XElement value)
+    {
+        decimal? Number(XElement element, string name)
+        {
+            if (element.Attribute(name) is not XAttribute attribute) return null;
+            try { return XmlConvert.ToDecimal(attribute.Value); }
+            catch (Exception error) when (error is FormatException or OverflowException)
+            { throw new AutomationException("invalid_quantity", "Quantity values must fit the supported decimal range."); }
+        }
+        var tolerance = value.Element(Ns + "tolerance");
+        return new(Enum.Parse<ParameterKind>(Text(value, "kind")), Text(value, "unit"),
+            Number(value, "nominal"), Number(value, "minimum"), Number(value, "maximum"),
+            tolerance is null ? null : new(Enum.Parse<ToleranceKind>(Text(tolerance, "kind")),
+                Number(tolerance, "minus")!.Value, Number(tolerance, "plus")!.Value),
+            (string?)value.Attribute("unknown-reason"));
+    }
 
     private static int ReadPage(string value)
     {
@@ -95,6 +113,13 @@ public static class ComponentKnowledgeXml
         A("category", s.Category), A("strength", s.Strength), A("applicability", s.Applicability), A("verification", s.Verification),
         s.Replaces is Guid target ? A("replaces", target) : null, E("text", s.Text),
         s.ExceptionRationale is string rationale ? E("exception-rationale", rationale) : null,
+        s.Quantity is { } q ? E("quantity", A("kind", q.Kind), A("unit", q.Unit),
+            q.Nominal is decimal nominal ? A("nominal", XmlConvert.ToString(nominal)) : null,
+            q.Minimum is decimal minimum ? A("minimum", XmlConvert.ToString(minimum)) : null,
+            q.Maximum is decimal maximum ? A("maximum", XmlConvert.ToString(maximum)) : null,
+            q.UnknownReason is string unknown ? A("unknown-reason", unknown) : null,
+            q.Tolerance is { } tolerance ? E("tolerance", A("kind", tolerance.Kind),
+                A("minus", XmlConvert.ToString(tolerance.Minus)), A("plus", XmlConvert.ToString(tolerance.Plus))) : null) : null,
         s.Sources.Select(p => E("source", A("document", p.DocumentId), A("revision", p.Revision),
             p.Page is int page ? A("page", page) : null, p.Table is string table ? A("table", table) : null,
             p.PartVariant is string variant ? A("part-variant", variant) : null)));

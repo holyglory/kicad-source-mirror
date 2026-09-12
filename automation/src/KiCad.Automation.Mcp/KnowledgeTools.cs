@@ -121,7 +121,7 @@ public sealed class KnowledgeTools
     }
 
     [McpServerTool(Name = "kicad_component_guidance_resolve", ReadOnly = true),
-     Description("Validate supplied electrical circuit, component knowledge library and instance-binding XML, then resolve inherited and local text guidance for that exact component. Returns sources, explicit replacement history and competing named-property assignments. Does not infer prose contradictions, verify engineering claims, or apply placement/routing/native edits. Inputs use circuit:1 and knowledge:1 namespaces, not a complete design.xml.")]
+     Description("Validate supplied electrical circuit, component knowledge library and instance-binding XML, then resolve inherited and local text/numerical guidance for that exact component. Returns explicit quantity kinds and units, sources, replacement history, competing named-property assignments and numerical range issues. Valid means structurally valid input, not verified engineering claims or absence of conflicts. Does not infer values from prose, turn absolute maxima into operating limits, or apply placement/routing/native edits. Inputs use circuit:1 and knowledge:1 namespaces, not a complete design.xml.")]
     public GuidanceToolResult Resolve(string circuitXml, string libraryXml, string bindingXml,
                                       CancellationToken cancellationToken)
     {

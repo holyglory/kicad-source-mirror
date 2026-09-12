@@ -117,6 +117,25 @@ public sealed class McpProcessTests
             JsonElement recovered = await Request(6, "tools/call", new { name = "kicad_component_guidance_resolve",
                 arguments = new { circuitXml, libraryXml, bindingXml } });
             Assert.IsTrue(ReadGuidance(recovered).Valid, "A rejected input must not poison later requests.");
+            var quantityNote = note with { Quantity = new(ParameterKind.AbsoluteMaximum, "V", Maximum: 5m),
+                Sources = [new("synthetic-datasheet", "rev-A", 2, "Absolute maximum", "example-package")] };
+            var quantityLibrary = library with { Classes = [new(typeId, "Example class", null, [quantityNote])] };
+            string quantityXml = ComponentKnowledgeXml.WriteLibrary(quantityLibrary);
+            var quantityReply = ReadGuidance(await Request(9085, "tools/call", new { name = "kicad_component_guidance_resolve",
+                arguments = new { circuitXml, libraryXml = quantityXml, bindingXml } }));
+            Assert.IsTrue(quantityReply.Valid);
+            Assert.AreEqual(quantityNote.Quantity, quantityReply.Resolution!.Effective.Single().Statement.Quantity);
+            Assert.AreEqual(quantityNote.Sources[0], quantityReply.Resolution.Effective.Single().Statement.Sources[0]);
+            Assert.AreEqual(VerificationState.Unverified, quantityReply.Resolution.Effective.Single().Statement.Verification);
+            var badQuantity = ReadGuidance(await Request(9086, "tools/call", new { name = "kicad_component_guidance_resolve",
+                arguments = new { circuitXml, libraryXml = quantityXml.Replace("maximum=\"5\"", "maximum=\"NaN\"", StringComparison.Ordinal), bindingXml } }));
+            Assert.IsFalse(badQuantity.Valid);
+            var conflictingLibrary = library with { Classes = [new(typeId, "Example class", null,
+                [quantityNote with { Quantity = new(ParameterKind.OperatingLimit, "V", Minimum: 5m, Maximum: 3m) }])] };
+            var quantityRecovery = ReadGuidance(await Request(9087, "tools/call", new { name = "kicad_component_guidance_resolve",
+                arguments = new { circuitXml, libraryXml = ComponentKnowledgeXml.WriteLibrary(conflictingLibrary), bindingXml } }));
+            Assert.IsTrue(quantityRecovery.Valid, "Valid reports structural validity; engineering issues remain explicit.");
+            Assert.AreEqual("inverted_range", quantityRecovery.Resolution!.QuantityIssues!.Single().Code);
             CollectionAssert.Contains(names, "kicad_engineering_design_validate");
             var (engineering, engineeringLibrary) = EngineeringDesignXmlTests.Fixture();
             string engineeringXml = EngineeringDesignXml.Write(engineering, [engineeringLibrary]);

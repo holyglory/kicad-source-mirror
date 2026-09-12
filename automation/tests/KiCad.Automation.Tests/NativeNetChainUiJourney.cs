@@ -336,7 +336,19 @@ public sealed partial class NativeSessionTests
             await Saved(false);
             var undoneColor = await History("z", actual); await Same(previous.Data, undoneColor.Data, "chain-color-undo");
             var redoneColor = await History("y", undoneColor); await Same(expected, redoneColor.Data, "chain-color-redo");
-            undoneColor = await History("z", redoneColor); await Same(previous.Data, undoneColor.Data, "chain-color-restored");
+            await Saved(false);
+            await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
+            var reopenedColor = await Read(token); await Same(expected, reopenedColor.Data, "chain-color-reloaded");
+            var restoreColor = new ApplySchematicItemBatch { Document = root, ExpectedRevision = reopenedColor.Revision,
+                DocumentEpoch = reopenedColor.Revision.Epoch, OperationId = Guid.NewGuid().ToString("D") };
+            var originalChains = new SchematicNetChainState();
+            foreach (var chain in previous.Data.Instances[0].Metadata.NetChains)
+            {
+                var definition = chain.Clone(); definition.Committed = false; originalChains.Definitions.Add(definition);
+            }
+            restoreColor.Operations.Add(new SchematicItemOperation { ReplaceNetChains = originalChains });
+            await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(restoreColor, token);
+            await Same(previous.Data, (await Read(token)).Data, "chain-color-restored");
             await Saved(false);
         }
         foreach (string operation in new[] { "class", "netclass", "delete" })

@@ -15,6 +15,11 @@ public sealed partial class NativeSessionTests
     {
         Task<SchematicScreenDataSnapshot> Read() => client.InvokeAsync<ReadSchematicScreenData, SchematicScreenDataSnapshot>(
             new() { Document = document }, token);
+        // The composed fixture starts in a supported older file format. Base
+        // reconstruction comparisons on an actual current-writer save/reload;
+        // never discard loaded-format metadata from the exact state assertion.
+        await client.InvokeAsync<SaveDocument, Empty>(new() { Document = document }, token);
+        await client.InvokeAsync<RevertDocument, Empty>(new() { Document = document }, token);
         var original = await Read();
         EmbeddedFile asset = original.Data.Metadata.EmbeddedFiles.Files.Single().Clone();
         var withLinks = original.Data.Clone();

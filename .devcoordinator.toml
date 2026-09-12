@@ -1592,7 +1592,7 @@ env = { TMPDIR = "/mnt/build-storage/codex/kicad/t" }
 name = "managed-build"
 tier = "development"
 role = "preflight"
-invalidates = ["native-build", "native-chains"]
+invalidates = ["input-contracts", "native-build", "native-chains"]
 command = ["dotnet", "build", "automation/KiCad.Automation.slnx", "--no-restore", "--configuration", "Debug"]
 
 [[test.native-net-chains.check]]
@@ -1601,6 +1601,13 @@ tier = "development"
 role = "preflight"
 invalidates = ["native-build", "native-chains"]
 command = ["cmake", "-S", ".", "-B", "automation/artifacts/native", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug", "-DKICAD_USE_CMAKE_FINDPROTOBUF=ON", "-DKICAD_BUILD_QA_TESTS=ON"]
+
+[[test.native-net-chains.check]]
+name = "input-contracts"
+tier = "development"
+role = "preflight"
+invalidates = ["native-chains"]
+command = ["dotnet", "test", "automation/KiCad.Automation.slnx", "--no-build", "--no-restore", "--configuration", "Debug", "--filter", "FullyQualifiedName~NativeKeyboardTests", "--logger", "trx", "--results-directory", "automation/artifacts/native-input-results"]
 
 [[test.native-net-chains.check]]
 name = "native-build"

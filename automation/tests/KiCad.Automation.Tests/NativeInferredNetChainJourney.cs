@@ -42,6 +42,18 @@ public sealed partial class NativeSessionTests
             while (NativeKeyboard.HasWindow(display, processId, title) != visible)
                 await Task.Delay(50, limit.Token);
         }
+        async Task Menus(int expected)
+        {
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
+            limit.CancelAfter(TimeSpan.FromSeconds(5));
+            while (true)
+            {
+                int count = -1;
+                NativeKeyboard.SchematicShortcut(display, processId, "", observePopupCount: value => count = value);
+                if (count == expected) return;
+                await Task.Delay(50, limit.Token);
+            }
+        }
         async Task<SchematicHierarchyDataSnapshot> Read()
         {
             using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -105,7 +117,9 @@ public sealed partial class NativeSessionTests
                         .Select(i => i.Unpack<SchematicPin>().Id.Value).ToArray());
                     NativeKeyboard.SchematicShortcut(display, processId, "right-click", controlKey: false,
                         focusCanvas: true, clickFromLeft: 640, clickFromTop: 450);
+                    await Menus(1);
                     Key("End"); for (int i = 0; i < 4; i++) Key("Up"); Key("Right");
+                    await Menus(2);
                     await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-two-pin-menu.png"), token);
                     Key("End"); Key("Return");
                 }
@@ -187,10 +201,12 @@ public sealed partial class NativeSessionTests
                         .Where(i => i.Is(SchematicPin.Descriptor)).Select(i => i.Unpack<SchematicPin>().Id.Value).ToArray());
                     NativeKeyboard.SchematicShortcut(display, processId, "right-click", controlKey: false,
                         focusCanvas: true, clickFromLeft: 640, clickFromTop: 450);
+                    await Menus(1);
                     Key("End"); for (int i = 0; i < 4; i++) Key("Up"); Key("Right");
+                    await Menus(2);
                     await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, stage + "-menu.png"), token);
-                    if (accept) { Key("Home"); Key("Down"); Key("Return"); }
-                    else { Key("Escape"); Key("Escape"); Key("Escape"); }
+                    if (accept) { Key("Home"); Key("Down"); Key("Return"); await Menus(0); }
+                    else { Key("Escape"); await Menus(1); Key("Escape"); await Menus(0); }
                 }
                 await OpenRemoval(false); await Same(before, await Read(), stage + "-cancel");
                 await OpenRemoval(true);

@@ -355,6 +355,7 @@ add_executable( qa_symbol_graphic_identity
     test_drawing_sheet_context.cpp
     erc/test_erc_marker_counts.cpp
     net_chains/test_net_chain_recalc_refresh.cpp
+    net_chains/test_net_chain_remove_rename.cpp
     ../common/test_settings_snapshot.cpp
     ../libs/kinng/test_publisher.cpp
 )
@@ -375,5 +376,5 @@ setup_qa_env( qa_erc_override_edits )
 
 add_test( NAME qa_net_chain_terminals
     COMMAND $<TARGET_FILE:qa_symbol_graphic_identity>
-        --run_test=NetChain_SetTerminalPersistsExactSelectedPin,NetChain_RefreshPreservesTerminalPinOverride,NetChain_RenamePreservesUnresolvedDeclaration,NetChain_RestoreKeepsDeclaredTerminalOrder --log_level=test_suite )
+        --run_test=NetChain_SetTerminalPersistsExactSelectedPin,NetChain_RefreshPreservesTerminalPinOverride,NetChain_RenamePreservesUnresolvedDeclaration,NetChain_RestoreKeepsDeclaredTerminalOrder,NetChain_RemoveRenameRoundTrip --log_level=test_suite )
 setup_qa_env( qa_net_chain_terminals )

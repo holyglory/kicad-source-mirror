@@ -85,8 +85,8 @@ public sealed class NativeClientTests
             var current = NativeClient.CurrentSnapshotRequest(request);
             Assert.AreNotSame(request, current);
             Assert.AreEqual(0U, field.Accessor.GetValue(request));
-            Assert.AreEqual(2U, field.Accessor.GetValue(current));
-            foreach (uint explicitVersion in new[] { 1U, 2U, 3U })
+            Assert.AreEqual(3U, field.Accessor.GetValue(current));
+            foreach (uint explicitVersion in new[] { 1U, 2U, 3U, 4U })
             {
                 field.Accessor.SetValue(request, explicitVersion);
                 Assert.AreSame(request, NativeClient.CurrentSnapshotRequest(request));
@@ -100,7 +100,7 @@ public sealed class NativeClientTests
         var query = new ReadSchematicMetadata();
         // The transport is deliberately a protocol fixture, not a native peer.
         await client.InvokeAsync<ReadSchematicMetadata, GetVersionResponse>(query);
-        Assert.AreEqual(2U, transport.LastRequest!.Message.Unpack<ReadSchematicMetadata>().SchemaVersion);
+        Assert.AreEqual(3U, transport.LastRequest!.Message.Unpack<ReadSchematicMetadata>().SchemaVersion);
         Assert.AreEqual(0U, query.SchemaVersion);
     }
 

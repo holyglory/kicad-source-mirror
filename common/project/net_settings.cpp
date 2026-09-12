@@ -286,6 +286,26 @@ NET_SETTINGS::NET_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
     // Let the save drop removed chains instead of merging them back in
     m_params.back()->SetClearUnknownKeys();
 
+    m_params.emplace_back( new PARAM_LAMBDA<nlohmann::json>( "net_chain_class_definitions",
+            [&]() -> nlohmann::json
+            {
+                auto result = nlohmann::json::array();
+                for( const wxString& name : GetNetChainClassDefinitions() )
+                    result.push_back( std::string( name.ToUTF8() ) );
+                return result;
+            },
+            [&]( const nlohmann::json& value )
+            {
+                if( !value.is_array() ) return;
+                std::set<wxString> names;
+                for( const auto& entry : value )
+                {
+                    wxString name = entry.get<wxString>();
+                    if( !name.IsEmpty() ) names.insert( name );
+                }
+                m_netChainClassDefinitions = std::move( names );
+            }, nlohmann::json::array() ) );
+
     m_params.emplace_back( new PARAM_LAMBDA<nlohmann::json>( "net_chain_netclasses",
             [&]() -> nlohmann::json
             {

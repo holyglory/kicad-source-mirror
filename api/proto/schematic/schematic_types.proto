@@ -110,6 +110,15 @@ message SchematicMetadata
   // Absence means this peer did not capture ERC settings, not default policy
   // or permission to clear exclusions. Complete-project coverage is separate.
   SchematicErcSettings erc_settings = 17;
+  // Schema 3: project class definitions are separate from chain assignments.
+  // Absence is unavailable/legacy state, not an instruction to clear it.
+  SchematicNetChainClassState net_chain_classes = 18;
+}
+
+message SchematicNetChainClassState
+{
+  repeated string definitions = 1;
+  map<string, string> assignments = 2;
 }
 
 // Project-owned ERC policy and saved exclusions. A complete replacement has

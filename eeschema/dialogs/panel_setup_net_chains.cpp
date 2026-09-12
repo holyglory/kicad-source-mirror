@@ -151,8 +151,9 @@ void PANEL_SETUP_NET_CHAINS::loadFromModel()
         m_chainRows.push_back( std::move( row ) );
     }
 
-    // Distinct class names from the chain->class map.
-    std::set<wxString> distinctClasses;
+    // Explicit definitions retain unused classes; legacy assignment-only
+    // projects contribute their existing names through the same accessor.
+    std::set<wxString> distinctClasses = ns ? ns->GetNetChainClassDefinitions() : std::set<wxString>{};
 
     for( const auto& [chainName, className] : chainToClass )
     {
@@ -419,6 +420,7 @@ bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
 
     const auto before = graph->GetNetChainDefinitions();
     const auto beforeClasses = ns ? ns->GetNetChainClasses() : std::map<wxString, wxString>{};
+    const auto beforeClassDefinitions = ns ? ns->GetNetChainClassDefinitions() : std::set<wxString>{};
     std::set<SCH_SYMBOL*> members;
     for( const CHAIN_ROW& row : m_chainRows )
         if( row.livePtr ) members.insert( row.livePtr->GetSymbols().begin(), row.livePtr->GetSymbols().end() );
@@ -543,8 +545,17 @@ bool PANEL_SETUP_NET_CHAINS::ApplyEdits()
         }
     }
 
+    if( ns )
+    {
+        std::set<wxString> definitions;
+        for( const CLASS_ROW& row : m_classRows )
+            if( !row.deletePending ) definitions.insert( row.newName );
+        ns->SetNetChainClassDefinitions( definitions );
+    }
     const auto afterClasses = ns ? ns->GetNetChainClasses() : std::map<wxString, wxString>{};
-    if( before == graph->GetNetChainDefinitions() && beforeClasses == afterClasses )
+    const auto afterClassDefinitions = ns ? ns->GetNetChainClassDefinitions() : std::set<wxString>{};
+    if( before == graph->GetNetChainDefinitions() && beforeClasses == afterClasses
+            && beforeClassDefinitions == afterClassDefinitions )
         m_pendingCommit.reset();
 
     return true;

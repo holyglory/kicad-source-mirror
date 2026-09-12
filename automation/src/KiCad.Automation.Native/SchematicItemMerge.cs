@@ -297,7 +297,8 @@ public static class SchematicItemMerge
             var copy = metadata.Clone(); copy.EmbeddedFiles = null;
             copy.EmbeddedFonts = false; copy.RootInstance = null; copy.TitleBlock = null; copy.Page = null;
             copy.TextVariables.Clear(); copy.BusAliases.Clear(); copy.NetChains.Clear();
-            copy.VariantDescriptions.Clear(); copy.DrawingRatios = null; copy.Formatting = null; copy.ErcSettings = null; return copy;
+            copy.VariantDescriptions.Clear(); copy.DrawingRatios = null; copy.Formatting = null; copy.ErcSettings = null;
+            copy.NetChainClasses = null; return copy;
         }
         var assetsBefore = (baseline.EmbeddedFiles, baseline.EmbeddedFonts);
         var assetsXml = (xml.EmbeddedFiles, xml.EmbeddedFonts);
@@ -313,6 +314,7 @@ public static class SchematicItemMerge
             || !Choose(baseline.DrawingRatios, xml.DrawingRatios, native.DrawingRatios, out var drawing)
             || !MergeFormatting(baseline.Formatting, xml.Formatting, native.Formatting, out var formatting)
             || !MergeErc(baseline.ErcSettings, xml.ErcSettings, native.ErcSettings, out var erc)
+            || !SchematicNetChainClasses.Merge(baseline.NetChainClasses, xml.NetChainClasses, native.NetChainClasses, out var chainClasses)
             || !Choose(baseline.BusAliases, xml.BusAliases, native.BusAliases, out var aliases)
             || !Choose(assetsBefore, assetsXml, assetsNative, out var assets)) return null;
         var result = rest.Clone(); result.RootInstance = root?.Clone();
@@ -321,6 +323,7 @@ public static class SchematicItemMerge
         result.DrawingRatios = drawing?.Clone();
         result.Formatting = formatting?.Clone();
         result.ErcSettings = erc?.Clone();
+        result.NetChainClasses = chainClasses?.Clone();
         result.EmbeddedFiles = assets.Item1?.Clone(); result.EmbeddedFonts = assets.Item2;
         result.TextVariables.Add(variables);
         result.BusAliases.Add(aliases.Select(alias => alias.Clone()));

@@ -79,6 +79,27 @@ struct TEMP_LIBRARY
 
 BOOST_AUTO_TEST_SUITE( SymbolApiSemantics )
 
+BOOST_AUTO_TEST_CASE( ImplicitAndNamedBodyStylesRetainNativeCacheIdentity )
+{
+    for( int mode = 0; mode < 3; ++mode )
+    {
+        LIB_SYMBOL library( "BodyStyles" );
+        library.SetLibId( LIB_ID( "Automation", "BodyStyles" ) );
+        if( mode == 1 ) library.SetHasDeMorganBodyStyles( true );
+        if( mode == 2 ) library.SetBodyStyleNames( { "Compact", "Detailed" } );
+        SchematicSymbol definition;
+        PackSymbolDefinition( definition, library );
+        auto restored = UnpackSymbolDefinition( definition );
+        BOOST_REQUIRE( restored );
+        BOOST_CHECK( restored->GetBodyStyleNames() == library.GetBodyStyleNames() );
+        BOOST_CHECK_EQUAL( restored->HasDeMorganBodyStyles(), library.HasDeMorganBodyStyles() );
+        BOOST_CHECK_EQUAL( restored->GetBodyStyleCount(), library.GetBodyStyleCount() );
+        BOOST_CHECK( library == *restored );
+        SchematicSymbol repacked; PackSymbolDefinition( repacked, *restored );
+        BOOST_CHECK_EQUAL( definition.SerializeAsString(), repacked.SerializeAsString() );
+    }
+}
+
 BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpdate )
 {
     LOCALE_IO locale;

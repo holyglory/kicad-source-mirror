@@ -373,7 +373,8 @@ std::unique_ptr<LIB_SYMBOL> UnpackSymbolDefinition(
         // A single native body style has no persisted name. Its display
         // description is "?"; storing that placeholder as an explicit name
         // makes an otherwise unchanged definition differ from its cache.
-        if( bodyStyleNames.size() == 1 && bodyStyleNames.front() == wxS( "?" ) )
+        if( def.demorgan_body_styles()
+            || ( bodyStyleNames.size() == 1 && bodyStyleNames.front() == wxS( "?" ) ) )
             libSymbol->SetBodyStyleNames( {} );
         else
             libSymbol->SetBodyStyleNames( bodyStyleNames );

@@ -406,6 +406,78 @@ public sealed partial class NativeSessionTests
             reverted = await History("z", reapplied); await Same(previous.Data, reverted.Data, "chain-setup-restore-" + operation); await Saved(false);
         }
 
+        await VerifyClassRegistry();
+
+        async Task VerifyClassRegistry()
+        {
+            var registryBaseline = await Read(token);
+            foreach (var sheet in registryBaseline.Data.Instances)
+            {
+                Assert.IsNotNull(sheet.Metadata.NetChainClasses);
+                CollectionAssert.Contains(sheet.Metadata.NetChainClasses.Definitions.ToArray(), "emptygroup");
+                Assert.IsFalse(sheet.Metadata.NetChainClasses.Assignments.Values.Contains("emptygroup"));
+            }
+            foreach (string action in new[] { "add", "rename", "delete" })
+            foreach (bool accept in new[] { false, true })
+            {
+                var previous = await Read(token);
+                await OpenSetupPage();
+                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                    focusCanvas: true, clickFromLeft: 440, clickFromTop: 24);
+                await StableSetupGeometry();
+                if (action != "add")
+                    NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                        focusCanvas: true, clickFromLeft: 400, clickFromTop: 87);
+                NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
+                    focusCanvas: true, clickFromLeft: action == "add" ? 300 : action == "rename" ? 330 : 365,
+                    clickFromBottom: 65);
+                string dialog = action == "add" ? "Add Class" : action == "rename" ? "Rename Class" : "Delete Class";
+                await Window(dialog, true);
+                if (action != "delete")
+                {
+                    Key("a", dialog, control: true);
+                    foreach (char c in action == "add" ? "newgroup" : "renamedgroup") Key(c.ToString(), dialog);
+                }
+                Key("Return", dialog); await Window(dialog, false);
+                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-class-" + action + "-edited.png"), token);
+                await FinishSetup(accept);
+                var changed = await Read(token);
+                if (!accept) { await Same(previous, changed, "chain-class-cancel-" + action); continue; }
+                var expected = previous.Data.Clone();
+                foreach (var sheet in expected.Instances)
+                {
+                    var state = sheet.Metadata.NetChainClasses;
+                    if (action != "add") state.Definitions.Remove("emptygroup");
+                    if (action != "delete") state.Definitions.Add(action == "add" ? "newgroup" : "renamedgroup");
+                    var sorted = state.Definitions.Order(StringComparer.Ordinal).ToArray();
+                    state.Definitions.Clear(); state.Definitions.Add(sorted);
+                }
+                await Same(expected, changed.Data, "chain-class-" + action);
+                var events = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
+                    { Document = root, DocumentEpoch = previous.Revision.Epoch, AfterSequence = previous.Revision.Sequence }, token);
+                Assert.AreEqual(1, events.Changes.Count); Assert.AreEqual("Edit Net Chains", events.Changes.Single().Description);
+                await Saved(false);
+                using (var project = JsonDocument.Parse(await File.ReadAllTextAsync(Path.ChangeExtension(rootFile, ".kicad_pro"), token)))
+                    CollectionAssert.AreEquivalent(expected.Instances[0].Metadata.NetChainClasses.Definitions.ToArray(),
+                        project.RootElement.GetProperty("net_settings").GetProperty("net_chain_class_definitions")
+                            .EnumerateArray().Select(v => v.GetString()).ToArray());
+                var undoneClass = await History("z", changed); await Same(previous.Data, undoneClass.Data, "chain-class-undo");
+                var redoneClass = await History("y", undoneClass); await Same(expected, redoneClass.Data, "chain-class-redo");
+                await Saved(false); await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
+                var reopened = await Read(token); await Same(expected, reopened.Data, "chain-class-reopened");
+                // Opening setup after reload must show the still-unused class;
+                // unchanged OK may neither lose it nor create another revision.
+                await OpenSetupPage(); await FinishSetup(true);
+                await Same(reopened, await Read(token), "chain-class-reopen-noop");
+                var restore = new ApplySchematicItemBatch { Document = root, DocumentEpoch = reopened.Revision.Epoch,
+                    ExpectedRevision = reopened.Revision, OperationId = Guid.NewGuid().ToString("D") };
+                restore.Operations.Add(new SchematicItemOperation { ReplaceNetChainClasses = previous.Data.Instances[0].Metadata.NetChainClasses.Clone() });
+                await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(restore, token);
+                await Same(previous.Data, (await Read(token)).Data, "chain-class-restored");
+                await Saved(false);
+            }
+        }
+
         async Task VerifyCreation(SchematicHierarchyDataSnapshot empty)
         {
             const string create = "Create Net Chain";

@@ -520,6 +520,8 @@ bool NET_SETTINGS::operator==( const NET_SETTINGS& aOther ) const
 
     if( m_netChainClasses != aOther.m_netChainClasses )
         return false;
+    if( GetNetChainClassDefinitions() != aOther.GetNetChainClassDefinitions() )
+        return false;
 
     if( m_netChainNetClasses != aOther.m_netChainNetClasses )
         return false;

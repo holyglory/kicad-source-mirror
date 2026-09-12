@@ -34,6 +34,8 @@
 #include <locale_io.h>
 #include <richio.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
+#include <project/net_settings.h>
+#include <settings/json_settings_internals.h>
 
 
 // Regression for [H-1]. CONNECTION_GRAPH::Reset() clears every committed chain's
@@ -54,6 +56,42 @@ struct NETCHAIN_RECALC_REFRESH_FIXTURE
     SETTINGS_MANAGER           m_settingsManager;
     std::unique_ptr<SCHEMATIC> m_schematic;
 };
+
+
+BOOST_AUTO_TEST_CASE( NetChain_UnassignedClassesPersistAndCompare )
+{
+    NET_SETTINGS source( nullptr, "" );
+    NET_SETTINGS target( nullptr, "" );
+    source.SetNetChainClass( "CHAIN", "Used" );
+    source.SetNetChainClassDefinitions( { "Used", "Unused" } );
+    BOOST_CHECK( source != target );
+    BOOST_REQUIRE( source.Store() );
+    auto json = nlohmann::json::parse( source.FormatAsString() );
+    BOOST_REQUIRE( json["net_chain_class_definitions"].is_array() );
+    target.SetNetChainClassDefinitions( { "Stale" } );
+    JSON_SETTINGS_INTERNALS parsed;
+    static_cast<nlohmann::json&>( parsed ) = json;
+    target.Internals()->CloneFrom( parsed ); target.Load();
+    BOOST_CHECK( target.GetNetChainClassDefinitions() == source.GetNetChainClassDefinitions() );
+    BOOST_CHECK( target.GetNetChainClasses() == source.GetNetChainClasses() );
+    BOOST_CHECK( target == source );
+    target.SetNetChainClassDefinitions( { "Used" } );
+    BOOST_CHECK( target != source );
+    target.CopyFrom( source ); BOOST_CHECK( target == source );
+
+    // Legacy assignment-only projects still expose Used, without retaining a
+    // previously loaded explicit class from another project.
+    json.erase( "net_chain_class_definitions" );
+    static_cast<nlohmann::json&>( parsed ) = json;
+    target.Internals()->CloneFrom( parsed ); target.Load();
+    BOOST_CHECK( target.GetNetChainClassDefinitions() == std::set<wxString>{ "Used" } );
+    json["net_chain_classes"] = nlohmann::json::object();
+    json["net_chain_class_definitions"] = nlohmann::json::array();
+    static_cast<nlohmann::json&>( parsed ) = json;
+    target.Internals()->CloneFrom( parsed ); target.Load();
+    BOOST_CHECK( target.GetNetChainClassDefinitions().empty() );
+    BOOST_CHECK( target.GetNetChainClasses().empty() );
+}
 
 
 BOOST_FIXTURE_TEST_CASE( NetChain_RenamePreservesUnresolvedDeclaration,

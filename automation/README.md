@@ -24,30 +24,32 @@ increment remain open. Older previews and platform feeds remain available.
 
 ## Windows preview — September 11, 2026
 
-[Windows x64 application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-433c5e1fdf5954955a19df546236dce78e78b5b0-windows-x64.zip)
-and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-433c5e1fdf5954955a19df546236dce78e78b5b0-source.tar.gz)
-identify `433c5e1fdf5954955a19df546236dce78e78b5b0`, version
-`preview-20260911-433c5e1fdf59`. Extract the archive and run `bin/kicad.exe`;
-the matching STDIO server is `bin/kicad-mcp.exe`.
+[Windows x64 application and MCP](https://kicad.vr.ae/artifacts/kicad-codex-d65efa14659714985312fd57e68110ed67278729-windows-x64.zip)
+and [matching source](https://kicad.vr.ae/artifacts/kicad-codex-d65efa14659714985312fd57e68110ed67278729-source.tar.gz)
+identify `d65efa14659714985312fd57e68110ed67278729`, version
+`preview-20260911-d65efa146597`, signed Windows preview sequence 4.
+Extract the archive and run `bin/kicad.exe`; the matching STDIO server is
+`bin/kicad-mcp.exe`. Raw extraction alone does not configure a managed update
+installation.
 
-The native build and installed package were verified with two independent
-schematic instances, real packaged MCP/NNG loading, preserved dirty objects
-across MCP restart, and native keyboard Save/Close. Native requalification
-`34571626328` passed including final cleanup; it used the unchanged archive
-from build `34555975985`, whose original failed harness receipt remains retained.
-Public check `7d0703` passed all 54 downloads and existing signed-feed/native
-caption-update checks on September 11 at 07:32:44 UTC. Generation 32 publishes
-the Windows archive without removing older downloads or Mac/Linux feeds.
+Native build `34629502985` passed its installed two-editor journey. Public
+`t20260911T224524Z-109f5f` verified all 64 retained/new downloads, unchanged
+Linux/Mac feeds, the existing Linux update path and the reviewed light/dark
+download page. Generation 41 serves this additive catalogue.
 
-This is a preview, not full project readiness. Extracting the archive alone
-does not configure managed updating. Generation 33 adds the signed Windows
-feed at `https://kicad.vr.ae/platforms/win-x64/`, sequence 2. Public check
-`8d1abc` verified its ZIP download and preservation of the Mac/Linux update
-paths. On native Windows, `34575956920` installed the public package and ran
-its shipped updater: current-version checks, unchanged metadata, wrong-platform
-rejection and subsequent recovery passed without changing the selected version.
-That is not a two-version upgrade or editor restart. The actual Windows
-Update-button and post-update MCP journey remain under qualification.
+Native Windows `34654935806` verified the public `79c28c52df9e` to
+`d65efa146597` update in managed installations: real caption clicks,
+dirty-session Cancel and Save, preserved second design, both native restarts,
+new epochs, packaged MCP restart and post-update reconnection. Its outer native
+test and cleanup passed. The earlier wrong-feed run `34653890261` remains a
+failure, not substitute evidence.
+
+This is preliminary delivery, not complete Windows updater or project
+qualification. Older `0d4b8180ac98` installations still need the separately
+tracked recovery for their executing baseline helper. Startup/rollback recovery,
+full engineering/XML synchronization and actual Codex Desktop qualification
+remain open. These Windows binaries do not contain later source-only net-chain
+and Symbol Fields Table repairs.
 
 ## Latest Apple Silicon preview — September 11, 2026
 

@@ -86,8 +86,13 @@ public sealed partial class NativeSessionTests
                 var result = await Snapshot();
                 await Same(accept ? changed : baseline.Data, result.Data, $"import-{accept}");
                 Assert.AreEqual(baseline.Revision.Sequence + (accept ? 1UL : 0UL), result.Revision.Sequence);
-                Assert.AreSequenceEqual(sourceFile, await File.ReadAllBytesAsync(sourceProject, token));
-                if (!accept) Assert.AreSequenceEqual(originalFile, await File.ReadAllBytesAsync(project, token));
+                byte[] unchangedSource = await File.ReadAllBytesAsync(sourceProject, token);
+                Assert.AreSequenceEqual(sourceFile, unchangedSource);
+                if (!accept)
+                {
+                    byte[] cancelledProject = await File.ReadAllBytesAsync(project, token);
+                    Assert.AreSequenceEqual(originalFile, cancelledProject);
+                }
             }
             await client.InvokeAsync<SaveDocument, Empty>(new() { Document = document }, token);
             var saved = JsonNode.Parse(await File.ReadAllBytesAsync(project, token))!;

@@ -189,19 +189,22 @@ public sealed partial class NativeSessionTests
 
         async Task VerifyRemoval()
         {
-            foreach (int pinCount in new[] { 1, 2 })
+            var middle = symbols.Single(s => s.ReferenceField.Text.Text_ == "R2").Definition.Items
+                .Where(i => i.Item.Is(SchematicPin.Descriptor)).Select(i => i.Item.Unpack<SchematicPin>()).Single(p => p.Number == "1");
+            foreach (var (caseName, selectedPins, bridgeCount) in new[]
+                { ("one-endpoint", pins.Take(1).ToArray(), 1), ("two-endpoints", pins, 2), ("interior", new[] { middle.Id.Value }, 2) })
             {
                 await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
                 byte[] originalBytes = await File.ReadAllBytesAsync(rootFile, token);
                 var before = await Read();
-                string stage = "chain-remove-" + pinCount;
+                string stage = "chain-remove-" + caseName;
                 async Task OpenRemoval(bool accept)
                 {
                     await client.InvokeAsync<ClearSelection, Empty>(new() { Header = header }, token);
                     var select = new AddToSelection { Header = header };
-                    select.Items.Add(pins.Take(pinCount).Select(p => new KIID { Value = p }));
+                    select.Items.Add(selectedPins.Select(p => new KIID { Value = p }));
                     var selected = await client.InvokeAsync<AddToSelection, SelectionResponse>(select, token);
-                    CollectionAssert.AreEquivalent(pins.Take(pinCount).ToArray(), selected.Items
+                    CollectionAssert.AreEquivalent(selectedPins, selected.Items
                         .Where(i => i.Is(SchematicPin.Descriptor)).Select(i => i.Unpack<SchematicPin>().Id.Value).ToArray());
                     NativeKeyboard.SchematicShortcut(display, processId, "right-click", controlKey: false,
                         focusCanvas: true, clickFromLeft: ContextX(), clickFromTop: 450);
@@ -227,8 +230,8 @@ public sealed partial class NativeSessionTests
                 var originalChain = before.Data.Instances.Single().Metadata.NetChains.Single(c => c.Committed);
                 var removedChain = removed.Data.Instances.Single().Metadata.NetChains.Single(c => c.Name == originalChain.Name);
                 var selectedNets = electrical.Nets.Where(n => n.Sheets.SelectMany(s => s.Items)
-                    .Any(id => pins.Take(pinCount).Contains(id.Value))).Select(n => n.Name).ToArray();
-                Assert.IsFalse(removedChain.Committed, "Removing an endpoint retains unresolved intent without guessing a new endpoint.");
+                    .Any(id => selectedPins.Contains(id.Value))).Select(n => n.Name).ToArray();
+                Assert.IsFalse(removedChain.Committed, "Removing an endpoint or breaking its path retains unresolved intent without guessing new endpoints.");
                 CollectionAssert.AreEquivalent(selectedNets, removedChain.Exclusions.NetNames.ToArray());
                 var allPins = symbols.SelectMany(s => s.Definition.Items.Where(i => i.Item.Is(SchematicPin.Descriptor))
                     .Select(i => i.Item.Unpack<SchematicPin>().Id.Value)).ToHashSet(StringComparer.Ordinal);
@@ -257,7 +260,7 @@ public sealed partial class NativeSessionTests
                     }
                     await Same(original, symbol, stage + "-unaffected-symbol");
                 }
-                Assert.AreEqual(pinCount, changed, "Only the bridge next to each explicitly selected endpoint may change.");
+                Assert.AreEqual(bridgeCount, changed, "Only bridges adjacent to the explicitly selected electrical owner may change.");
                 CollectionAssert.AreEqual(Partition(electrical), Partition(await Electrical()));
                 var journal = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
                     { Document = root, DocumentEpoch = before.Revision.Epoch, AfterSequence = before.Revision.Sequence }, token);
@@ -281,7 +284,7 @@ public sealed partial class NativeSessionTests
                 await Assert.ThrowsExactlyAsync<NativeApiException>(() => client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(stale, token));
                 await Same(removed, await Read(), stage + "-stale");
                 await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
-                Assert.AreEqual(pinCount, (await File.ReadAllTextAsync(rootFile, token)).Split("(passthrough block)", StringSplitOptions.None).Length - 1);
+                Assert.AreEqual(bridgeCount, (await File.ReadAllTextAsync(rootFile, token)).Split("(passthrough block)", StringSplitOptions.None).Length - 1);
                 var undone = await History("z", removed); await Same(before.Data, undone.Data, stage + "-undo");
                 var redone = await History("y", undone); await Same(removed.Data, redone.Data, stage + "-redo");
                 await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);

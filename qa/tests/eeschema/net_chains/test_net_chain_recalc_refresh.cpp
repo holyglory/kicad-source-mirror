@@ -18,6 +18,7 @@
  */
 
 #include <boost/test/unit_test.hpp>
+#include <charconv>
 
 #include <qa_utils/wx_utils/unit_test_utils.h>
 #include <schematic_utils/schematic_file_util.h>
@@ -31,6 +32,8 @@
 #include <sch_pin.h>
 #include <settings/settings_manager.h>
 #include <locale_io.h>
+#include <richio.h>
+#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
 
 
 // Regression for [H-1]. CONNECTION_GRAPH::Reset() clears every committed chain's
@@ -105,6 +108,40 @@ BOOST_FIXTURE_TEST_CASE( NetChain_RestoreKeepsDeclaredTerminalOrder,
         BOOST_CHECK( restored->GetTerminalPinA() == pinA );
         BOOST_CHECK( restored->GetTerminalPinB() == pinB );
         graph->Recalculate( sheets, true );
+    }
+}
+
+
+BOOST_FIXTURE_TEST_CASE( NetChain_OpacityWriterPreservesDoublePrecision,
+                        NETCHAIN_RECALC_REFRESH_FIXTURE )
+{
+    LOCALE_IO locale;
+    KI_TEST::LoadSchematic( m_settingsManager, wxString( "net_chains_four_nets" ), m_schematic );
+    CONNECTION_GRAPH* graph = m_schematic->ConnectionGraph();
+    graph->Recalculate( m_schematic->BuildSheetListSortedByPageNumbers(), true );
+    BOOST_REQUIRE( !graph->GetPotentialNetChains().empty() );
+    SCH_NETCHAIN* chain = graph->CreateNetChainFromPotential(
+            graph->GetPotentialNetChains().front().get(), "PRECISION" );
+    BOOST_REQUIRE( chain );
+    for( double alpha : { 0.0, 1.0, 0.5, 128.0 / 255.0, 0.12345678901234567, 1e-30, 1e-200 } )
+    {
+        chain->SetColor( KIGFX::COLOR4D( 51.0 / 255, 102.0 / 255, 153.0 / 255, alpha ) );
+        STRING_FORMATTER formatter;
+        SCH_IO_KICAD_SEXPR writer;
+        writer.FormatSchematicToFormatter( &formatter, m_schematic->GetTopLevelSheet( 0 ), m_schematic.get() );
+        const std::string& text = formatter.GetString();
+        auto declaration = text.find( "(net_chain \"PRECISION\"" );
+        BOOST_REQUIRE( declaration != std::string::npos );
+        const std::string prefix = " (color 51 102 153 ";
+        auto color = text.find( prefix, declaration );
+        BOOST_REQUIRE( color != std::string::npos );
+        auto start = color + prefix.size();
+        auto end = text.find( ')', start );
+        BOOST_REQUIRE( end != std::string::npos );
+        double parsed = -1;
+        auto result = std::from_chars( text.data() + start, text.data() + end, parsed );
+        BOOST_REQUIRE( result.ec == std::errc{} && result.ptr == text.data() + end );
+        BOOST_CHECK_EQUAL( parsed, alpha );
     }
 }
 

@@ -33,6 +33,8 @@ public sealed partial class NativeSessionTests
         await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
         await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
         var header = new ItemHeader { Document = root };
+        int contextOpenCount = 0;
+        int ContextX() => 640 + 24 * (contextOpenCount++ % 2);
         void Key(string key, string window = "Schematic Editor", bool control = false, bool alt = false) =>
             NativeKeyboard.SchematicShortcut(display, processId, key, window, control, focusCanvas: false, altKey: alt);
         async Task Window(string title, bool visible)
@@ -116,7 +118,7 @@ public sealed partial class NativeSessionTests
                     CollectionAssert.AreEquivalent(pins, selected.Items.Where(i => i.Is(SchematicPin.Descriptor))
                         .Select(i => i.Unpack<SchematicPin>().Id.Value).ToArray());
                     NativeKeyboard.SchematicShortcut(display, processId, "right-click", controlKey: false,
-                        focusCanvas: true, clickFromLeft: 640, clickFromTop: 450);
+                        focusCanvas: true, clickFromLeft: ContextX(), clickFromTop: 450);
                     await Menus(1);
                     Key("End"); for (int i = 0; i < 4; i++) Key("Up"); Key("Right");
                     await Menus(2);
@@ -200,7 +202,7 @@ public sealed partial class NativeSessionTests
                     CollectionAssert.AreEquivalent(pins.Take(pinCount).ToArray(), selected.Items
                         .Where(i => i.Is(SchematicPin.Descriptor)).Select(i => i.Unpack<SchematicPin>().Id.Value).ToArray());
                     NativeKeyboard.SchematicShortcut(display, processId, "right-click", controlKey: false,
-                        focusCanvas: true, clickFromLeft: 640, clickFromTop: 450);
+                        focusCanvas: true, clickFromLeft: ContextX(), clickFromTop: 450);
                     await Menus(1);
                     Key("End"); for (int i = 0; i < 4; i++) Key("Up"); Key("Right");
                     await Menus(2);

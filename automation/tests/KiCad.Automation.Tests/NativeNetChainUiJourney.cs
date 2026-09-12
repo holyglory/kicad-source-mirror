@@ -460,8 +460,7 @@ public sealed partial class NativeSessionTests
                     if (action != "add")
                     {
                         NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
-                            focusCanvas: true, clickFromLeft: 400, clickFromTop: 112);
-                        if (assigned) Key("Down", "Schematic Setup");
+                            focusCanvas: true, clickFromLeft: 400, clickFromTop: assigned ? 142 : 112);
                     }
                     NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
                         focusCanvas: true, clickFromLeft: action == "add" ? 300 : action == "rename" ? 330 : 365,

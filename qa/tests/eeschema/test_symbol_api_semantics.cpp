@@ -25,6 +25,10 @@
 #include <vector>
 #include <limits>
 #include <utility>
+#include <schematic_utils/schematic_file_util.h>
+#include <settings/settings_manager.h>
+#include <locale_io.h>
+#include <reporter.h>
 
 namespace
 {
@@ -71,6 +75,32 @@ struct TEMP_LIBRARY
 }
 
 BOOST_AUTO_TEST_SUITE( SymbolApiSemantics )
+
+BOOST_AUTO_TEST_CASE( LoadedSymbolDefinitionRemainsEqualThroughPlacementOnlyUpdate )
+{
+    LOCALE_IO locale;
+    SETTINGS_MANAGER settings;
+    std::unique_ptr<SCHEMATIC> schematic;
+    KI_TEST::LoadSchematic( settings, "net_chains_four_nets", schematic );
+    for( const SCH_SHEET_PATH& path : schematic->Hierarchy() )
+    {
+        for( SCH_ITEM* item : path.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
+        {
+            auto* symbol = static_cast<SCH_SYMBOL*>( item );
+            auto packed = Pack( *symbol );
+            SchematicSymbolInstance message;
+            BOOST_REQUIRE( packed.UnpackTo( &message ) );
+            message.set_passthrough( SPM_BLOCK );
+            packed.PackFrom( message );
+            SCH_SYMBOL decoded;
+            BOOST_REQUIRE( decoded.Deserialize( packed ) );
+            WX_STRING_REPORTER differences;
+            const int comparison = symbol->GetLibSymbolRef()->Compare( *decoded.GetLibSymbolRef(), ~COMPARE_FLAGS::UNIT, &differences );
+            BOOST_CHECK_MESSAGE( comparison == 0, symbol->GetRef( &path ).ToStdString()
+                    + ": " + differences.GetMessages().ToStdString() );
+        }
+    }
+}
 
 BOOST_AUTO_TEST_CASE( PowerCategoryAndLibraryDefaultsSurviveNativeApiRoundTrip )
 {

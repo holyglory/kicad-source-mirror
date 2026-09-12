@@ -330,7 +330,7 @@ public static class SchematicItemDelta
                         && id != Guid.Empty && id.ToString("D") == text;
                     var identities = new HashSet<string>(StringComparer.Ordinal);
                     foreach (var anchor in anchored.Pins)
-                        if (!ExactId(anchor.Pin?.Value) || anchor.Path is null || anchor.Path.Path.Count == 0
+                        if (anchor.Pin is null || !ExactId(anchor.Pin.Value) || anchor.Path is null || anchor.Path.Path.Count == 0
                             || anchor.Path.Path.Any(id => !ExactId(id.Value))
                             || !identities.Add(string.Join('/', anchor.Path.Path.Select(p => p.Value).Append(anchor.Pin.Value))))
                             throw Invalid("Excluded pins require unique exact UUIDs and nonempty sheet paths.");

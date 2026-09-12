@@ -259,6 +259,7 @@ public sealed partial class NativeSessionTests
             await History("z", mergedNative.Data);
             await History("z", nativeVersion.Data);
             await History("z", persisted.Data);
+            await VerifyInferredNetChainCreation(client, root, rootFile, processId, display, evidence, token);
         }
         catch (Exception error)
         {

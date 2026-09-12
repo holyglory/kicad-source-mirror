@@ -52,8 +52,11 @@ public sealed partial class NativeSessionTests
                 clickFromLeft: 120, clickFromTop: 180);
             await NativeKeyboard.CaptureAsync(display,
                 Path.Combine(evidence, instanceId + $"-setup-pinmap-{accept}-selected.png"), token);
-            NativeKeyboard.SchematicShortcut(display, processId, "Tab", "Schematic Setup", false, false);
-            NativeKeyboard.SchematicShortcut(display, processId, "space", "Schematic Setup", false, false);
+            // The bitmap matrix is not the first keyboard traversal target.
+            // Use its measured input/input cell on the rendered fixed-display
+            // fixture (native window-relative coordinates).
+            NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", false,
+                clickFromLeft: 414, clickFromTop: 59);
             await NativeKeyboard.CaptureAsync(display,
                 Path.Combine(evidence, instanceId + $"-setup-pinmap-{accept}-edited.png"), token);
             Assert.IsFalse(NativeKeyboard.HasWindow(display, processId, "Import Settings"),
@@ -79,8 +82,14 @@ public sealed partial class NativeSessionTests
                 throw;
             }
             var result = await Snapshot();
-            Assert.AreEqual(accept ? changed : baseline.Data, result.Data,
-                "The clicked matrix value must stay provisional across page switches and preserve all other fields.");
+            var expected = accept ? changed : baseline.Data;
+            if (!expected.Equals(result.Data))
+            {
+                await File.WriteAllTextAsync(Path.Combine(evidence, instanceId + $"-pinmap-{accept}-expected.json"), expected.ToString(), token);
+                await File.WriteAllTextAsync(Path.Combine(evidence, instanceId + $"-pinmap-{accept}-actual.json"), result.Data.ToString(), token);
+            }
+            Assert.IsTrue(expected.Equals(result.Data),
+                $"Pin matrix {(accept ? "accept" : "cancel")} must preserve every unrelated field; exact states are retained in evidence.");
             Assert.AreEqual(baseline.Revision.Sequence + (accept ? 1UL : 0UL), result.Revision.Sequence);
             if (!accept)
                 Assert.AreEqual(initialSave, await client.InvokeAsync<ReadSchematicSaveState, SchematicSaveState>(

@@ -443,17 +443,23 @@ public sealed partial class NativeSessionTests
                 await Window("Add Class", false); await FinishSetup(true);
                 await Same(registryBaseline, await Read(token), "chain-class-rejected");
             }
-            foreach (string action in new[] { "add", "rename", "delete" })
+            foreach (var (action, assigned) in new[]
+                { ("add", false), ("rename", false), ("delete", false), ("rename", true), ("delete", true) })
             foreach (bool accept in new[] { false, true })
             {
+                string targetClass = assigned ? "fastbus" : "emptygroup";
+                string evidenceKey = "chain-class-" + action + (assigned ? "-assigned" : "-unused");
                 var previous = await Read(token);
                 await OpenSetupPage();
                 NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
                     focusCanvas: true, clickFromLeft: 440, clickFromTop: 24);
                 await StableSetupGeometry();
                 if (action != "add")
+                {
                     NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
                         focusCanvas: true, clickFromLeft: 400, clickFromTop: 87);
+                    if (assigned) Key("Down", "Schematic Setup");
+                }
                 NativeKeyboard.SchematicShortcut(display, processId, "click", "Schematic Setup", controlKey: false,
                     focusCanvas: true, clickFromLeft: action == "add" ? 300 : action == "rename" ? 330 : 365,
                     clickFromBottom: 65);
@@ -465,7 +471,7 @@ public sealed partial class NativeSessionTests
                     foreach (char c in action == "add" ? "newgroup" : "renamedgroup") Key(c.ToString(), dialog);
                 }
                 Key("Return", dialog); await Window(dialog, false);
-                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, "chain-class-" + action + "-edited.png"), token);
+                await NativeKeyboard.CaptureAsync(display, Path.Combine(evidence, evidenceKey + "-edited.png"), token);
                 await FinishSetup(accept);
                 var changed = await Read(token);
                 if (!accept) { await Same(previous, changed, "chain-class-cancel-" + action); continue; }
@@ -473,23 +479,37 @@ public sealed partial class NativeSessionTests
                 foreach (var sheet in expected.Instances)
                 {
                     var state = sheet.Metadata.NetChainClasses;
-                    if (action != "add") state.Definitions.Remove("emptygroup");
+                    if (action != "add") state.Definitions.Remove(targetClass);
                     if (action != "delete") state.Definitions.Add(action == "add" ? "newgroup" : "renamedgroup");
+                    if (assigned)
+                    {
+                        foreach (string owner in state.Assignments.Where(pair => pair.Value == targetClass).Select(pair => pair.Key).ToArray())
+                        {
+                            if (action == "delete") state.Assignments.Remove(owner);
+                            else state.Assignments[owner] = "renamedgroup";
+                        }
+                    }
                     var sorted = state.Definitions.Order(StringComparer.Ordinal).ToArray();
                     state.Definitions.Clear(); state.Definitions.Add(sorted);
                 }
-                await Same(expected, changed.Data, "chain-class-" + action);
+                await Same(expected, changed.Data, evidenceKey);
                 var events = await client.InvokeAsync<ReadSchematicChangeJournal, SchematicChangeJournal>(new()
                     { Document = root, DocumentEpoch = previous.Revision.Epoch, AfterSequence = previous.Revision.Sequence }, token);
                 Assert.AreEqual(1, events.Changes.Count); Assert.AreEqual("Edit Net Chains", events.Changes.Single().Description);
-                await Saved(false);
+                await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
                 using (var project = JsonDocument.Parse(await File.ReadAllTextAsync(Path.ChangeExtension(rootFile, ".kicad_pro"), token)))
+                {
                     CollectionAssert.AreEquivalent(expected.Instances[0].Metadata.NetChainClasses.Definitions.ToArray(),
                         project.RootElement.GetProperty("net_settings").GetProperty("net_chain_class_definitions")
                             .EnumerateArray().Select(v => v.GetString()).ToArray());
+                    var persisted = project.RootElement.GetProperty("net_settings").GetProperty("net_chain_classes");
+                    CollectionAssert.AreEquivalent(expected.Instances[0].Metadata.NetChainClasses.Assignments.Select(p => p.Key + ":" + p.Value).ToArray(),
+                        persisted.EnumerateObject().Select(p => p.Name + ":" + p.Value.GetString()).ToArray());
+                }
                 var undoneClass = await History("z", changed); await Same(previous.Data, undoneClass.Data, "chain-class-undo");
                 var redoneClass = await History("y", undoneClass); await Same(expected, redoneClass.Data, "chain-class-redo");
-                await Saved(false); await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
+                await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+                await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
                 var reopened = await Read(token); await Same(expected, reopened.Data, "chain-class-reopened");
                 // Opening setup after reload must show the still-unused class;
                 // unchanged OK may neither lose it nor create another revision.

@@ -1166,7 +1166,7 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicItemBatchResult> API_HANDLER_SCH:
                             return reject( prefix + "Net chain member nets must be unique nonempty persisted names" );
                     }
                     if( auto prior = current.find( name ); prior != current.end()
-                        && !prior->second.excludedNets.empty() && !packed.has_exclusions() )
+                        && ( !prior->second.excludedNets.empty() || !prior->second.excludedPins.empty() ) && !packed.has_exclusions() )
                         return reject( prefix + "Existing removal restrictions require an explicit supported representation" );
                     for( const auto& value : packed.exclusions().net_names() )
                     {
@@ -1174,6 +1174,21 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicItemBatchResult> API_HANDLER_SCH:
                         if( net.IsEmpty() || !noNul( value ) || net.StartsWith( SCH_NETCHAIN::SYNTHETIC_NET_PREFIX )
                             || definition.memberNets.contains( net ) || !definition.excludedNets.insert( net ).second )
                             return reject( prefix + "Excluded net names must be unique persisted names disjoint from retained members" );
+                    }
+                    auto validId = []( const std::string& id )
+                    { return id.size() == 36 && KIID( id ) != niluuid && KIID( id ).AsStdString() == id; };
+                    for( const auto& anchor : packed.exclusions().pins() )
+                    {
+                        if( !validId( anchor.pin().value() ) || anchor.path().path().empty() )
+                            return reject( prefix + "Excluded pins require exact nonempty UUIDs and sheet paths" );
+                        KIID_PATH path;
+                        for( const auto& id : anchor.path().path() )
+                        {
+                            if( !validId( id.value() ) ) return reject( prefix + "Excluded pin sheet path contains an invalid UUID" );
+                            path.push_back( KIID( id.value() ) );
+                        }
+                        if( !definition.excludedPins.emplace( path, KIID( anchor.pin().value() ) ).second )
+                            return reject( prefix + "Excluded pin identities must be unique" );
                     }
                 }
                 bool equal = current.size() == definitions.size() && std::equal( current.begin(), current.end(), definitions.begin(),
@@ -1183,7 +1198,8 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicItemBatchResult> API_HANDLER_SCH:
                         return a.first == b.first && x.terminals.first.ref == y.terminals.first.ref
                                 && x.terminals.first.pin == y.terminals.first.pin && x.terminals.second.ref == y.terminals.second.ref
                                 && x.terminals.second.pin == y.terminals.second.pin && x.netClass == y.netClass
-                                && x.color == y.color && x.memberNets == y.memberNets && x.excludedNets == y.excludedNets;
+                                && x.color == y.color && x.memberNets == y.memberNets && x.excludedNets == y.excludedNets
+                                && x.excludedPins == y.excludedPins;
                     } );
                 if( !equal )
                 {
@@ -1926,6 +1942,12 @@ HANDLER_RESULT<kiapi::automation::v1::SchematicMetadataSnapshot> API_HANDLER_SCH
             chain.set_committed( definition.committed );
             auto* exclusions = chain.mutable_exclusions();
             for( const wxString& net : definition.excludedNets ) exclusions->add_net_names( net.ToUTF8() );
+            for( const auto& [path, pin] : definition.excludedPins )
+            {
+                auto* anchor = exclusions->add_pins();
+                anchor->mutable_pin()->set_value( pin.AsStdString() );
+                for( const KIID& id : path ) anchor->mutable_path()->add_path()->set_value( id.AsStdString() );
+            }
         }
     }
 

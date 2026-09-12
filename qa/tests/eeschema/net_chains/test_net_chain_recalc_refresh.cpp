@@ -30,6 +30,7 @@
 #include <sch_screen.h>
 #include <sch_symbol.h>
 #include <sch_pin.h>
+#include <sch_label.h>
 #include <settings/settings_manager.h>
 #include <locale_io.h>
 #include <richio.h>
@@ -182,6 +183,39 @@ BOOST_FIXTURE_TEST_CASE( NetChain_ExcludedMembersCannotReturnThroughRestore,
         graph->SetNetChainDefinitions( baseline );
         BOOST_CHECK( graph->GetNetChainDefinitions() == baseline );
     }
+
+    // Exact pin ownership survives a real label change. Name-only matching
+    // would allow this renamed removed net back into the inferred path.
+    SCH_PIN* selected = nullptr;
+    SCH_SHEET_PATH selectedPath;
+    const KIID selectedId = graph->GetNetChainByName( "RESTRICTED" )->GetTerminalPinA();
+    for( const auto& path : sheets )
+        for( SCH_ITEM* item : path.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
+            for( SCH_PIN* pin : static_cast<SCH_SYMBOL*>( item )->GetPins( &path ) )
+                if( pin->m_Uuid == selectedId ) { selected = pin; selectedPath = path; }
+    BOOST_REQUIRE( selected );
+    const wxString oldName = selected->Connection( &selectedPath )->Name();
+    auto anchored = baseline;
+    anchored["RESTRICTED"].memberNets.erase( oldName );
+    anchored["RESTRICTED"].excludedNets.insert( oldName );
+    anchored["RESTRICTED"].excludedPins.emplace( selectedPath.Path(), selectedId );
+    graph->SetNetChainDefinitions( anchored );
+    BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
+    selectedPath.LastScreen()->Append( new SCH_LABEL( selected->GetPosition(), "RENAMED_REMOVED_NET" ) );
+    graph->Recalculate( sheets, true );
+    BOOST_CHECK( selected->Connection( &selectedPath )->Name() != oldName );
+    BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
+    BOOST_CHECK( graph->GetNetChainDefinitions().at( "RESTRICTED" ).excludedPins == anchored.at( "RESTRICTED" ).excludedPins );
+
+    // An unmatched path is unresolved, not an invitation to find a similarly
+    // named pin elsewhere. Intent remains present through subsequent rebuilds.
+    auto missing = anchored;
+    KIID_PATH missingPath; missingPath.push_back( KIID() );
+    missing["RESTRICTED"].excludedPins.clear();
+    missing["RESTRICTED"].excludedPins.emplace( missingPath, selectedId );
+    graph->SetNetChainDefinitions( missing );
+    BOOST_CHECK( !graph->GetNetChainByName( "RESTRICTED" ) );
+    BOOST_CHECK( graph->GetNetChainDefinitions().at( "RESTRICTED" ).terminals == original.terminals );
 }
 
 

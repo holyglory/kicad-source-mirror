@@ -3286,7 +3286,9 @@ void CONNECTION_GRAPH::RebuildNetChains()
     std::erase_if( m_committedNetChains, [&]( const auto& chain )
     {
         auto it = m_netChainExcludedNetOverrides.find( chain->GetName() );
-        return it != m_netChainExcludedNetOverrides.end() && !it->second.empty();
+        auto pins = m_netChainExcludedPinOverrides.find( chain->GetName() );
+        return ( it != m_netChainExcludedNetOverrides.end() && !it->second.empty() )
+                || ( pins != m_netChainExcludedPinOverrides.end() && !pins->second.empty() );
     } );
     // Snapshot the committed-chain count so a throw partway through the restore loop can
     // truncate any half-built entries instead of leaving the container partially mutated.
@@ -3633,6 +3635,7 @@ void CONNECTION_GRAPH::RebuildNetChains()
         // Build ref+pin → net lookup from current schematic
         std::map<std::pair<wxString, wxString>, wxString> refPinToNet;
         std::map<std::pair<wxString, wxString>, KIID> refPinToPin;
+        std::map<std::pair<KIID_PATH, KIID>, wxString> exactPinToNet;
 
         for( const SCH_SHEET_PATH& sp : m_sheetList )
         {
@@ -3648,6 +3651,8 @@ void CONNECTION_GRAPH::RebuildNetChains()
 
                 for( SCH_PIN* pin : sym->GetPins( &sp ) )
                 {
+                    if( auto* connection = pin->Connection( &sp ) )
+                        exactPinToNet[{ sp.Path(), pin->m_Uuid }] = connection->Name();
                     if( CONNECTION_SUBGRAPH* sg = GetSubgraphForItem( pin ) )
                     {
                         // Match potential-chain key construction so unnamed subgraphs use the
@@ -3685,10 +3690,21 @@ void CONNECTION_GRAPH::RebuildNetChains()
                 continue;
 
             auto excluded = m_netChainExcludedNetOverrides.find( chainName );
-            if( excluded != m_netChainExcludedNetOverrides.end()
-                && std::any_of( excluded->second.begin(), excluded->second.end(),
-                                [&]( const wxString& net ) { return match->GetNets().contains( net ); } ) )
-                continue;
+            auto excludedPins = m_netChainExcludedPinOverrides.find( chainName );
+            bool restricted = ( excluded != m_netChainExcludedNetOverrides.end() && !excluded->second.empty() )
+                || ( excludedPins != m_netChainExcludedPinOverrides.end() && !excludedPins->second.empty() );
+            if( restricted )
+            {
+                if( excludedPins == m_netChainExcludedPinOverrides.end() || excludedPins->second.empty() ) continue;
+                bool unresolvedOrIncluded = std::any_of( excludedPins->second.begin(), excludedPins->second.end(),
+                        [&]( const auto& anchor )
+                        {
+                            auto net = exactPinToNet.find( anchor );
+                            return net == exactPinToNet.end() || net->second.IsEmpty()
+                                    || match->GetNets().contains( net->second );
+                        } );
+                if( unresolvedOrIncluded ) continue;
+            }
 
             // A potential's endpoint order is derived from screen iteration,
             // not from the persisted From/To declaration. Save/reload can
@@ -3738,7 +3754,9 @@ void CONNECTION_GRAPH::RebuildNetChains()
             // A removed endpoint or broken retained path needs explicit
             // repair. Broad saved membership must not recreate that path.
             auto excluded = m_netChainExcludedNetOverrides.find( chainName );
-            if( excluded != m_netChainExcludedNetOverrides.end() && !excluded->second.empty() )
+            auto excludedPins = m_netChainExcludedPinOverrides.find( chainName );
+            if( ( excluded != m_netChainExcludedNetOverrides.end() && !excluded->second.empty() )
+                || ( excludedPins != m_netChainExcludedPinOverrides.end() && !excludedPins->second.empty() ) )
                 continue;
 
             auto termIt = m_netChainTerminalRefOverrides.find( chainName );
@@ -3938,6 +3956,8 @@ std::map<wxString, CONNECTION_GRAPH::NET_CHAIN_DEFINITION> CONNECTION_GRAPH::Get
         definitions[name].memberNets = nets;
     for( const auto& [name, nets] : m_netChainExcludedNetOverrides )
         definitions[name].excludedNets = nets;
+    for( const auto& [name, pins] : m_netChainExcludedPinOverrides )
+        definitions[name].excludedPins = pins;
 
     // Live color/class edits need not have been copied into the restore maps.
     for( const auto& chain : m_committedNetChains )
@@ -3968,6 +3988,7 @@ void CONNECTION_GRAPH::SetNetChainDefinitions( const std::map<wxString, NET_CHAI
     m_netChainColorOverrides.clear();
     m_netChainMemberNetOverrides.clear();
     m_netChainExcludedNetOverrides.clear();
+    m_netChainExcludedPinOverrides.clear();
     for( const auto& [name, definition] : aDefinitions )
     {
         m_netChainTerminalRefOverrides[name] = definition.terminals;
@@ -3975,6 +3996,7 @@ void CONNECTION_GRAPH::SetNetChainDefinitions( const std::map<wxString, NET_CHAI
         m_netChainColorOverrides[name] = definition.color;
         m_netChainMemberNetOverrides[name] = definition.memberNets;
         m_netChainExcludedNetOverrides[name] = definition.excludedNets;
+        m_netChainExcludedPinOverrides[name] = definition.excludedPins;
     }
     RebuildNetChains();
     ApplyNetChainNetclasses();
@@ -4011,6 +4033,7 @@ bool CONNECTION_GRAPH::DeleteCommittedNetChain( const wxString& aName )
     m_netChainTerminalOverrides.erase( aName );
     m_netChainMemberNetOverrides.erase( aName );
     m_netChainExcludedNetOverrides.erase( aName );
+    m_netChainExcludedPinOverrides.erase( aName );
 
     return true;
 }
@@ -4079,6 +4102,7 @@ void CONNECTION_GRAPH::rekeyOverrideMaps( const wxString& aOld, const wxString& 
     rekey( m_netChainTerminalOverrides );
     rekey( m_netChainMemberNetOverrides );
     rekey( m_netChainExcludedNetOverrides );
+    rekey( m_netChainExcludedPinOverrides );
 }
 
 

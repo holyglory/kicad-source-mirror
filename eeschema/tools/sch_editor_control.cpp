@@ -1354,6 +1354,16 @@ int SCH_EDITOR_CONTROL::RemoveFromNetChain( const TOOL_EVENT& aEvent )
             if( definition.memberNets.erase( net ) )
             {
                 definition.excludedNets.insert( net );
+                // Capture all placed-pin owners, including repeated-sheet
+                // paths. A later label rename cannot remove this restriction.
+                for( const SCH_SHEET_PATH& path : schematic.Hierarchy() )
+                {
+                    if( !path.LastScreen() ) continue;
+                    for( SCH_ITEM* item : path.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
+                        for( SCH_PIN* pin : static_cast<SCH_SYMBOL*>( item )->GetPins( &path ) )
+                            if( auto* connection = pin->Connection( &path ); connection && connection->Name() == net )
+                                definition.excludedPins.emplace( path.Path(), pin->m_Uuid );
+                }
                 changed = true;
             }
         }

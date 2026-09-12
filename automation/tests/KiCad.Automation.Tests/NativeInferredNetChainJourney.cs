@@ -191,6 +191,8 @@ public sealed partial class NativeSessionTests
         {
             foreach (int pinCount in new[] { 1, 2 })
             {
+                await client.InvokeAsync<SaveDocument, Empty>(new() { Document = root }, token);
+                byte[] originalBytes = await File.ReadAllBytesAsync(rootFile, token);
                 var before = await Read();
                 string stage = "chain-remove-" + pinCount;
                 async Task OpenRemoval(bool accept)
@@ -228,6 +230,15 @@ public sealed partial class NativeSessionTests
                     .Any(id => pins.Take(pinCount).Contains(id.Value))).Select(n => n.Name).ToArray();
                 Assert.IsFalse(removedChain.Committed, "Removing an endpoint retains unresolved intent without guessing a new endpoint.");
                 CollectionAssert.AreEquivalent(selectedNets, removedChain.Exclusions.NetNames.ToArray());
+                var allPins = symbols.SelectMany(s => s.Definition.Items.Where(i => i.Item.Is(SchematicPin.Descriptor))
+                    .Select(i => i.Item.Unpack<SchematicPin>().Id.Value)).ToHashSet(StringComparer.Ordinal);
+                var expectedAnchors = electrical.Nets.Where(n => selectedNets.Contains(n.Name))
+                    .SelectMany(n => n.Sheets.SelectMany(s => s.Items.Where(pin => allPins.Contains(pin.Value))
+                        .Select(pin => string.Join('/', s.Path.Path.Select(id => id.Value).Append(pin.Value)))))
+                    .Order(StringComparer.Ordinal).ToArray();
+                var actualAnchors = removedChain.Exclusions.Pins.Select(p => string.Join('/', p.Path.Path.Select(id => id.Value).Append(p.Pin.Value)))
+                    .Order(StringComparer.Ordinal).ToArray();
+                CollectionAssert.AreEqual(expectedAnchors, actualAnchors, "Each removed electrical pin retains its exact sheet ownership.");
                 CollectionAssert.AreEquivalent(originalChain.MemberNets.Except(selectedNets).ToArray(), removedChain.MemberNets.ToArray());
                 Assert.AreEqual(originalChain.From, removedChain.From); Assert.AreEqual(originalChain.To, removedChain.To);
                 var originalSymbols = before.Data.Instances.Single().Items.Where(i => i.Is(SchematicSymbolInstance.Descriptor))
@@ -278,17 +289,11 @@ public sealed partial class NativeSessionTests
                 await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
                 var reloaded = await Read(); await Same(removed.Data, reloaded.Data, stage + "-reload");
                 Assert.AreEqual(removed.Data, SchematicDataXml.Read(SchematicDataXml.Write(reloaded.Data)));
-                // Reload intentionally resets Undo. Restore the exact original
-                // declarations and changed bridge symbols in one native batch.
-                var restore = new ApplySchematicItemBatch { Document = root, DocumentEpoch = reloaded.Revision.Epoch,
-                    ExpectedRevision = reloaded.Revision, OperationId = Guid.NewGuid().ToString("D") };
-                var originalDefinitions = new SchematicNetChainState();
-                foreach (var declaration in before.Data.Instances.Single().Metadata.NetChains)
-                { var copy = declaration.Clone(); copy.Committed = false; originalDefinitions.Definitions.Add(copy); }
-                restore.Operations.Add(new SchematicItemOperation { ReplaceNetChains = originalDefinitions });
-                foreach (var symbol in originalSymbols.Values)
-                    restore.Operations.Add(new SchematicItemOperation { Update = Any.Pack(symbol) });
-                await client.InvokeAsync<ApplySchematicItemBatch, SchematicItemBatchResult>(restore, token);
+                // Reload resets native Undo. Fixture restoration is distinct
+                // from the verified Undo/Redo and removal behavior above: use
+                // this fixture's own saved bytes, not unrelated symbol updates.
+                await File.WriteAllBytesAsync(rootFile, originalBytes, token);
+                await client.InvokeAsync<RevertDocument, Empty>(new() { Document = root }, token);
                 await Same(before.Data, (await Read()).Data, stage + "-restored");
             }
         }

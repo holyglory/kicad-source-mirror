@@ -1,4 +1,5 @@
 using Kiapi.Schematic.Types;
+using Kiapi.Common.Types;
 using KiCad.Automation.Model;
 using KiCad.Automation.Native;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -24,7 +25,11 @@ public sealed class SchematicNetChainExclusionTests
     {
         var before = Fixture(); var after = before.Clone();
         foreach (var sheet in after.Instances)
-        { sheet.Metadata.NetChains[0].MemberNets.Remove("/A"); sheet.Metadata.NetChains[0].Exclusions.NetNames.Add("/A"); }
+        {
+            sheet.Metadata.NetChains[0].MemberNets.Remove("/A"); sheet.Metadata.NetChains[0].Exclusions.NetNames.Add("/A");
+            sheet.Metadata.NetChains[0].Exclusions.Pins.Add(new SchematicNetChainPinAnchor
+            { Pin = new KIID { Value = "58f7a651-82bc-4fb7-a15a-d1663f1f6f9c" }, Path = new() { Path = { new KIID { Value = "8c4387ee-8f98-4f36-9438-39467e4d6dc7" } } } });
+        }
         string xml = SchematicDataXml.Write(after);
         Assert.AreEqual(after, SchematicDataXml.Read(xml));
         var operations = SchematicHierarchyDelta.Plan(before, after);
@@ -36,6 +41,9 @@ public sealed class SchematicNetChainExclusionTests
         var legacy = after.Clone(); foreach (var sheet in legacy.Instances) sheet.Metadata.NetChains[0].Exclusions = null;
         Assert.ThrowsExactly<AutomationException>(() => SchematicHierarchyDelta.Plan(after, legacy));
         Assert.AreEqual(1, SchematicHierarchyDelta.Plan(after, before).Count, "Explicit empty exclusions can restore membership.");
+        foreach (var sheet in legacy.Instances)
+            sheet.Metadata.NetChains[0].Exclusions = new() { Pins = { after.Instances[0].Metadata.NetChains[0].Exclusions.Pins[0].Clone() } };
+        Assert.AreEqual(1, SchematicHierarchyDelta.Plan(before, legacy).Count, "Anchor-only restrictions are not lost because their old labels are absent.");
     }
 
     [TestMethod]
@@ -46,6 +54,20 @@ public sealed class SchematicNetChainExclusionTests
         {
             var after = before.Clone();
             foreach (var sheet in after.Instances) sheet.Metadata.NetChains[0].Exclusions.NetNames.Add(names);
+            Assert.ThrowsExactly<AutomationException>(() => SchematicHierarchyDelta.Plan(before, after));
+        }
+        var anchor = new SchematicNetChainPinAnchor
+        { Pin = new() { Value = "58f7a651-82bc-4fb7-a15a-d1663f1f6f9c" }, Path = new() { Path = { new KIID { Value = "8c4387ee-8f98-4f36-9438-39467e4d6dc7" } } } };
+        foreach (Action<SchematicNetChainExclusions> corrupt in new Action<SchematicNetChainExclusions>[]
+        {
+            e => e.Pins[0].Pin.Value = "bad", e => e.Pins[0].Pin.Value = Guid.Empty.ToString("D"),
+            e => e.Pins[0].Path.Path.Clear(), e => e.Pins[0].Path.Path[0].Value = "wrong-path",
+            e => e.Pins.Add(e.Pins[0].Clone())
+        })
+        {
+            var after = before.Clone();
+            foreach (var sheet in after.Instances)
+            { sheet.Metadata.NetChains[0].Exclusions.Pins.Add(anchor.Clone()); corrupt(sheet.Metadata.NetChains[0].Exclusions); }
             Assert.ThrowsExactly<AutomationException>(() => SchematicHierarchyDelta.Plan(before, after));
         }
     }

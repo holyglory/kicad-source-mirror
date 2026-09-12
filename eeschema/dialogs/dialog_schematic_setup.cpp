@@ -183,9 +183,10 @@ bool DIALOG_SCHEMATIC_SETUP::TransferDataFromWindow()
 {
     try
     {
-        const bool accepted = PAGED_DIALOG::TransferDataFromWindow();
+        bool accepted = PAGED_DIALOG::TransferDataFromWindow();
         if( m_netChainsPanel )
         {
+            if( accepted ) accepted = m_netChainsPanel->ApplyEdits();
             if( accepted ) m_netChainsPanel->CommitEdits();
             else m_netChainsPanel->RollbackEdits();
         }

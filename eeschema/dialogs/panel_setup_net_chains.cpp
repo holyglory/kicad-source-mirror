@@ -396,10 +396,9 @@ bool PANEL_SETUP_NET_CHAINS::Validate()
 
 bool PANEL_SETUP_NET_CHAINS::TransferDataFromWindow()
 {
-    if( !Validate() )
-        return false;
-
-    return ApplyEdits();
+    // PAGED_DIALOG also calls this while changing pages. Keep the desired
+    // values in the form until the owning dialog accepts all of its pages.
+    return Validate();
 }
 
 
